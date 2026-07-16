@@ -183,6 +183,11 @@ private final class DocumentInteractionPresenter: NSObject, UIDocumentInteractio
     func present(fileURL: URL, from viewController: UIViewController) {
         let controller = UIDocumentInteractionController(url: fileURL)
         controller.delegate = self
+        // Declared explicitly (rather than left to infer from ".csv") so iOS
+        // reliably matches it against Numbers' declared imported types —
+        // without this, some iOS versions fall back to the generic "Save to
+        // Files" flow instead of listing compatible apps like Numbers.
+        controller.uti = "public.comma-separated-values-text"
         self.controller = controller
         controller.presentOpenInMenu(from: viewController.view.bounds, in: viewController.view, animated: true)
     }
