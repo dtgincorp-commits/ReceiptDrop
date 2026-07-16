@@ -83,7 +83,9 @@ struct SubmissionPipeline {
             workDate: extracted.workDate,
             amount: extracted.amount,
             receiptLink: filename,
-            timestamp: Date())
+            timestamp: Date(),
+            verificationStatus: extracted.needsReview ? .needsReview : .none,
+            reviewReason: extracted.reviewReason)
         SubmissionStore.appendHistory(entry)
         return entry
     }
@@ -106,7 +108,8 @@ struct SubmissionPipeline {
 
         let entry = HistoryEntry(
             category: category, vendor: vendor, workDate: workDate, amount: amount,
-            receiptLink: Self.manualEntryLabel, timestamp: Date())
+            receiptLink: Self.manualEntryLabel, timestamp: Date(),
+            verificationStatus: .verified)
         SubmissionStore.appendHistory(entry)
         return entry
     }
@@ -132,7 +135,9 @@ struct SubmissionPipeline {
 
         let entry = HistoryEntry(
             category: category, vendor: extracted.vendor, workDate: extracted.workDate,
-            amount: extracted.amount, receiptLink: Self.scannedTextLabel, timestamp: Date())
+            amount: extracted.amount, receiptLink: Self.scannedTextLabel, timestamp: Date(),
+            verificationStatus: extracted.needsReview ? .needsReview : .none,
+            reviewReason: extracted.reviewReason)
         SubmissionStore.appendHistory(entry)
         return entry
     }
@@ -167,9 +172,13 @@ struct SubmissionPipeline {
             receiptFilename: finalFilename, category: newCategory,
             scannedDate: LocalReceiptStore.dateString(old.timestamp))
 
+        // A human just reviewed and saved this entry through Edit — clears
+        // any HITL flag and marks it permanently verified, regardless of
+        // whether it was flagged going in.
         let updated = HistoryEntry(
             id: old.id, category: newCategory, vendor: newVendor, workDate: newWorkDate,
-            amount: newAmount, receiptLink: finalFilename, timestamp: old.timestamp)
+            amount: newAmount, receiptLink: finalFilename, timestamp: old.timestamp,
+            verificationStatus: .verified)
         SubmissionStore.updateHistory(updated)
         return updated
     }

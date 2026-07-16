@@ -254,7 +254,7 @@ struct ReceiptsView: View {
             HeaderRow(label: day.label, font: .subheadline.bold(), level: 2,
                      isExpanded: expandedBinding(for: row.id))
         case .entry(let entry):
-            ReceiptRow(entry: entry)
+            ReceiptRow(entry: entry, onReview: { editingEntry = entry })
         }
     }
 
@@ -385,10 +385,12 @@ private struct YearGroup: Identifiable {
 
 private struct ReceiptRow: View {
     let entry: HistoryEntry
+    let onReview: () -> Void
 
     @State private var showPreview = false
     @State private var missingFileAlert = false
     @State private var missingCSVAlert = false
+    @State private var isPulsing = false
 
     private var isManualEntry: Bool { entry.receiptLink == SubmissionPipeline.manualEntryLabel }
     private var isScannedText: Bool { entry.receiptLink == SubmissionPipeline.scannedTextLabel }
@@ -415,9 +417,33 @@ private struct ReceiptRow: View {
                 Text(entry.vendor.isEmpty ? "Unknown vendor" : entry.vendor)
                     .font(.subheadline.weight(.semibold))
                 Spacer()
+                if entry.verificationStatus == .needsReview {
+                    Button(action: onReview) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .opacity(isPulsing ? 0.35 : 1.0)
+                            .onAppear {
+                                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                                    isPulsing = true
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                } else if entry.verificationStatus == .verified {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                }
                 if !entry.amount.isEmpty {
                     Text("$\(entry.amount)")
                         .font(.subheadline.weight(.bold))
+                }
+            }
+            if entry.verificationStatus == .needsReview, !entry.reviewReason.isEmpty {
+                HStack {
+                    Spacer()
+                    Text("Needs review — \(entry.reviewReason)")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
                 }
             }
             if isManualEntry {

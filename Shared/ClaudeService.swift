@@ -82,8 +82,17 @@ struct ClaudeService {
                         "type": "string",
                         "description": "A short (max ~12 word) description of what was purchased.",
                     ],
+                    "confidence": [
+                        "type": "string",
+                        "enum": ["high", "low"],
+                        "description": "\"low\" if the receipt is handwritten, blurry, damaged, or any field (vendor, date, amount) was hard to read or guessed. \"high\" only if you're confident every field is accurate.",
+                    ],
+                    "confidence_reason": [
+                        "type": "string",
+                        "description": "If confidence is \"low\", a short phrase explaining why (e.g. \"handwritten total, hard to read\"). Empty string if confidence is \"high\".",
+                    ],
                 ],
-                "required": ["vendor", "work_date", "amount", "comments"],
+                "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason"],
             ],
         ]
 
@@ -123,11 +132,39 @@ struct ClaudeService {
             (input[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
 
+        let vendor = string("vendor")
+        let rawWorkDate = string("work_date")
+        let amount = string("amount")
+
+        // Heuristic safety net, independent of the model's self-reported
+        // confidence: catches cases where Claude states "high" confidence but
+        // a field is still empty or the date fell back to today because
+        // nothing parseable was found.
+        var needsReview = string("confidence").lowercased() == "low"
+        var reason = string("confidence_reason")
+        if vendor.isEmpty {
+            needsReview = true
+            if reason.isEmpty { reason = "Vendor name missing" }
+        }
+        if amount.isEmpty || Double(amount) == nil || Double(amount) == 0 {
+            needsReview = true
+            if reason.isEmpty { reason = "Amount missing or unreadable" }
+        }
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.dateFormat = AppConstants.sheetDateFormat
+        if rawWorkDate.isEmpty || dateFormatter.date(from: rawWorkDate) == nil {
+            needsReview = true
+            if reason.isEmpty { reason = "Date unreadable, defaulted to today" }
+        }
+
         return ExtractedReceipt(
-            vendor: string("vendor"),
-            workDate: Self.normalizeDate(string("work_date")),
-            amount: string("amount"),
-            comments: string("comments"))
+            vendor: vendor,
+            workDate: Self.normalizeDate(rawWorkDate),
+            amount: amount,
+            comments: string("comments"),
+            needsReview: needsReview,
+            reviewReason: reason)
     }
 
     /// Best-effort normalization to yyyy-MM-dd. If Claude already returned that
