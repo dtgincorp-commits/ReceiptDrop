@@ -80,10 +80,15 @@ struct CategoryDetailView: View {
                 Button {
                     openCSV()
                 } label: {
-                    Label("Open CSV in Files", systemImage: "folder")
+                    Label("View CSV in the Files app", systemImage: "folder")
+                }
+                Button {
+                    editInNumbers()
+                } label: {
+                    Label("Edit CSV in Numbers", systemImage: "square.and.pencil")
                 }
             } footer: {
-                Text("Opens \(category)_log.csv in the Files app.")
+                Text("\"Edit CSV in Numbers\" hands \(category)_log.csv to the Numbers app via the system Open In menu — Numbers keeps its own copy, so edits there don't change the file the app writes to.")
             }
 
             Section {
@@ -137,5 +142,37 @@ struct CategoryDetailView: View {
             return
         }
         UIApplication.shared.open(filesURL)
+    }
+
+    /// Presents the system "Open In" menu (via UIDocumentInteractionController)
+    /// so the user can hand the CSV to Numbers for editing — Numbers imports
+    /// its own copy, matching the "Copy to Numbers" behavior the user already
+    /// hit organically when sharing the file manually.
+    private func editInNumbers() {
+        guard let fileURL = LocalReceiptStore.documentsLogFileURL(category: category),
+              FileManager.default.fileExists(atPath: fileURL.path) else {
+            missingCSVAlert = true
+            return
+        }
+        guard let root = UIApplication.shared.connectedScenes
+            .compactMap({ ($0 as? UIWindowScene)?.keyWindow })
+            .first?.rootViewController else { return }
+        DocumentInteractionPresenter.shared.present(fileURL: fileURL, from: root)
+    }
+}
+
+/// Thin retained wrapper around `UIDocumentInteractionController` — it isn't
+/// retained by whoever presents it, so a dropped reference dismisses the menu
+/// before the user can tap anything. Held as a singleton for the app's
+/// lifetime, which is fine since only one "Open In" menu is ever shown at once.
+private final class DocumentInteractionPresenter: NSObject, UIDocumentInteractionControllerDelegate {
+    static let shared = DocumentInteractionPresenter()
+    private var controller: UIDocumentInteractionController?
+
+    func present(fileURL: URL, from viewController: UIViewController) {
+        let controller = UIDocumentInteractionController(url: fileURL)
+        controller.delegate = self
+        self.controller = controller
+        controller.presentOpenInMenu(from: viewController.view.bounds, in: viewController.view, animated: true)
     }
 }
