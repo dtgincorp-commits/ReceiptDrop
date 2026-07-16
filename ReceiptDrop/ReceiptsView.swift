@@ -394,9 +394,13 @@ private struct ReceiptRow: View {
 
     private var isManualEntry: Bool { entry.receiptLink == SubmissionPipeline.manualEntryLabel }
     private var isScannedText: Bool { entry.receiptLink == SubmissionPipeline.scannedTextLabel }
-    private var hasFile: Bool {
+    private var hasPrimaryFile: Bool {
         !entry.receiptLink.isEmpty && !SubmissionPipeline.isPlaceholderLabel(entry.receiptLink)
     }
+    /// Whether tapping the row should open a preview at all — true if there's
+    /// a real primary file, or (even for manual/scanned-text entries with no
+    /// primary photo) if extras were attached after the fact via Edit.
+    private var hasFile: Bool { hasPrimaryFile || !entry.extraFiles.isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -449,6 +453,11 @@ private struct ReceiptRow: View {
             if isManualEntry {
                 HStack {
                     Spacer()
+                    if !entry.extraFiles.isEmpty {
+                        Label("\(entry.extraFiles.count)", systemImage: "paperclip")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                     Label("Entered manually", systemImage: "pencil")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -456,6 +465,11 @@ private struct ReceiptRow: View {
             } else if isScannedText {
                 HStack {
                     Spacer()
+                    if !entry.extraFiles.isEmpty {
+                        Label("\(entry.extraFiles.count)", systemImage: "paperclip")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                     Label("Scanned text", systemImage: "text.viewfinder")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
