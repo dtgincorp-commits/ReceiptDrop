@@ -151,7 +151,9 @@ struct SubmissionPipeline {
     static func updateEntry(old: HistoryEntry,
                            newCategory: String, newVendor: String, newWorkDate: String,
                            newAmount: String, newComments: String,
-                           newPhoto: (data: Data, kind: ReceiptKind)? = nil) throws -> HistoryEntry {
+                           newPhoto: (data: Data, kind: ReceiptKind)? = nil,
+                           newExtraPhotos: [(data: Data, kind: ReceiptKind)] = [],
+                           removedExtraFiles: [String] = []) throws -> HistoryEntry {
         var finalFilename = old.receiptLink
 
         if let newPhoto {
@@ -162,6 +164,26 @@ struct SubmissionPipeline {
             }
         } else if !isPlaceholderLabel(old.receiptLink), old.category != newCategory {
             try LocalReceiptStore.moveFile(filename: old.receiptLink, from: old.category, to: newCategory)
+        }
+
+        // Extra attachments: drop removed ones, move survivors if the
+        // category changed, then save any newly-added photos into place.
+        var remainingExtras: [String] = []
+        for filename in old.extraFiles {
+            if removedExtraFiles.contains(filename) {
+                if let url = LocalReceiptStore.existingFileURL(category: old.category, filename: filename) {
+                    try? FileManager.default.removeItem(at: url)
+                }
+                continue
+            }
+            if old.category != newCategory {
+                try LocalReceiptStore.moveFile(filename: filename, from: old.category, to: newCategory)
+            }
+            remainingExtras.append(filename)
+        }
+        for extraPhoto in newExtraPhotos {
+            let filename = try LocalReceiptStore.save(data: extraPhoto.data, category: newCategory, kind: extraPhoto.kind)
+            remainingExtras.append(filename)
         }
 
         try LocalReceiptStore.removeRow(
@@ -178,7 +200,7 @@ struct SubmissionPipeline {
         let updated = HistoryEntry(
             id: old.id, category: newCategory, vendor: newVendor, workDate: newWorkDate,
             amount: newAmount, receiptLink: finalFilename, timestamp: old.timestamp,
-            verificationStatus: .verified)
+            verificationStatus: .verified, extraFiles: remainingExtras)
         SubmissionStore.updateHistory(updated)
         return updated
     }

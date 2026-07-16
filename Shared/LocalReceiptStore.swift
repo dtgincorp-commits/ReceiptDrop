@@ -157,13 +157,18 @@ enum LocalReceiptStore {
     /// its underlying file (if any). Called from the main app when the user
     /// deletes a receipt from the Receipts screen.
     static func deleteEntry(category: String, vendor: String, workDate: String,
-                            amount: String, receiptFilename: String) throws {
+                            amount: String, receiptFilename: String, extraFiles: [String] = []) throws {
         try removeRow(category: category, vendor: vendor, workDate: workDate,
                       amount: amount, receiptFilename: receiptFilename)
 
         if !receiptFilename.isEmpty, !SubmissionPipeline.isPlaceholderLabel(receiptFilename),
            let fileURL = existingFileURL(category: category, filename: receiptFilename) {
             try? FileManager.default.removeItem(at: fileURL)
+        }
+        for extra in extraFiles {
+            if let extraURL = existingFileURL(category: category, filename: extra) {
+                try? FileManager.default.removeItem(at: extraURL)
+            }
         }
     }
 

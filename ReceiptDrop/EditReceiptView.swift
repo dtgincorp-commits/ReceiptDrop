@@ -22,6 +22,10 @@ struct EditReceiptView: View {
     @State private var newPhotoData: Data?
     @State private var newPhotoImage: UIImage?
 
+    @State private var extraPickerItems: [PhotosPickerItem] = []
+    @State private var remainingExtraFiles: [String]
+    @State private var newExtraImages: [(image: UIImage, data: Data)] = []
+
     init(entry: HistoryEntry, onCancel: @escaping () -> Void, onComplete: @escaping () -> Void) {
         self.entry = entry
         self.onCancel = onCancel
@@ -30,6 +34,7 @@ struct EditReceiptView: View {
         _vendor = State(initialValue: entry.vendor)
         _amount = State(initialValue: entry.amount)
         _workDate = State(initialValue: EditReceiptView.parseWorkDate(entry.workDate))
+        _remainingExtraFiles = State(initialValue: entry.extraFiles)
     }
 
     private var isPlaceholder: Bool { SubmissionPipeline.isPlaceholderLabel(entry.receiptLink) }
@@ -42,31 +47,8 @@ struct EditReceiptView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Photo") {
-                    HStack {
-                        Spacer()
-                        if let newPhotoImage {
-                            Image(uiImage: newPhotoImage)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxHeight: 180)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                        } else if let existingImage {
-                            Image(uiImage: existingImage)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxHeight: 180)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                        } else {
-                            Label(isPlaceholder ? "No photo attached" : "PDF attached", systemImage: "doc.text")
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                    PhotosPicker(isPlaceholder ? "Add Photo" : "Replace Photo",
-                                selection: $photoPickerItem, matching: .images)
-                        .disabled(isSaving)
-                }
+                photoSection
+                attachmentsSection
 
                 Section("Category") {
                     Picker("Category", selection: $selectedCategory) {
@@ -139,6 +121,108 @@ struct EditReceiptView: View {
                 }
             }
         }
+        .onChange(of: extraPickerItems) { items in
+            guard !items.isEmpty else { return }
+            Task {
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        newExtraImages.append((image, data))
+                    }
+                }
+                extraPickerItems = []
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var photoSection: some View {
+        Section("Photo") {
+            HStack {
+                Spacer()
+                if let newPhotoImage {
+                    Image(uiImage: newPhotoImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 180)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else if let existingImage {
+                    Image(uiImage: existingImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 180)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    Label(isPlaceholder ? "No photo attached" : "PDF attached", systemImage: "doc.text")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            PhotosPicker(isPlaceholder ? "Add Photo" : "Replace Photo",
+                        selection: $photoPickerItem, matching: .images)
+                .disabled(isSaving)
+        }
+    }
+
+    @ViewBuilder
+    private var attachmentsSection: some View {
+        Section {
+            attachmentsStrip
+            PhotosPicker("Add Photos", selection: $extraPickerItems, matching: .images)
+                .disabled(isSaving)
+        } header: {
+            Text("Attachments")
+        } footer: {
+            Text("Extra pages or supporting photos for this receipt — shown when you preview it, not sent to Claude.")
+        }
+    }
+
+    @ViewBuilder
+    private var attachmentsStrip: some View {
+        if !remainingExtraFiles.isEmpty || !newExtraImages.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(remainingExtraFiles, id: \.self) { filename in
+                        attachmentThumbnail(existingImage(for: filename)) {
+                            remainingExtraFiles.removeAll { $0 == filename }
+                        }
+                    }
+                    ForEach(newExtraImages.indices, id: \.self) { index in
+                        attachmentThumbnail(newExtraImages[index].image) {
+                            newExtraImages.remove(at: index)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func attachmentThumbnail(_ image: UIImage?, onRemove: @escaping () -> Void) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else {
+                    Color.gray.opacity(0.2)
+                }
+            }
+            .frame(width: 72, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.white, .black.opacity(0.6))
+            }
+            .offset(x: 6, y: -6)
+            .disabled(isSaving)
+        }
+    }
+
+    private func existingImage(for filename: String) -> UIImage? {
+        guard let url = LocalReceiptStore.existingFileURL(category: entry.category, filename: filename),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
     }
 
     private var existingImage: UIImage? {
@@ -165,6 +249,12 @@ struct EditReceiptView: View {
         message = nil
         isSaving = true
 
+        let newExtraPhotos: [(data: Data, kind: ReceiptKind)] = newExtraImages.compactMap { entry in
+            guard let jpeg = entry.image.jpegData(compressionQuality: 0.85) else { return nil }
+            return (jpeg, .image)
+        }
+        let removedExtras = entry.extraFiles.filter { !remainingExtraFiles.contains($0) }
+
         Task {
             do {
                 _ = try SubmissionPipeline.updateEntry(
@@ -174,7 +264,9 @@ struct EditReceiptView: View {
                     newWorkDate: LocalReceiptStore.dateString(workDate),
                     newAmount: normalizedAmount,
                     newComments: comments.trimmingCharacters(in: .whitespacesAndNewlines),
-                    newPhoto: newPhoto)
+                    newPhoto: newPhoto,
+                    newExtraPhotos: newExtraPhotos,
+                    removedExtraFiles: removedExtras)
                 LocalReceiptStore.drainSpoolIntoDocuments()
                 onComplete()
             } catch {

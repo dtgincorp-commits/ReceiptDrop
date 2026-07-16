@@ -50,10 +50,16 @@ struct HistoryEntry: Codable, Identifiable {
     let timestamp: Date
     var verificationStatus: VerificationStatus = .none
     var reviewReason: String = ""
+    /// Extra photos/PDFs attached after the fact (e.g. a second page or a
+    /// warranty slip), beyond the primary `receiptLink`. Purely supplemental —
+    /// never sent to Claude, never written to the CSV. Filenames live in the
+    /// same category folder as the primary file.
+    var extraFiles: [String] = []
 
     init(id: UUID = UUID(), category: String, vendor: String, workDate: String, amount: String,
          receiptLink: String, timestamp: Date,
-         verificationStatus: VerificationStatus = .none, reviewReason: String = "") {
+         verificationStatus: VerificationStatus = .none, reviewReason: String = "",
+         extraFiles: [String] = []) {
         self.id = id
         self.category = category
         self.vendor = vendor
@@ -63,13 +69,14 @@ struct HistoryEntry: Codable, Identifiable {
         self.timestamp = timestamp
         self.verificationStatus = verificationStatus
         self.reviewReason = reviewReason
+        self.extraFiles = extraFiles
     }
 
     // Custom Decodable so history persisted before these fields existed
-    // (App Group UserDefaults) still decodes, defaulting to `.none`.
+    // (App Group UserDefaults) still decodes, defaulting to `.none`/empty.
     private enum CodingKeys: String, CodingKey {
         case id, category, vendor, workDate, amount, receiptLink, timestamp
-        case verificationStatus, reviewReason
+        case verificationStatus, reviewReason, extraFiles
     }
 
     init(from decoder: Decoder) throws {
@@ -83,6 +90,7 @@ struct HistoryEntry: Codable, Identifiable {
         timestamp = try container.decode(Date.self, forKey: .timestamp)
         verificationStatus = try container.decodeIfPresent(VerificationStatus.self, forKey: .verificationStatus) ?? .none
         reviewReason = try container.decodeIfPresent(String.self, forKey: .reviewReason) ?? ""
+        extraFiles = try container.decodeIfPresent([String].self, forKey: .extraFiles) ?? []
     }
 }
 

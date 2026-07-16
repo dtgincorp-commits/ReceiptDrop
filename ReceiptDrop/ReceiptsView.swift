@@ -213,7 +213,7 @@ struct ReceiptsView: View {
         SubmissionStore.removeHistory(entry)
         try? LocalReceiptStore.deleteEntry(
             category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
-            amount: entry.amount, receiptFilename: entry.receiptLink)
+            amount: entry.amount, receiptFilename: entry.receiptLink, extraFiles: entry.extraFiles)
         reload()
     }
 
@@ -463,6 +463,11 @@ private struct ReceiptRow: View {
             } else if hasFile {
                 HStack {
                     Spacer()
+                    if !entry.extraFiles.isEmpty {
+                        Label("\(entry.extraFiles.count + 1)", systemImage: "paperclip")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                     Image(systemName: "doc.text.magnifyingglass")
                         .foregroundStyle(Theme.skyBlue)
                 }
@@ -479,8 +484,9 @@ private struct ReceiptRow: View {
             }
         }
         .sheet(isPresented: $showPreview) {
-            if let url = LocalReceiptStore.existingFileURL(category: entry.category, filename: entry.receiptLink) {
-                ReceiptPreviewView(url: url)
+            let urls = previewURLs()
+            if !urls.isEmpty {
+                ReceiptPreviewView(urls: urls)
             }
         }
         .alert("File not found", isPresented: $missingFileAlert) {
@@ -493,6 +499,21 @@ private struct ReceiptRow: View {
         } message: {
             Text("No log file yet for \(entry.category) — open the app once to let it save, then try again.")
         }
+    }
+
+    /// Primary file first, then any extras, skipping any that can't be found
+    /// (e.g. moved/deleted outside the app) rather than failing the preview.
+    private func previewURLs() -> [URL] {
+        var urls: [URL] = []
+        if let primary = LocalReceiptStore.existingFileURL(category: entry.category, filename: entry.receiptLink) {
+            urls.append(primary)
+        }
+        for extra in entry.extraFiles {
+            if let url = LocalReceiptStore.existingFileURL(category: entry.category, filename: extra) {
+                urls.append(url)
+            }
+        }
+        return urls
     }
 
     /// Deep-links into the Files app at this category's CSV log using the
