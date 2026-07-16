@@ -231,6 +231,43 @@ enum LocalReceiptStore {
         try FileManager.default.moveItem(at: sourceURL, to: destURL)
     }
 
+    /// Wipes and regenerates a category's CSV log strictly from `entries`
+    /// (typically `SubmissionStore.loadHistory()` filtered to that category)
+    /// — guarantees the CSV exactly matches what the Receipts screen shows,
+    /// fixing any drift (stray rows, deleted files that changed the location
+    /// of the log, etc). `HistoryEntry` doesn't carry Comments, so rebuilt
+    /// rows have that column blank; only affects entries submitted before
+    /// this rebuild — new submissions still get Comments filled in normally.
+    static func rebuildLog(category: String, entries: [HistoryEntry]) throws {
+        guard let folder = documentsRootURL()?.appendingPathComponent(category, isDirectory: true) else {
+            throw LocalStoreError.appGroupUnavailable
+        }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let csvURL = folder.appendingPathComponent(logFileName(category: category))
+
+        let sorted = entries.sorted { $0.timestamp < $1.timestamp }
+        var content = csvRow(AppConstants.sheetHeader)
+        for entry in sorted {
+            content += csvRow([
+                entry.vendor, entry.workDate, entry.amount, "",
+                entry.receiptLink, dateString(entry.timestamp),
+            ])
+        }
+
+        var coordinatorError: NSError?
+        var writeError: Error?
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(writingItemAt: csvURL, options: .forReplacing, error: &coordinatorError) { url in
+            do {
+                try content.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                writeError = error
+            }
+        }
+        if let coordinatorError { throw coordinatorError }
+        if let writeError { throw writeError }
+    }
+
     /// The category's CSV log location in the main app's Documents directory
     /// — used to deep-link into the Files app. Returned even if the file
     /// doesn't exist yet (e.g. nothing drained there); callers should check

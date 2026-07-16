@@ -1,11 +1,8 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @StateObject private var categoryStore = CategoryStore.shared
-
     @State private var apiKeyInput = ""
     @State private var apiKeySaved = KeychainHelper.get(AppConstants.KeychainKeys.anthropicAPIKey) != nil
-    @State private var newCategory = ""
 
     var body: some View {
         NavigationStack {
@@ -42,27 +39,13 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    ForEach(categoryStore.categories, id: \.self) { category in
-                        Text(category)
+                    NavigationLink {
+                        CategoriesView()
+                    } label: {
+                        Label("Categories", systemImage: "folder.badge.gearshape")
                     }
-                    .onDelete { categoryStore.remove(at: $0) }
-
-                    HStack {
-                        TextField("New category", text: $newCategory)
-                            .textInputAutocapitalization(.characters)
-                            .autocorrectionDisabled()
-                        Button {
-                            categoryStore.add(newCategory)
-                            newCategory = ""
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                        }
-                        .disabled(newCategory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                } header: {
-                    Text("Categories")
                 } footer: {
-                    Text("Each category gets its own folder and CSV log under Files > On My iPhone > ReceiptDrop. Swipe left to delete.")
+                    Text("Add or remove categories, open their CSV logs, and run maintenance.")
                 }
             }
             .navigationTitle("Settings")

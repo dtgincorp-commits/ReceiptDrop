@@ -7,6 +7,7 @@ import VisionKit
 /// entries while the app is backgrounded, so we refresh whenever it foregrounds.
 struct ReceiptsView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var categoryStore = CategoryStore.shared
     @State private var entries: [HistoryEntry] = []
     @State private var newReceiptSource: NewReceiptSource?
     /// IDs (year/month/day) the user has manually collapsed. Everything else
@@ -16,6 +17,14 @@ struct ReceiptsView: View {
     /// receipt was scanned or the date printed on the receipt itself.
     @AppStorage("receiptsGroupByWorkDate") private var groupByWorkDate = false
     @State private var editingEntry: HistoryEntry?
+    @State private var showCategories = false
+    /// nil shows every category; otherwise the tree only shows this one.
+    @State private var filterCategory: String?
+
+    private var filteredEntries: [HistoryEntry] {
+        guard let filterCategory else { return entries }
+        return entries.filter { $0.category == filterCategory }
+    }
 
     var body: some View {
         NavigationStack {
@@ -26,8 +35,18 @@ struct ReceiptsView: View {
                         message: "Receipts you submit will appear here."
                     )
                 } else {
+                    VStack(spacing: 0) {
+                        categoryFilterRow
+                        if filteredEntries.isEmpty {
+                            Spacer()
+                            ContentUnavailableCompatView(
+                                title: "No Receipts",
+                                message: "No receipts in \(filterCategory ?? "this category") yet."
+                            )
+                            Spacer()
+                        } else {
                     List {
-                        ForEach(flatRows(from: YearGroup.build(from: entries, groupByWorkDate: groupByWorkDate))) { row in
+                        ForEach(flatRows(from: YearGroup.build(from: filteredEntries, groupByWorkDate: groupByWorkDate))) { row in
                             rowView(for: row)
                                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -52,6 +71,8 @@ struct ReceiptsView: View {
                         }
                     }
                     .listStyle(.plain)
+                        }
+                    }
                 }
             }
             .navigationTitle("Receipts")
@@ -75,6 +96,12 @@ struct ReceiptsView: View {
                             } else {
                                 Text("Group by Work Date")
                             }
+                        }
+                        Divider()
+                        Button {
+                            showCategories = true
+                        } label: {
+                            Label("Manage Categories…", systemImage: "folder.badge.gearshape")
                         }
                     } label: {
                         Label("Sort", systemImage: "arrow.up.arrow.down")
@@ -136,12 +163,50 @@ struct ReceiptsView: View {
                     reload()
                 })
         }
+        .sheet(isPresented: $showCategories, onDismiss: reload) {
+            NavigationStack {
+                CategoriesView()
+            }
+        }
         .onAppear(perform: reload)
         .onChange(of: scenePhase) { if $0 == .active { reload() } }
     }
 
     private func reload() {
         entries = SubmissionStore.loadHistory()
+    }
+
+    /// Horizontal row of tappable category pills — tap one to filter the
+    /// tree down to just that category, tap "All" (or the same pill again)
+    /// to clear the filter.
+    private var categoryFilterRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                filterPill(label: "All", isSelected: filterCategory == nil) {
+                    filterCategory = nil
+                }
+                ForEach(categoryStore.categories, id: \.self) { category in
+                    filterPill(label: category, isSelected: filterCategory == category) {
+                        filterCategory = (filterCategory == category) ? nil : category
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private func filterPill(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.caption.weight(.bold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(isSelected ? Theme.skyBlueBright : Color.gray.opacity(0.15))
+                .foregroundStyle(isSelected ? .white : .primary)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private func delete(_ entry: HistoryEntry) {

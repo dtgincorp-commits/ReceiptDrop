@@ -33,6 +33,7 @@
 		BF823103E7489F33241DBF6A /* SubmissionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */; };
 		C2D72AFC0FBB745AFE861F5D /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86375C2C83E8E61C3F858C9B /* KeychainHelper.swift */; };
 		C4F8FCDA1B735A3B5E8B03A7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CEFB96E5673FBC20796DFAE /* ContentView.swift */; };
+		CF06EAD2DC7F665E546AF5DB /* CategoriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40594EEE43B6E118DC837A56 /* CategoriesView.swift */; };
 		CF5DC508A191029FC0DEA65B /* NewReceiptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D87B0E04C004C048B153C0 /* NewReceiptView.swift */; };
 		D103EE8EA7FB89F874E54221 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A93982D67223B82A377969E /* ShareViewController.swift */; };
 		D1BAED8453DC3C6D5675D660 /* LocalReceiptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */; };
@@ -77,6 +78,7 @@
 		3126EACE7989CA12C3083A98 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		3363F7383B194313AE1C80FF /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		399D1B3777B6FF27E193E2F1 /* ReceiptDropApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptDropApp.swift; sourceTree = "<group>"; };
+		40594EEE43B6E118DC837A56 /* CategoriesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoriesView.swift; sourceTree = "<group>"; };
 		54DEA5E5F2DDE4AC17C77C9D /* ReceiptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsView.swift; sourceTree = "<group>"; };
 		57FF61EB58699460FE16D612 /* SubmissionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubmissionStore.swift; sourceTree = "<group>"; };
 		60DE60441FC6CA5A44E28DEF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -149,6 +151,7 @@
 			isa = PBXGroup;
 			children = (
 				2BA4083781DB6C6A6F55D792 /* Assets.xcassets */,
+				40594EEE43B6E118DC837A56 /* CategoriesView.swift */,
 				6CEFB96E5673FBC20796DFAE /* ContentView.swift */,
 				2487A2052B551FC00FDF8D17 /* EditReceiptView.swift */,
 				3126EACE7989CA12C3083A98 /* Info.plist */,
@@ -259,6 +262,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7BEB3A1247963FEF61B950FE /* AppConstants.swift in Sources */,
+				CF06EAD2DC7F665E546AF5DB /* CategoriesView.swift in Sources */,
 				A76915423C9B86D56642BCC6 /* CategoryStore.swift in Sources */,
 				48B4716DBEE24027E4094340 /* ClaudeService.swift in Sources */,
 				C4F8FCDA1B735A3B5E8B03A7 /* ContentView.swift in Sources */,
