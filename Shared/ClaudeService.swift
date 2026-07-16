@@ -1,4 +1,6 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 enum ClaudeError: LocalizedError {
     case missingAPIKey
@@ -25,7 +27,12 @@ enum ClaudeError: LocalizedError {
 /// block; PDFs in a base64 `document` block.
 struct ClaudeService {
     func extract(data: Data, kind: ReceiptKind) async throws -> ExtractedReceipt {
-        let base64 = data.base64EncodedString()
+        // Only the upload is downscaled — the file saved to disk via
+        // LocalReceiptStore stays full resolution. 1568px matches Anthropic's
+        // own server-side resize threshold, so this is upload/memory savings
+        // only, not a quality tradeoff: Claude sees the same pixels either way.
+        let uploadData = kind == .image ? (Self.downscaledJPEG(from: data) ?? data) : data
+        let base64 = uploadData.base64EncodedString()
         let sourceBlock: [String: Any]
         switch kind {
         case .image:
@@ -43,6 +50,39 @@ struct ClaudeService {
             sourceBlock,
             ["type": "text", "text": "Extract this receipt's details using the record_receipt tool."],
         ])
+    }
+
+    /// Downscales a JPEG so its long edge is at most `maxPixel`, using ImageIO
+    /// (never decodes the full image into memory — important in the share
+    /// extension, which iOS kills around ~120MB). Returns nil if the image is
+    /// already small enough or can't be read, in which case callers should
+    /// fall back to the original data rather than block the submission.
+    static func downscaledJPEG(from data: Data, maxPixel: Int = 1568) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+
+        if let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let width = properties[kCGImagePropertyPixelWidth] as? Int,
+           let height = properties[kCGImagePropertyPixelHeight] as? Int,
+           max(width, height) <= maxPixel {
+            return nil
+        }
+
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
+            return nil
+        }
+
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, thumbnail, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 
     /// Extracts structured fields from text already OCR'd on-device (the
