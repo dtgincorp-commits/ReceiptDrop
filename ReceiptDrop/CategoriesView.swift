@@ -85,7 +85,7 @@ struct CategoryDetailView: View {
                 Button {
                     editInNumbers()
                 } label: {
-                    Label("Edit CSV in Numbers", systemImage: "square.and.pencil")
+                    Label("Edit CSV in Numbers App", systemImage: "square.and.pencil")
                 }
             } footer: {
                 Text("\"Edit CSV in Numbers\" hands \(category)_log.csv to the Numbers app via the system Open In menu — Numbers keeps its own copy, so edits there don't change the file the app writes to.")
@@ -157,7 +157,18 @@ struct CategoryDetailView: View {
         guard let root = UIApplication.shared.connectedScenes
             .compactMap({ ($0 as? UIWindowScene)?.keyWindow })
             .first?.rootViewController else { return }
-        DocumentInteractionPresenter.shared.present(fileURL: fileURL, from: root)
+        DocumentInteractionPresenter.shared.present(fileURL: fileURL, from: topmostViewController(from: root))
+    }
+
+    /// Walks the presented-view-controller chain to find whichever screen is
+    /// actually on top — this view lives inside a modal sheet (Categories),
+    /// so presenting from the window's root (covered by that sheet) silently
+    /// no-ops instead of showing the Open In menu.
+    private func topmostViewController(from viewController: UIViewController) -> UIViewController {
+        if let presented = viewController.presentedViewController {
+            return topmostViewController(from: presented)
+        }
+        return viewController
     }
 }
 
