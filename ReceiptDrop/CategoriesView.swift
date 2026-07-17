@@ -87,8 +87,13 @@ struct CategoryDetailView: View {
                 } label: {
                     Label("Edit CSV in Numbers App", systemImage: "square.and.pencil")
                 }
+                Button {
+                    openCategoryFolder()
+                } label: {
+                    Label("Open \(category) folder in Files", systemImage: "folder.fill")
+                }
             } footer: {
-                Text("\"Edit CSV in Numbers\" hands \(category)_log.csv to the Numbers app via the system Open In menu — Numbers keeps its own copy, so edits there don't change the file the app writes to.")
+                Text("\"Edit CSV in Numbers\" hands \(category)_log.csv to the Numbers app via the system Open In menu — Numbers keeps its own copy, so edits there don't change the file the app writes to. \"Open \(category) folder\" shows every file in this category, including receipt photos and any extra attachments not listed in the CSV.")
             }
 
             Section {
@@ -137,6 +142,21 @@ struct CategoryDetailView: View {
         guard let fileURL = LocalReceiptStore.documentsLogFileURL(category: category),
               FileManager.default.fileExists(atPath: fileURL.path),
               let filesURL = URL(string: fileURL.absoluteString
+                  .replacingOccurrences(of: "file://", with: "shareddocuments://")) else {
+            missingCSVAlert = true
+            return
+        }
+        UIApplication.shared.open(filesURL)
+    }
+
+    /// Deep-links into the Files app at this category's own folder — where
+    /// every receipt file (primary and extras) actually lives, since extras
+    /// aren't listed in the CSV and have no other way to be browsed from
+    /// outside the app.
+    private func openCategoryFolder() {
+        guard let folderURL = LocalReceiptStore.documentsCategoryFolderURL(category: category),
+              FileManager.default.fileExists(atPath: folderURL.path),
+              let filesURL = URL(string: folderURL.absoluteString
                   .replacingOccurrences(of: "file://", with: "shareddocuments://")) else {
             missingCSVAlert = true
             return

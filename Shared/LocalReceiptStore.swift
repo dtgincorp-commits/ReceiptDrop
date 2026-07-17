@@ -283,6 +283,13 @@ enum LocalReceiptStore {
             .appendingPathComponent(logFileName(category: category))
     }
 
+    /// The category's own folder in the main app's Documents directory —
+    /// where every receipt file (primary and extras) for that category
+    /// actually lives, visible in the Files app.
+    static func documentsCategoryFolderURL(category: String) -> URL? {
+        documentsRootURL()?.appendingPathComponent(category, isDirectory: true)
+    }
+
     /// Finds the category's CSV log, checking Documents (drained) then the
     /// App Group spool (not yet drained).
     private static func existingLogURL(category: String) -> URL? {
