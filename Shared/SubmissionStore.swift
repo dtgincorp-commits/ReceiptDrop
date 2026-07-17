@@ -35,6 +35,23 @@ enum SubmissionStore {
         encode(items, key: AppConstants.DefaultsKeys.history)
     }
 
+    /// Merges `entries` into history: skips any whose id already exists,
+    /// inserts the rest, and re-sorts newest-first. Used by Restore, which
+    /// needs to merge a whole backup's entries at once without disturbing
+    /// the overall newest-first order the way repeated `appendHistory` calls
+    /// would. Returns the count actually added (for a user-facing summary).
+    @discardableResult
+    static func mergeHistory(_ entries: [HistoryEntry]) -> Int {
+        var items = loadHistory()
+        let existingIDs = Set(items.map { $0.id })
+        let newOnes = entries.filter { !existingIDs.contains($0.id) }
+        items.append(contentsOf: newOnes)
+        items.sort { $0.timestamp > $1.timestamp }
+        if items.count > historyLimit { items = Array(items.prefix(historyLimit)) }
+        encode(items, key: AppConstants.DefaultsKeys.history)
+        return newOnes.count
+    }
+
     /// Replaces an existing entry (matched by id) with an edited version.
     static func updateHistory(_ entry: HistoryEntry) {
         var items = loadHistory()

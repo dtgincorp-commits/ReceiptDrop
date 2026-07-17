@@ -368,6 +368,96 @@ enum ArchiveBackupService {
     }
 }
 
+enum RestoreError: LocalizedError {
+    case notAFullBackup
+
+    var errorDescription: String? {
+        "This is an Archive export, not a full backup — Restore needs a zip made with \"Back Up Now\"."
+    }
+}
+
+struct RestoreSummary {
+    var receiptsRestored = 0
+    var receiptsSkipped = 0
+}
+
+/// Restores a full backup zip (from `ArchiveBackupService.buildFullBackup`).
+/// Strictly additive: never overwrites or deletes anything already on this
+/// phone — only adds what's missing, matched by `HistoryEntry.id`. Safe to
+/// run on the same zip twice (second run reports everything as skipped) and
+/// safe to run into a phone that already has receipts (a merge, not a wipe).
+enum RestoreService {
+    static func restore(zipURL: URL) throws -> RestoreSummary {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ReceiptDropRestore_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        try MinimalZipReader.extract(zipURL: zipURL, to: tempRoot)
+
+        let historyURL = tempRoot.appendingPathComponent("history.json")
+        let manifestURL = tempRoot.appendingPathComponent("manifest.json")
+        guard FileManager.default.fileExists(atPath: historyURL.path),
+              FileManager.default.fileExists(atPath: manifestURL.path) else {
+            throw RestoreError.notAFullBackup
+        }
+
+        restoreManifest(at: manifestURL, isFreshInstall: SubmissionStore.loadHistory().isEmpty)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let backupEntries = try decoder.decode([HistoryEntry].self, from: Data(contentsOf: historyURL))
+
+        let existingIDs = Set(SubmissionStore.loadHistory().map { $0.id })
+        let newEntries = backupEntries.filter { !existingIDs.contains($0.id) }
+
+        for entry in newEntries {
+            for filename in [entry.receiptLink] + entry.extraFiles {
+                guard !filename.isEmpty, !SubmissionPipeline.isPlaceholderLabel(filename) else { continue }
+                let sourceURL = tempRoot.appendingPathComponent(entry.category).appendingPathComponent(filename)
+                guard FileManager.default.fileExists(atPath: sourceURL.path) else { continue }
+                try? LocalReceiptStore.importFile(from: sourceURL, category: entry.category, filename: filename)
+            }
+        }
+
+        for category in Set(backupEntries.map(\.category)) {
+            let backupCSVURL = tempRoot.appendingPathComponent(category).appendingPathComponent("\(category)_log.csv")
+            if let backupCSVText = try? String(contentsOf: backupCSVURL, encoding: .utf8) {
+                try? LocalReceiptStore.mergeCSVRows(category: category, csvText: backupCSVText)
+            }
+        }
+
+        let restoredCount = SubmissionStore.mergeHistory(backupEntries)
+        return RestoreSummary(receiptsRestored: restoredCount, receiptsSkipped: backupEntries.count - restoredCount)
+    }
+
+    /// Categories/descriptions merge in regardless (additive, never clobbers
+    /// an existing description). Extraction provider/mode are only applied
+    /// on a fresh install — restoring into an already-configured phone
+    /// should never silently change live settings.
+    private static func restoreManifest(at url: URL, isFreshInstall: Bool) {
+        guard let data = try? Data(contentsOf: url),
+              let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+
+        if let categories = manifest["categories"] as? [String] {
+            for category in categories { CategoryStore.shared.add(category) }
+        }
+        if let descriptions = manifest["categoryDescriptions"] as? [String: String] {
+            for (category, description) in descriptions
+            where CategoryStore.shared.description(for: category).isEmpty {
+                CategoryStore.shared.setDescription(description, for: category)
+            }
+        }
+        guard isFreshInstall else { return }
+        if let providerRaw = manifest["extractionProvider"] as? String,
+           let provider = ExtractionProvider(rawValue: providerRaw), provider.isAvailable {
+            ExtractionSettings.provider = provider
+        }
+        if let modeRaw = manifest["extractionMode"] as? String,
+           let mode = ExtractionMode(rawValue: modeRaw) {
+            ExtractionSettings.mode = mode
+        }
+    }
+}
+
 /// Human-in-the-loop status of a saved receipt, surfaced in the Receipts list.
 enum VerificationStatus: String, Codable {
     case none         // no review needed, never flagged

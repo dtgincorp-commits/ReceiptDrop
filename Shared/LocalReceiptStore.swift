@@ -1,3 +1,4 @@
+import Compression
 import Foundation
 
 /// Saves receipts locally instead of to Google Drive/Sheets: each category
@@ -344,6 +345,70 @@ enum LocalReceiptStore {
         return zippedTempURL
     }
 
+    /// Copies a single file from a restore's extracted-zip temp folder into
+    /// this category's Documents folder, preserving its filename. No-ops if
+    /// a file with that name already exists — restore is purely additive,
+    /// it never overwrites anything already on this phone.
+    static func importFile(from sourceURL: URL, category: String, filename: String) throws {
+        guard let destFolder = documentsRootURL()?.appendingPathComponent(category, isDirectory: true) else {
+            throw LocalStoreError.appGroupUnavailable
+        }
+        try FileManager.default.createDirectory(at: destFolder, withIntermediateDirectories: true)
+        let destURL = destFolder.appendingPathComponent(filename)
+        guard !FileManager.default.fileExists(atPath: destURL.path) else { return }
+        try FileManager.default.copyItem(at: sourceURL, to: destURL)
+    }
+
+    /// Appends rows from a restored backup's CSV that aren't already present
+    /// (matched the same way `removeRow` matches: vendor/workDate/amount/
+    /// receiptFilename), preserving Comments from the backup. Writes the
+    /// backup's CSV wholesale if this category has no local CSV yet.
+    static func mergeCSVRows(category: String, csvText: String) throws {
+        let backupLines = csvText.split(separator: "\n", omittingEmptySubsequences: true)
+        guard backupLines.count > 1 else { return } // header only, nothing to merge
+
+        guard let existingURL = existingLogURL(category: category) else {
+            guard let destFolder = documentsRootURL()?.appendingPathComponent(category, isDirectory: true) else {
+                throw LocalStoreError.appGroupUnavailable
+            }
+            try FileManager.default.createDirectory(at: destFolder, withIntermediateDirectories: true)
+            try csvText.write(to: destFolder.appendingPathComponent(logFileName(category: category)), atomically: true, encoding: .utf8)
+            return
+        }
+
+        let existingText = (try? String(contentsOf: existingURL, encoding: .utf8)) ?? csvRow(AppConstants.sheetHeader)
+        let existingKeys = Set(existingText.split(separator: "\n", omittingEmptySubsequences: true).dropFirst().map { line -> String in
+            let fields = parseCSVLine(line)
+            guard fields.count >= 5 else { return String(line) }
+            return "\(fields[0])|\(fields[1])|\(fields[2])|\(fields[4])"
+        })
+
+        var toAppend = ""
+        for line in backupLines.dropFirst() {
+            let fields = parseCSVLine(line)
+            guard fields.count >= 5 else { continue }
+            let key = "\(fields[0])|\(fields[1])|\(fields[2])|\(fields[4])"
+            if !existingKeys.contains(key) { toAppend += String(line) + "\n" }
+        }
+        guard !toAppend.isEmpty else { return }
+
+        var coordinatorError: NSError?
+        var writeError: Error?
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(writingItemAt: existingURL, options: .forMerging, error: &coordinatorError) { url in
+            do {
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                handle.seekToEndOfFile()
+                if let data = toAppend.data(using: .utf8) { handle.write(data) }
+            } catch {
+                writeError = error
+            }
+        }
+        if let coordinatorError { throw coordinatorError }
+        if let writeError { throw writeError }
+    }
+
     /// The category's own folder in the main app's Documents directory —
     /// where every receipt file (primary and extras) for that category
     /// actually lives, visible in the Files app.
@@ -457,5 +522,168 @@ enum LocalStoreError: LocalizedError {
 private extension URL {
     var hasDirectoryPath: Bool {
         (try? resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+    }
+}
+
+enum ZipReaderError: LocalizedError {
+    case invalidZip
+    case unsupportedEntry(String)
+    case unsafePath(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidZip: return "This doesn't look like a valid backup zip file."
+        case .unsupportedEntry(let name): return "Unsupported entry in zip: \(name)"
+        case .unsafePath(let name): return "Unsafe path in zip: \(name)"
+        }
+    }
+}
+
+/// Minimal zip reader for zips this app itself produced (via
+/// `LocalReceiptStore.zipFolder`), used by Restore — not a general-purpose
+/// zip library. Only "stored" and "deflate" entries are supported (the only
+/// methods iOS's own zip creation uses); anything else is rejected rather
+/// than mis-handled. Paths are sanitized against zip-slip even though the
+/// input is expected to be trusted, since it's cheap insurance.
+///
+/// Uses the `Compression` framework's `COMPRESSION_ZLIB` algorithm, which —
+/// despite the name — implements raw DEFLATE (RFC 1951) with no zlib/gzip
+/// wrapper, exactly matching zip's method-8 compression.
+enum MinimalZipReader {
+    private struct CentralDirectoryEntry {
+        let filename: String
+        let compressionMethod: UInt16
+        let compressedSize: UInt32
+        let uncompressedSize: UInt32
+        let localHeaderOffset: UInt32
+    }
+
+    static func extract(zipURL: URL, to destination: URL) throws {
+        let data = try Data(contentsOf: zipURL, options: .mappedIfSafe)
+        let entries = try centralDirectoryEntries(in: data)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        for entry in entries {
+            let sanitized = try sanitize(entry.filename)
+            let destURL = destination.appendingPathComponent(sanitized)
+            if entry.filename.hasSuffix("/") {
+                try FileManager.default.createDirectory(at: destURL, withIntermediateDirectories: true)
+                continue
+            }
+            try FileManager.default.createDirectory(at: destURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let fileData = try extractFileData(from: data, entry: entry)
+            try fileData.write(to: destURL)
+        }
+    }
+
+    private static func sanitize(_ path: String) throws -> String {
+        guard !path.hasPrefix("/") else { throw ZipReaderError.unsafePath(path) }
+        let components = path.split(separator: "/").map(String.init)
+        guard !components.contains("..") else { throw ZipReaderError.unsafePath(path) }
+        return components.joined(separator: "/")
+    }
+
+    private static func centralDirectoryEntries(in data: Data) throws -> [CentralDirectoryEntry] {
+        let eocdSignature: [UInt8] = [0x50, 0x4b, 0x05, 0x06]
+        guard let eocdStart = findLast(sequence: eocdSignature, in: data) else {
+            throw ZipReaderError.invalidZip
+        }
+        let eocd = data[eocdStart...]
+        guard eocd.count >= 22 else { throw ZipReaderError.invalidZip }
+
+        let totalEntries = readUInt16(eocd, offset: 10)
+        let cdSize = readUInt32(eocd, offset: 12)
+        let cdOffset = readUInt32(eocd, offset: 16)
+        guard Int(cdOffset) + Int(cdSize) <= data.count else { throw ZipReaderError.invalidZip }
+
+        let cdSignature: [UInt8] = [0x50, 0x4b, 0x01, 0x02]
+        var entries: [CentralDirectoryEntry] = []
+        var pos = Int(cdOffset) + data.startIndex
+
+        for _ in 0..<totalEntries {
+            guard pos + 46 <= data.endIndex else { break }
+            let header = data[pos...]
+            guard Array(header.prefix(4)) == cdSignature else { throw ZipReaderError.invalidZip }
+
+            let method = readUInt16(header, offset: 10)
+            let compSize = readUInt32(header, offset: 20)
+            let uncompSize = readUInt32(header, offset: 24)
+            let nameLen = Int(readUInt16(header, offset: 28))
+            let extraLen = Int(readUInt16(header, offset: 30))
+            let commentLen = Int(readUInt16(header, offset: 32))
+            let localOffset = readUInt32(header, offset: 42)
+
+            let nameStart = pos + 46
+            guard nameStart + nameLen <= data.endIndex else { throw ZipReaderError.invalidZip }
+            let filename = String(data: data[nameStart..<(nameStart + nameLen)], encoding: .utf8) ?? ""
+
+            entries.append(CentralDirectoryEntry(
+                filename: filename, compressionMethod: method,
+                compressedSize: compSize, uncompressedSize: uncompSize,
+                localHeaderOffset: localOffset))
+            pos = nameStart + nameLen + extraLen + commentLen
+        }
+        return entries
+    }
+
+    private static func extractFileData(from data: Data, entry: CentralDirectoryEntry) throws -> Data {
+        let localSignature: [UInt8] = [0x50, 0x4b, 0x03, 0x04]
+        let pos = Int(entry.localHeaderOffset) + data.startIndex
+        guard pos + 30 <= data.endIndex else { throw ZipReaderError.invalidZip }
+        let header = data[pos...]
+        guard Array(header.prefix(4)) == localSignature else { throw ZipReaderError.invalidZip }
+
+        let nameLen = Int(readUInt16(header, offset: 26))
+        let extraLen = Int(readUInt16(header, offset: 28))
+        let dataStart = pos + 30 + nameLen + extraLen
+        guard dataStart + Int(entry.compressedSize) <= data.endIndex else { throw ZipReaderError.invalidZip }
+        let compressed = Data(data[dataStart..<(dataStart + Int(entry.compressedSize))])
+
+        switch entry.compressionMethod {
+        case 0: return compressed
+        case 8: return try inflate(compressed, uncompressedSize: Int(entry.uncompressedSize))
+        default: throw ZipReaderError.unsupportedEntry(entry.filename)
+        }
+    }
+
+    private static func inflate(_ compressed: Data, uncompressedSize: Int) throws -> Data {
+        guard uncompressedSize > 0 else { return Data() }
+        var output = Data(count: uncompressedSize)
+        let resultSize = output.withUnsafeMutableBytes { destBuffer -> Int in
+            compressed.withUnsafeBytes { srcBuffer -> Int in
+                guard let destPtr = destBuffer.bindMemory(to: UInt8.self).baseAddress,
+                      let srcPtr = srcBuffer.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+                return compression_decode_buffer(destPtr, uncompressedSize, srcPtr, compressed.count, nil, COMPRESSION_ZLIB)
+            }
+        }
+        guard resultSize == uncompressedSize else { throw ZipReaderError.invalidZip }
+        return output
+    }
+
+    private static func readUInt16(_ data: Data, offset: Int) -> UInt16 {
+        let start = data.startIndex + offset
+        return UInt16(data[start]) | (UInt16(data[start + 1]) << 8)
+    }
+
+    private static func readUInt32(_ data: Data, offset: Int) -> UInt32 {
+        let start = data.startIndex + offset
+        return UInt32(data[start]) | (UInt32(data[start + 1]) << 8)
+            | (UInt32(data[start + 2]) << 16) | (UInt32(data[start + 3]) << 24)
+    }
+
+    /// Scans backward for the End-of-Central-Directory signature — it sits
+    /// after a variable-length comment field, so it can't be found by a
+    /// fixed offset from the end of the file.
+    private static func findLast(sequence: [UInt8], in data: Data) -> Int? {
+        guard data.count >= sequence.count else { return nil }
+        let bytes = [UInt8](data)
+        var i = bytes.count - sequence.count
+        while i >= 0 {
+            if Array(bytes[i..<(i + sequence.count)]) == sequence {
+                return i + data.startIndex
+            }
+            i -= 1
+        }
+        return nil
     }
 }

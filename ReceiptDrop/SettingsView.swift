@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @State private var selectedProvider: ExtractionProvider = ExtractionSettings.provider
@@ -151,6 +152,9 @@ struct ArchiveBackupView: View {
     @State private var lastBackupDate: Date? = BackupSettings.lastBackupDate
     @State private var reminderFrequency: BackupReminderFrequency = BackupSettings.reminderFrequency
 
+    @State private var showRestorePicker = false
+    @State private var restoreMessage: String?
+
     private var years: [Int] { ArchiveBackupService.availableYears() }
     private var months: [Int] { selectedYear.map(ArchiveBackupService.availableMonths(inYear:)) ?? [] }
 
@@ -166,6 +170,7 @@ struct ArchiveBackupView: View {
         Form {
             archiveSection
             backupSection
+            restoreSection
             if let errorMessage {
                 Section {
                     Text(errorMessage).foregroundStyle(.red)
@@ -176,6 +181,53 @@ struct ArchiveBackupView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $shareURL) { wrapper in
             ActivityShareSheet(url: wrapper.url)
+        }
+        .fileImporter(isPresented: $showRestorePicker, allowedContentTypes: [.zip]) { result in
+            switch result {
+            case .success(let url): restore(from: url)
+            case .failure(let error): errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var restoreSection: some View {
+        Section {
+            Button {
+                showRestorePicker = true
+            } label: {
+                Label("Restore from Backup", systemImage: "arrow.down.doc")
+            }
+            .disabled(isWorking)
+            if let restoreMessage {
+                Text(restoreMessage).font(.caption).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Restore")
+        } footer: {
+            Text("Restores a full backup zip made with \"Back Up Now\" above (not a period Archive export). Never overwrites or deletes anything already on this phone — only adds what's missing. Your API key isn't stored in backups; re-enter it in Settings after restoring on a new phone.")
+        }
+    }
+
+    private func restore(from url: URL) {
+        errorMessage = nil
+        restoreMessage = nil
+        isWorking = true
+        Task {
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let summary = try RestoreService.restore(zipURL: url)
+                await MainActor.run {
+                    isWorking = false
+                    restoreMessage = "Restored \(summary.receiptsRestored) receipt\(summary.receiptsRestored == 1 ? "" : "s") (\(summary.receiptsSkipped) already present)."
+                }
+            } catch {
+                await MainActor.run {
+                    isWorking = false
+                    errorMessage = error.localizedDescription
+                }
+            }
         }
     }
 
