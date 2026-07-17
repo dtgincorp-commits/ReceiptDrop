@@ -10,9 +10,19 @@ enum AppConstants {
     /// cheap and is sufficient for reading receipts. Change here if needed.
     static let claudeModel = "claude-haiku-4-5"
 
+    /// OpenAI model used for receipt extraction — cheapest vision-capable
+    /// model as of this writing. Change here if needed.
+    static let openAIModel = "gpt-5-mini"
+
+    /// Google Gemini model used for receipt extraction — the current
+    /// general-availability Flash model. Change here if needed.
+    static let geminiModel = "gemini-3.5-flash"
+
     /// Keychain account names (stored in the shared App Group keychain).
     enum KeychainKeys {
         static let anthropicAPIKey = "anthropic-api-key"
+        static let openAIAPIKey = "openai-api-key"
+        static let geminiAPIKey = "gemini-api-key"
     }
 
     /// UserDefaults (App Group suite) keys.
@@ -20,6 +30,8 @@ enum AppConstants {
         static let categories = "categories"
         static let history = "submissionHistory"
         static let retryQueue = "retryQueue"               // failed submissions awaiting retry
+        static let extractionProvider = "extractionProvider"
+        static let extractionMode = "extractionMode"
     }
 
     /// Date format written to the Work_Date column.

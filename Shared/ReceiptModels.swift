@@ -30,6 +30,129 @@ struct ExtractedReceipt {
     /// an on-device model later — the HITL flow downstream is the same.
     let needsReview: Bool
     let reviewReason: String
+
+    /// Heuristic safety net shared by every `ReceiptExtractor` — independent
+    /// of whatever confidence the model itself reports, catches empty
+    /// vendor/amount or an unparseable date (which `ClaudeService.normalizeDate`
+    /// silently defaults to today). Keeping this in one place means Claude,
+    /// OpenAI, and Gemini all get identical HITL flagging behavior.
+    static func build(vendor: String, rawWorkDate: String, amount: String, comments: String,
+                      modelReportedLowConfidence: Bool, modelReason: String) -> ExtractedReceipt {
+        var needsReview = modelReportedLowConfidence
+        var reason = modelReason
+        if vendor.isEmpty {
+            needsReview = true
+            if reason.isEmpty { reason = "Vendor name missing" }
+        }
+        if amount.isEmpty || Double(amount) == nil || Double(amount) == 0 {
+            needsReview = true
+            if reason.isEmpty { reason = "Amount missing or unreadable" }
+        }
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.dateFormat = AppConstants.sheetDateFormat
+        if rawWorkDate.isEmpty || dateFormatter.date(from: rawWorkDate) == nil {
+            needsReview = true
+            if reason.isEmpty { reason = "Date unreadable, defaulted to today" }
+        }
+        return ExtractedReceipt(
+            vendor: vendor,
+            workDate: ClaudeService.normalizeDate(rawWorkDate),
+            amount: amount,
+            comments: comments,
+            needsReview: needsReview,
+            reviewReason: reason)
+    }
+}
+
+/// A backend that can turn a receipt (image/PDF bytes, or text already OCR'd
+/// on-device) into structured fields. `ClaudeService` was the first and only
+/// implementation; `OpenAIService`/`GeminiService` conform the same way, and
+/// a future on-device Apple Intelligence backend would too — nothing
+/// downstream (HITL flagging, HistoryEntry, the pipeline) needs to change
+/// when the engine changes, since they all speak `ExtractedReceipt`.
+protocol ReceiptExtractor {
+    func extract(data: Data, kind: ReceiptKind) async throws -> ExtractedReceipt
+    func extract(ocrText: String) async throws -> ExtractedReceipt
+}
+
+/// Which AI backend performs extraction. Stored in App Group UserDefaults so
+/// the share extension honors the same choice as the main app.
+enum ExtractionProvider: String, Codable, CaseIterable, Identifiable {
+    case claude
+    case openAI
+    case gemini
+    case appleOnDevice
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .claude: return "Claude"
+        case .openAI: return "OpenAI"
+        case .gemini: return "Google Gemini"
+        case .appleOnDevice: return "Apple On-Device"
+        }
+    }
+
+    /// Apple On-Device requires iOS 26 + the Foundation Models framework —
+    /// not available on this toolchain yet. Listed so the option is visible
+    /// (and the future path obvious) without being selectable.
+    var isAvailable: Bool { self != .appleOnDevice }
+}
+
+/// Whether extraction sends the full image/PDF, or on-device OCR text only
+/// (cheaper/faster, with an automatic full-image retry if the result looks
+/// unreliable — see `SubmissionPipeline`).
+enum ExtractionMode: String, Codable, CaseIterable, Identifiable {
+    case fullImage
+    case onDeviceOCR
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .fullImage: return "Full Image"
+        case .onDeviceOCR: return "On-Device OCR Text"
+        }
+    }
+}
+
+/// Reads/writes the extraction provider + mode from App Group UserDefaults
+/// (not `@AppStorage`, which defaults to `UserDefaults.standard` — the share
+/// extension runs in a different sandbox and wouldn't see the same value).
+enum ExtractionSettings {
+    private static let defaults = UserDefaults(suiteName: AppConstants.appGroupID)!
+
+    static var provider: ExtractionProvider {
+        get {
+            guard let raw = defaults.string(forKey: AppConstants.DefaultsKeys.extractionProvider),
+                  let value = ExtractionProvider(rawValue: raw) else { return .claude }
+            return value
+        }
+        set { defaults.set(newValue.rawValue, forKey: AppConstants.DefaultsKeys.extractionProvider) }
+    }
+
+    static var mode: ExtractionMode {
+        get {
+            guard let raw = defaults.string(forKey: AppConstants.DefaultsKeys.extractionMode),
+                  let value = ExtractionMode(rawValue: raw) else { return .fullImage }
+            return value
+        }
+        set { defaults.set(newValue.rawValue, forKey: AppConstants.DefaultsKeys.extractionMode) }
+    }
+
+    /// The extractor instance for the currently selected provider. Apple
+    /// On-Device isn't implemented yet (`isAvailable == false`), so it's
+    /// unreachable here — the Settings picker prevents selecting it.
+    static func currentExtractor() -> ReceiptExtractor {
+        switch provider {
+        case .claude: return ClaudeService()
+        case .openAI: return OpenAIService()
+        case .gemini: return GeminiService()
+        case .appleOnDevice: return ClaudeService() // unreachable; picker disables this option
+        }
+    }
 }
 
 /// Human-in-the-loop status of a saved receipt, surfaced in the Receipts list.

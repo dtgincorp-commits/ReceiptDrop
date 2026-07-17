@@ -1,6 +1,7 @@
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+import Vision
 
 enum ClaudeError: LocalizedError {
     case missingAPIKey
@@ -25,7 +26,7 @@ enum ClaudeError: LocalizedError {
 /// must return its answer as validated JSON in the tool_use `input`, rather
 /// than free-form prose we'd have to scrape. Images go in a base64 `image`
 /// block; PDFs in a base64 `document` block.
-struct ClaudeService {
+struct ClaudeService: ReceiptExtractor {
     func extract(data: Data, kind: ReceiptKind) async throws -> ExtractedReceipt {
         // Only the upload is downscaled — the file saved to disk via
         // LocalReceiptStore stays full resolution. 1568px matches Anthropic's
@@ -172,39 +173,11 @@ struct ClaudeService {
             (input[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
 
-        let vendor = string("vendor")
-        let rawWorkDate = string("work_date")
-        let amount = string("amount")
-
-        // Heuristic safety net, independent of the model's self-reported
-        // confidence: catches cases where Claude states "high" confidence but
-        // a field is still empty or the date fell back to today because
-        // nothing parseable was found.
-        var needsReview = string("confidence").lowercased() == "low"
-        var reason = string("confidence_reason")
-        if vendor.isEmpty {
-            needsReview = true
-            if reason.isEmpty { reason = "Vendor name missing" }
-        }
-        if amount.isEmpty || Double(amount) == nil || Double(amount) == 0 {
-            needsReview = true
-            if reason.isEmpty { reason = "Amount missing or unreadable" }
-        }
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-        dateFormatter.dateFormat = AppConstants.sheetDateFormat
-        if rawWorkDate.isEmpty || dateFormatter.date(from: rawWorkDate) == nil {
-            needsReview = true
-            if reason.isEmpty { reason = "Date unreadable, defaulted to today" }
-        }
-
-        return ExtractedReceipt(
-            vendor: vendor,
-            workDate: Self.normalizeDate(rawWorkDate),
-            amount: amount,
+        return ExtractedReceipt.build(
+            vendor: string("vendor"), rawWorkDate: string("work_date"), amount: string("amount"),
             comments: string("comments"),
-            needsReview: needsReview,
-            reviewReason: reason)
+            modelReportedLowConfidence: string("confidence").lowercased() == "low",
+            modelReason: string("confidence_reason"))
     }
 
     /// Best-effort normalization to yyyy-MM-dd. If Claude already returned that
@@ -219,5 +192,251 @@ struct ClaudeService {
             return raw
         }
         return formatter.string(from: Date())
+    }
+}
+
+// MARK: - On-device OCR (Vision)
+
+enum VisionOCRError: LocalizedError {
+    case unreadableImage
+
+    var errorDescription: String? { "Couldn't read this image for text recognition." }
+}
+
+/// Recognizes text in a receipt photo entirely on-device via the Vision
+/// framework — no network call, no API cost. Used by the "On-Device OCR
+/// Text" extraction mode: the recognized text (not the image) is what gets
+/// sent to whichever AI provider is selected, cutting upload size and token
+/// cost dramatically for easy-to-read receipts.
+enum VisionOCRService {
+    static func recognizeText(in data: Data) async throws -> String {
+        guard let cgImage = CGImageSourceCreateWithData(data as CFData, nil)
+            .flatMap({ CGImageSourceCreateImageAtIndex($0, 0, nil) }) else {
+            throw VisionOCRError.unreadableImage
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let request = VNRecognizeTextRequest { request, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                let lines = (request.results as? [VNRecognizedTextObservation] ?? [])
+                    .compactMap { $0.topCandidates(1).first?.string }
+                continuation.resume(returning: lines.joined(separator: "\n"))
+            }
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = true
+
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+}
+
+// MARK: - OpenAI
+
+enum OpenAIError: LocalizedError {
+    case missingAPIKey
+    case api(String)
+    case parsing(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingAPIKey: return "No OpenAI API key. Add one in Settings."
+        case .api(let detail): return "OpenAI API error: \(detail)"
+        case .parsing(let detail): return "Couldn't read OpenAI's response: \(detail)"
+        }
+    }
+}
+
+/// Reads a receipt with OpenAI's Chat Completions API, using a strict JSON
+/// schema response format (OpenAI's equivalent of Claude's forced tool use)
+/// so the model must return validated structured JSON rather than prose.
+struct OpenAIService: ReceiptExtractor {
+    func extract(data: Data, kind: ReceiptKind) async throws -> ExtractedReceipt {
+        guard kind == .image else {
+            throw OpenAIError.api("OpenAI extraction currently supports images only, not PDFs.")
+        }
+        let uploadData = ClaudeService.downscaledJPEG(from: data) ?? data
+        let base64 = uploadData.base64EncodedString()
+        let content: [[String: Any]] = [
+            ["type": "text", "text": "Extract this receipt's details."],
+            ["type": "image_url", "image_url": ["url": "data:\(kind.mimeType);base64,\(base64)"]],
+        ]
+        return try await send(content: content)
+    }
+
+    func extract(ocrText: String) async throws -> ExtractedReceipt {
+        let content: [[String: Any]] = [
+            ["type": "text", "text": "Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details.\n\n\(ocrText)"],
+        ]
+        return try await send(content: content)
+    }
+
+    private func send(content: [[String: Any]]) async throws -> ExtractedReceipt {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.openAIAPIKey),
+              !apiKey.isEmpty else {
+            throw OpenAIError.missingAPIKey
+        }
+
+        let schema: [String: Any] = [
+            "type": "object",
+            "properties": [
+                "vendor": ["type": "string", "description": "The contractor or vendor / business name on the receipt. Empty string if not present."],
+                "work_date": ["type": "string", "description": "The primary date on the receipt, normalized to yyyy-MM-dd. Empty string if none is shown."],
+                "amount": ["type": "string", "description": "The grand total as a plain number string with no currency symbol or thousands separators, e.g. 1234.56."],
+                "comments": ["type": "string", "description": "A short (max ~12 word) description of what was purchased."],
+                "confidence": ["type": "string", "enum": ["high", "low"], "description": "\"low\" if the receipt is handwritten, blurry, damaged, or any field was hard to read or guessed. \"high\" only if every field is confidently accurate."],
+                "confidence_reason": ["type": "string", "description": "If confidence is \"low\", a short phrase explaining why. Empty string if confidence is \"high\"."],
+            ],
+            "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason"],
+            "additionalProperties": false,
+        ]
+
+        let body: [String: Any] = [
+            "model": AppConstants.openAIModel,
+            "messages": [["role": "user", "content": content]],
+            "response_format": [
+                "type": "json_schema",
+                "json_schema": ["name": "record_receipt", "strict": true, "schema": schema],
+            ],
+        ]
+
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw OpenAIError.api("No HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw OpenAIError.api(String(data: respData, encoding: .utf8) ?? "HTTP \(http.statusCode)")
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let contentString = message["content"] as? String,
+              let fieldsData = contentString.data(using: .utf8),
+              let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any] else {
+            throw OpenAIError.parsing("Malformed response envelope")
+        }
+
+        func string(_ key: String) -> String {
+            (fields[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+
+        return ExtractedReceipt.build(
+            vendor: string("vendor"), rawWorkDate: string("work_date"), amount: string("amount"),
+            comments: string("comments"),
+            modelReportedLowConfidence: string("confidence").lowercased() == "low",
+            modelReason: string("confidence_reason"))
+    }
+}
+
+// MARK: - Google Gemini
+
+enum GeminiError: LocalizedError {
+    case missingAPIKey
+    case api(String)
+    case parsing(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingAPIKey: return "No Google Gemini API key. Add one in Settings."
+        case .api(let detail): return "Gemini API error: \(detail)"
+        case .parsing(let detail): return "Couldn't read Gemini's response: \(detail)"
+        }
+    }
+}
+
+/// Reads a receipt with Google's Gemini API, using `responseSchema` to force
+/// structured JSON output — Gemini's equivalent of Claude's forced tool use.
+struct GeminiService: ReceiptExtractor {
+    func extract(data: Data, kind: ReceiptKind) async throws -> ExtractedReceipt {
+        let uploadData = kind == .image ? (ClaudeService.downscaledJPEG(from: data) ?? data) : data
+        let base64 = uploadData.base64EncodedString()
+        let parts: [[String: Any]] = [
+            ["text": "Extract this receipt's details."],
+            ["inline_data": ["mime_type": kind.mimeType, "data": base64]],
+        ]
+        return try await send(parts: parts)
+    }
+
+    func extract(ocrText: String) async throws -> ExtractedReceipt {
+        let parts: [[String: Any]] = [
+            ["text": "Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details.\n\n\(ocrText)"],
+        ]
+        return try await send(parts: parts)
+    }
+
+    private func send(parts: [[String: Any]]) async throws -> ExtractedReceipt {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.geminiAPIKey),
+              !apiKey.isEmpty else {
+            throw GeminiError.missingAPIKey
+        }
+
+        let schema: [String: Any] = [
+            "type": "OBJECT",
+            "properties": [
+                "vendor": ["type": "STRING"],
+                "work_date": ["type": "STRING"],
+                "amount": ["type": "STRING"],
+                "comments": ["type": "STRING"],
+                "confidence": ["type": "STRING", "enum": ["high", "low"]],
+                "confidence_reason": ["type": "STRING"],
+            ],
+            "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason"],
+        ]
+
+        let body: [String: Any] = [
+            "contents": [["parts": parts]],
+            "generationConfig": [
+                "responseMimeType": "application/json",
+                "responseSchema": schema,
+            ],
+        ]
+
+        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(AppConstants.geminiModel):generateContent?key=\(apiKey)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw GeminiError.api("No HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw GeminiError.api(String(data: respData, encoding: .utf8) ?? "HTTP \(http.statusCode)")
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let candidates = json["candidates"] as? [[String: Any]],
+              let contentDict = candidates.first?["content"] as? [String: Any],
+              let responseParts = contentDict["parts"] as? [[String: Any]],
+              let text = responseParts.first?["text"] as? String,
+              let fieldsData = text.data(using: .utf8),
+              let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any] else {
+            throw GeminiError.parsing("Malformed response envelope")
+        }
+
+        func string(_ key: String) -> String {
+            (fields[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+
+        return ExtractedReceipt.build(
+            vendor: string("vendor"), rawWorkDate: string("work_date"), amount: string("amount"),
+            comments: string("comments"),
+            modelReportedLowConfidence: string("confidence").lowercased() == "low",
+            modelReason: string("confidence_reason"))
     }
 }

@@ -63,7 +63,7 @@ struct SubmissionPipeline {
              category: String,
              onStage: @MainActor (Stage) -> Void = { _ in }) async throws -> HistoryEntry {
         await onStage(.reading)
-        let extracted = try await ClaudeService().extract(data: data, kind: kind)
+        let extracted = try await Self.extractWithFallback(data: data, kind: kind)
 
         if let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == extracted.workDate && $0.amount == extracted.amount
@@ -88,6 +88,30 @@ struct SubmissionPipeline {
             reviewReason: extracted.reviewReason)
         SubmissionStore.appendHistory(entry)
         return entry
+    }
+
+    /// Runs extraction using the currently-selected provider/mode. In
+    /// "On-Device OCR Text" mode, images are OCR'd on-device first (free,
+    /// no network) and only the recognized text goes to the AI provider —
+    /// but if the OCR text is suspiciously short (camera caught nothing
+    /// useful) or the resulting extraction comes back flagged `needsReview`,
+    /// this automatically retries once with the full image, keeping whichever
+    /// result that retry produces. PDFs and "Full Image" mode always send the
+    /// full file, unaffected by this fallback.
+    private static func extractWithFallback(data: Data, kind: ReceiptKind) async throws -> ExtractedReceipt {
+        let extractor = ExtractionSettings.currentExtractor()
+        guard kind == .image, ExtractionSettings.mode == .onDeviceOCR else {
+            return try await extractor.extract(data: data, kind: kind)
+        }
+
+        let ocrText = (try? await VisionOCRService.recognizeText(in: data)) ?? ""
+        guard ocrText.trimmingCharacters(in: .whitespacesAndNewlines).count >= 20 else {
+            return try await extractor.extract(data: data, kind: kind)
+        }
+
+        let fromText = try await extractor.extract(ocrText: ocrText)
+        guard fromText.needsReview else { return fromText }
+        return (try? await extractor.extract(data: data, kind: kind)) ?? fromText
     }
 
     /// Records a receipt with no photo/PDF attached — the user typed the
@@ -121,7 +145,7 @@ struct SubmissionPipeline {
     func runTextOnly(ocrText: String, category: String,
                      onStage: @MainActor (Stage) -> Void = { _ in }) async throws -> HistoryEntry {
         await onStage(.reading)
-        let extracted = try await ClaudeService().extract(ocrText: ocrText)
+        let extracted = try await ExtractionSettings.currentExtractor().extract(ocrText: ocrText)
 
         if let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == extracted.workDate && $0.amount == extracted.amount
