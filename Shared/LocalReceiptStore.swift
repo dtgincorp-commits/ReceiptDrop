@@ -16,10 +16,16 @@ enum LocalReceiptStore {
 
     /// Saves `data` into the App Group spool for `category`, returning the
     /// filename used (also the name the file will keep once drained).
+    ///
+    /// Photos are stored downscaled to 1568px on the long edge (~10× smaller
+    /// than a full camera shot) — receipts only need to stay legible, and this
+    /// keeps the app's storage from growing ~1GB/year. Same limit Claude reads
+    /// them at, so extraction quality is unaffected. PDFs are stored as-is.
     static func save(data: Data, category: String, kind: ReceiptKind) throws -> String {
         let folder = try spoolCategoryFolder(category)
         let name = fileName(category: category, kind: kind)
-        try data.write(to: folder.appendingPathComponent(name))
+        let stored = kind == .image ? (ClaudeService.downscaledJPEG(from: data) ?? data) : data
+        try stored.write(to: folder.appendingPathComponent(name))
         return name
     }
 
