@@ -10,7 +10,10 @@ import Foundation
 ///   plus a Codable queue entry in defaults, so the main app can retry them.
 enum SubmissionStore {
     private static let defaults = UserDefaults(suiteName: AppConstants.appGroupID)!
-    private static let historyLimit = 200
+    // Was 200 — silently dropped older receipts from history (and therefore
+    // from Rebuild Log and any future backup/export), well within realistic
+    // usage. 10,000 costs a few MB of UserDefaults, which is fine.
+    private static let historyLimit = 10_000
     private static let pendingDirName = "PendingReceipts"
 
     // MARK: - History

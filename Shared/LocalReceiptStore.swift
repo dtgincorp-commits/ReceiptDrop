@@ -346,12 +346,17 @@ enum LocalReceiptStore {
         return fields
     }
 
+    /// Includes a short random suffix — the timestamp alone is only
+    /// second-granular, so saving multiple files in quick succession (e.g.
+    /// several extra attachments added in one Edit save) previously produced
+    /// identical names and silently overwrote each other.
     static func fileName(category: String, kind: ReceiptKind) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
         let stamp = formatter.string(from: Date())
-        return "\(category)_\(stamp).\(kind.fileExtension)"
+        let suffix = String(format: "%04x", UInt16.random(in: 0...0xFFFF))
+        return "\(category)_\(stamp)_\(suffix).\(kind.fileExtension)"
     }
 
     private static func logFileName(category: String) -> String {
