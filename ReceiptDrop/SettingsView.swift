@@ -21,7 +21,7 @@ struct SettingsView: View {
                         ExtractionSettings.provider = newValue
                     }
 
-                    Picker("Send Mode", selection: $selectedMode) {
+                    Picker("Extraction Mode", selection: $selectedMode) {
                         ForEach(ExtractionMode.allCases) { mode in
                             Text(mode.displayName).tag(mode)
                         }
