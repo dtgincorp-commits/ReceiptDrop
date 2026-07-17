@@ -434,8 +434,13 @@ private struct ReceiptRow: View {
                     }
                     .buttonStyle(.plain)
                 } else if entry.verificationStatus == .verified {
-                    Image(systemName: "checkmark.seal.fill")
-                        .foregroundStyle(.green)
+                    ZStack {
+                        Circle().fill(Color.green)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .black))
+                            .foregroundStyle(.black)
+                    }
+                    .frame(width: 18, height: 18)
                 }
                 if !entry.amount.isEmpty {
                     Text("$\(entry.amount)")
