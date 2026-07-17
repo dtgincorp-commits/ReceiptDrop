@@ -33,20 +33,28 @@ struct SettingsView: View {
                     Text("\"On-Device OCR Text\" reads the receipt on your phone for free and sends only the text — faster and cheaper. Hard-to-read receipts automatically retry with the full image. Apple On-Device requires iOS 26 + Apple Intelligence, not available on this device/toolchain yet.")
                 }
 
-                APIKeySection(
-                    title: "Anthropic API Key", placeholder: "sk-ant-…",
-                    account: AppConstants.KeychainKeys.anthropicAPIKey,
-                    footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Anthropic API.")
-
-                APIKeySection(
-                    title: "OpenAI API Key", placeholder: "sk-…",
-                    account: AppConstants.KeychainKeys.openAIAPIKey,
-                    footer: "Only needed if AI Provider above is set to OpenAI.")
-
-                APIKeySection(
-                    title: "Google Gemini API Key", placeholder: "AIza…",
-                    account: AppConstants.KeychainKeys.geminiAPIKey,
-                    footer: "Only needed if AI Provider above is set to Google Gemini.")
+                // Only the currently selected provider's key field is shown —
+                // no point cluttering Settings with fields for providers
+                // that aren't in use.
+                switch selectedProvider {
+                case .claude:
+                    APIKeySection(
+                        title: "Anthropic API Key", placeholder: "sk-ant-…",
+                        account: AppConstants.KeychainKeys.anthropicAPIKey,
+                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Anthropic API.")
+                case .openAI:
+                    APIKeySection(
+                        title: "OpenAI API Key", placeholder: "sk-…",
+                        account: AppConstants.KeychainKeys.openAIAPIKey,
+                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the OpenAI API.")
+                case .gemini:
+                    APIKeySection(
+                        title: "Google Gemini API Key", placeholder: "AIza…",
+                        account: AppConstants.KeychainKeys.geminiAPIKey,
+                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Gemini API.")
+                case .appleOnDevice:
+                    EmptyView()
+                }
 
                 Section {
                     NavigationLink {
