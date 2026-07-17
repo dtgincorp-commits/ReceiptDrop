@@ -33,9 +33,10 @@ struct ExtractedReceipt {
 
     /// Heuristic safety net shared by every `ReceiptExtractor` — independent
     /// of whatever confidence the model itself reports, catches empty
-    /// vendor/amount or an unparseable date (which `ClaudeService.normalizeDate`
-    /// silently defaults to today). Keeping this in one place means Claude,
-    /// OpenAI, and Gemini all get identical HITL flagging behavior.
+    /// vendor/amount, an unparseable date (which `ClaudeService.normalizeDate`
+    /// silently defaults to today), or an implausible-but-well-formed date.
+    /// Keeping this in one place means Claude, OpenAI, and Gemini all get
+    /// identical HITL flagging behavior.
     static func build(vendor: String, rawWorkDate: String, amount: String, comments: String,
                       modelReportedLowConfidence: Bool, modelReason: String) -> ExtractedReceipt {
         var needsReview = modelReportedLowConfidence
@@ -54,6 +55,19 @@ struct ExtractedReceipt {
         if rawWorkDate.isEmpty || dateFormatter.date(from: rawWorkDate) == nil {
             needsReview = true
             if reason.isEmpty { reason = "Date unreadable, defaulted to today" }
+        } else if let parsed = dateFormatter.date(from: rawWorkDate) {
+            // Well-formed but implausible: a model working from noisy OCR
+            // text (no visual layout to anchor on) can hallucinate a
+            // plausible-looking date rather than admitting none was found —
+            // this catches that even though it passes the parse check above.
+            let calendar = Calendar.current
+            if parsed > calendar.date(byAdding: .day, value: 1, to: Date())! {
+                needsReview = true
+                if reason.isEmpty { reason = "Date is in the future" }
+            } else if parsed < calendar.date(byAdding: .month, value: -15, to: Date())! {
+                needsReview = true
+                if reason.isEmpty { reason = "Date is over a year old — please confirm" }
+            }
         }
         return ExtractedReceipt(
             vendor: vendor,
@@ -65,6 +79,26 @@ struct ExtractedReceipt {
     }
 }
 
+/// Shared prompt preamble every `ReceiptExtractor` prepends to its request —
+/// keeping this in one place means Claude/OpenAI/Gemini give the model
+/// identical grounding. Two things an LLM has no way to know on its own:
+/// today's date (so it can judge "is this date plausible?" instead of
+/// guessing blind) and what this category is actually for (so it can write
+/// better Comments and sanity-check whether the receipt looks like it
+/// belongs), if the user bothered to write one.
+enum ExtractionPrompt {
+    static func preamble(categoryContext: String) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = AppConstants.sheetDateFormat
+        var lines = ["Today's date is \(formatter.string(from: Date())). Receipts are usually recent — if you can't find a clear date on the receipt, return an empty string; never guess or invent one."]
+        if !categoryContext.isEmpty {
+            lines.append("This receipt is being filed under a category described by the user as: \"\(categoryContext)\". Use this to write more specific Comments, and lower your confidence if the receipt looks unrelated to this description.")
+        }
+        return lines.joined(separator: " ")
+    }
+}
+
 /// A backend that can turn a receipt (image/PDF bytes, or text already OCR'd
 /// on-device) into structured fields. `ClaudeService` was the first and only
 /// implementation; `OpenAIService`/`GeminiService` conform the same way, and
@@ -72,8 +106,13 @@ struct ExtractedReceipt {
 /// downstream (HITL flagging, HistoryEntry, the pipeline) needs to change
 /// when the engine changes, since they all speak `ExtractedReceipt`.
 protocol ReceiptExtractor {
-    func extract(data: Data, kind: ReceiptKind) async throws -> ExtractedReceipt
-    func extract(ocrText: String) async throws -> ExtractedReceipt
+    /// `categoryContext` is the user-written description of the category
+    /// this receipt is being filed under (e.g. "Expenses for my IT company",
+    /// "Rental property — Monteras St"), if one was set — gives the model
+    /// real signal for writing better Comments and judging whether a receipt
+    /// looks like it belongs. Empty string if the category has no description.
+    func extract(data: Data, kind: ReceiptKind, categoryContext: String) async throws -> ExtractedReceipt
+    func extract(ocrText: String, categoryContext: String) async throws -> ExtractedReceipt
 }
 
 /// Which AI backend performs extraction. Stored in App Group UserDefaults so

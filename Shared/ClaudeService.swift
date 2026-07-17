@@ -27,7 +27,7 @@ enum ClaudeError: LocalizedError {
 /// than free-form prose we'd have to scrape. Images go in a base64 `image`
 /// block; PDFs in a base64 `document` block.
 struct ClaudeService: ReceiptExtractor {
-    func extract(data: Data, kind: ReceiptKind) async throws -> ExtractedReceipt {
+    func extract(data: Data, kind: ReceiptKind, categoryContext: String = "") async throws -> ExtractedReceipt {
         // Only the upload is downscaled — the file saved to disk via
         // LocalReceiptStore stays full resolution. 1568px matches Anthropic's
         // own server-side resize threshold, so this is upload/memory savings
@@ -47,9 +47,10 @@ struct ClaudeService: ReceiptExtractor {
                 "source": ["type": "base64", "media_type": kind.mimeType, "data": base64],
             ]
         }
+        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext)
         return try await send(content: [
             sourceBlock,
-            ["type": "text", "text": "Extract this receipt's details using the record_receipt tool."],
+            ["type": "text", "text": "\(preamble) Extract this receipt's details using the record_receipt tool."],
         ])
     }
 
@@ -89,9 +90,10 @@ struct ClaudeService: ReceiptExtractor {
     /// Extracts structured fields from text already OCR'd on-device (the
     /// "Scan Text" flow) — no image bytes are sent to Claude at all, which is
     /// faster and cheaper than the image/PDF path above.
-    func extract(ocrText: String) async throws -> ExtractedReceipt {
-        try await send(content: [
-            ["type": "text", "text": "Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details using the record_receipt tool.\n\n\(ocrText)"],
+    func extract(ocrText: String, categoryContext: String = "") async throws -> ExtractedReceipt {
+        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext)
+        return try await send(content: [
+            ["type": "text", "text": "\(preamble) Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details using the record_receipt tool.\n\n\(ocrText)"],
         ])
     }
 
@@ -258,22 +260,24 @@ enum OpenAIError: LocalizedError {
 /// schema response format (OpenAI's equivalent of Claude's forced tool use)
 /// so the model must return validated structured JSON rather than prose.
 struct OpenAIService: ReceiptExtractor {
-    func extract(data: Data, kind: ReceiptKind) async throws -> ExtractedReceipt {
+    func extract(data: Data, kind: ReceiptKind, categoryContext: String = "") async throws -> ExtractedReceipt {
         guard kind == .image else {
             throw OpenAIError.api("OpenAI extraction currently supports images only, not PDFs.")
         }
         let uploadData = ClaudeService.downscaledJPEG(from: data) ?? data
         let base64 = uploadData.base64EncodedString()
+        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext)
         let content: [[String: Any]] = [
-            ["type": "text", "text": "Extract this receipt's details."],
+            ["type": "text", "text": "\(preamble) Extract this receipt's details."],
             ["type": "image_url", "image_url": ["url": "data:\(kind.mimeType);base64,\(base64)"]],
         ]
         return try await send(content: content)
     }
 
-    func extract(ocrText: String) async throws -> ExtractedReceipt {
+    func extract(ocrText: String, categoryContext: String = "") async throws -> ExtractedReceipt {
+        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext)
         let content: [[String: Any]] = [
-            ["type": "text", "text": "Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details.\n\n\(ocrText)"],
+            ["type": "text", "text": "\(preamble) Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details.\n\n\(ocrText)"],
         ]
         return try await send(content: content)
     }
@@ -361,19 +365,21 @@ enum GeminiError: LocalizedError {
 /// Reads a receipt with Google's Gemini API, using `responseSchema` to force
 /// structured JSON output — Gemini's equivalent of Claude's forced tool use.
 struct GeminiService: ReceiptExtractor {
-    func extract(data: Data, kind: ReceiptKind) async throws -> ExtractedReceipt {
+    func extract(data: Data, kind: ReceiptKind, categoryContext: String = "") async throws -> ExtractedReceipt {
         let uploadData = kind == .image ? (ClaudeService.downscaledJPEG(from: data) ?? data) : data
         let base64 = uploadData.base64EncodedString()
+        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext)
         let parts: [[String: Any]] = [
-            ["text": "Extract this receipt's details."],
+            ["text": "\(preamble) Extract this receipt's details."],
             ["inline_data": ["mime_type": kind.mimeType, "data": base64]],
         ]
         return try await send(parts: parts)
     }
 
-    func extract(ocrText: String) async throws -> ExtractedReceipt {
+    func extract(ocrText: String, categoryContext: String = "") async throws -> ExtractedReceipt {
+        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext)
         let parts: [[String: Any]] = [
-            ["text": "Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details.\n\n\(ocrText)"],
+            ["text": "\(preamble) Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details.\n\n\(ocrText)"],
         ]
         return try await send(parts: parts)
     }

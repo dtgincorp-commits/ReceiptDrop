@@ -28,6 +28,7 @@ enum AppConstants {
     /// UserDefaults (App Group suite) keys.
     enum DefaultsKeys {
         static let categories = "categories"
+        static let categoryDescriptions = "categoryDescriptions"
         static let history = "submissionHistory"
         static let retryQueue = "retryQueue"               // failed submissions awaiting retry
         static let extractionProvider = "extractionProvider"

@@ -58,9 +58,16 @@ struct CategoriesView: View {
 struct CategoryDetailView: View {
     let category: String
 
+    @StateObject private var categoryStore = CategoryStore.shared
+    @State private var descriptionInput: String
     @State private var showRebuildConfirm = false
     @State private var rebuildMessage: String?
     @State private var missingCSVAlert = false
+
+    init(category: String) {
+        self.category = category
+        _descriptionInput = State(initialValue: CategoryStore.shared.description(for: category))
+    }
 
     private var entries: [HistoryEntry] {
         SubmissionStore.loadHistory().filter { $0.category == category }
@@ -74,6 +81,19 @@ struct CategoryDetailView: View {
                     Spacer()
                     Text("\(entries.count)").foregroundStyle(.secondary)
                 }
+            }
+
+            Section {
+                TextField("e.g. Expenses for my IT company", text: $descriptionInput, axis: .vertical)
+                    .lineLimit(2...4)
+                    .onSubmit { categoryStore.setDescription(descriptionInput, for: category) }
+            } header: {
+                Text("What is \(category) for?")
+            } footer: {
+                Text("Optional, but helps the AI write better Comments and flag receipts that look like they don't belong here. Saved automatically as you leave the field.")
+            }
+            .onChange(of: descriptionInput) { newValue in
+                categoryStore.setDescription(newValue, for: category)
             }
 
             Section {
