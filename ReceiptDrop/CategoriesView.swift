@@ -88,7 +88,7 @@ struct CategoryDetailView: View {
                     .lineLimit(2...4)
                     .onSubmit { categoryStore.setDescription(descriptionInput, for: category) }
             } header: {
-                Text("What is \(category) for?")
+                Text("Category Description for \(category) (Better AI decisioning)")
             } footer: {
                 Text("Optional, but helps the AI write better Comments and flag receipts that look like they don't belong here. Saved automatically as you leave the field.")
             }
