@@ -289,6 +289,61 @@ enum LocalReceiptStore {
             .appendingPathComponent(logFileName(category: category))
     }
 
+    /// Builds a CSV (header + matching rows) for `entries` by filtering the
+    /// category's real on-disk CSV — unlike `rebuildLog`, this preserves the
+    /// Comments column, since it reads real rows rather than regenerating
+    /// them from `HistoryEntry` (which never stored Comments).
+    static func filteredCSV(category: String, entries: [HistoryEntry]) -> String {
+        var content = csvRow(AppConstants.sheetHeader)
+        guard let csvURL = existingLogURL(category: category),
+              let text = try? String(contentsOf: csvURL, encoding: .utf8) else {
+            // No CSV on disk (e.g. spool not drained) — fall back to
+            // regenerating from HistoryEntry so the archive still has rows,
+            // just without Comments for this edge case.
+            for entry in entries.sorted(by: { $0.timestamp < $1.timestamp }) {
+                content += csvRow([entry.vendor, entry.workDate, entry.amount, "", entry.receiptLink, dateString(entry.timestamp)])
+            }
+            return content
+        }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+        for line in lines.dropFirst() {
+            let fields = parseCSVLine(line)
+            guard fields.count >= 5 else { continue }
+            let matches = entries.contains {
+                $0.vendor == fields[0] && $0.workDate == fields[1]
+                    && $0.amount == fields[2] && $0.receiptLink == fields[4]
+            }
+            if matches { content += String(line) + "\n" }
+        }
+        return content
+    }
+
+    /// Zips a folder's contents using `NSFileCoordinator`'s `.forUploading`
+    /// option — iOS creates the zip natively, no third-party library needed.
+    /// The system-provided zip lives at a temporary URL that's cleaned up
+    /// once the coordination block returns, so this copies it out to a
+    /// caller-owned location under `name` before returning.
+    static func zipFolder(at folderURL: URL, name: String) throws -> URL {
+        var resultError: Error?
+        var zippedTempURL: URL?
+        let coordinator = NSFileCoordinator()
+        var coordinatorError: NSError?
+        coordinator.coordinate(readingItemAt: folderURL, options: [.forUploading], error: &coordinatorError) { zipURL in
+            let dest = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).zip")
+            do {
+                try? FileManager.default.removeItem(at: dest)
+                try FileManager.default.copyItem(at: zipURL, to: dest)
+                zippedTempURL = dest
+            } catch {
+                resultError = error
+            }
+        }
+        if let coordinatorError { throw coordinatorError }
+        if let resultError { throw resultError }
+        guard let zippedTempURL else { throw LocalStoreError.zipFailed }
+        return zippedTempURL
+    }
+
     /// The category's own folder in the main app's Documents directory —
     /// where every receipt file (primary and extras) for that category
     /// actually lives, visible in the Files app.
@@ -389,9 +444,13 @@ enum LocalReceiptStore {
 
 enum LocalStoreError: LocalizedError {
     case appGroupUnavailable
+    case zipFailed
 
     var errorDescription: String? {
-        "Couldn't access shared app storage."
+        switch self {
+        case .appGroupUnavailable: return "Couldn't access shared app storage."
+        case .zipFailed: return "Couldn't create the zip archive."
+        }
     }
 }
 

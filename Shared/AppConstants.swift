@@ -33,6 +33,8 @@ enum AppConstants {
         static let retryQueue = "retryQueue"               // failed submissions awaiting retry
         static let extractionProvider = "extractionProvider"
         static let extractionMode = "extractionMode"
+        static let lastBackupDate = "lastBackupDate"
+        static let backupReminderFrequency = "backupReminderFrequency"
     }
 
     /// Date format written to the Work_Date column.

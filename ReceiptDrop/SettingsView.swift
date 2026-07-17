@@ -62,8 +62,13 @@ struct SettingsView: View {
                     } label: {
                         Label("Categories", systemImage: "folder.badge.gearshape")
                     }
+                    NavigationLink {
+                        ArchiveBackupView()
+                    } label: {
+                        Label("Archive & Backup", systemImage: "archivebox")
+                    }
                 } footer: {
-                    Text("Add or remove categories, open their CSV logs, and run maintenance.")
+                    Text("Categories: add or remove categories, open their CSV logs, and run maintenance. Archive & Backup: export receipts by period, or back up everything.")
                 }
             }
             .navigationTitle("Settings")
@@ -122,4 +127,225 @@ private struct APIKeySection: View {
             Text(footer)
         }
     }
+}
+
+// MARK: - Archive & Backup
+
+struct ArchiveBackupView: View {
+    private enum ScopeKind: String, CaseIterable, Identifiable {
+        case year = "Year"
+        case month = "Month"
+        case custom = "Custom Range"
+        var id: String { rawValue }
+    }
+
+    @State private var scopeKind: ScopeKind = .year
+    @State private var selectedYear: Int?
+    @State private var selectedMonth: Int?
+    @State private var customStart = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
+    @State private var customEnd = Date()
+
+    @State private var isWorking = false
+    @State private var errorMessage: String?
+    @State private var shareURL: IdentifiableURL?
+    @State private var lastBackupDate: Date? = BackupSettings.lastBackupDate
+    @State private var reminderFrequency: BackupReminderFrequency = BackupSettings.reminderFrequency
+
+    private var years: [Int] { ArchiveBackupService.availableYears() }
+    private var months: [Int] { selectedYear.map(ArchiveBackupService.availableMonths(inYear:)) ?? [] }
+
+    private var canArchive: Bool {
+        switch scopeKind {
+        case .year: return selectedYear != nil
+        case .month: return selectedYear != nil && selectedMonth != nil
+        case .custom: return customStart <= customEnd
+        }
+    }
+
+    var body: some View {
+        Form {
+            archiveSection
+            backupSection
+            if let errorMessage {
+                Section {
+                    Text(errorMessage).foregroundStyle(.red)
+                }
+            }
+        }
+        .navigationTitle("Archive & Backup")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $shareURL) { wrapper in
+            ActivityShareSheet(url: wrapper.url)
+        }
+    }
+
+    @ViewBuilder
+    private var archiveSection: some View {
+        Section {
+            Picker("Scope", selection: $scopeKind) {
+                ForEach(ScopeKind.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+
+            switch scopeKind {
+            case .year:
+                Picker("Year", selection: $selectedYear) {
+                    Text("Select a year").tag(Int?.none)
+                    ForEach(years, id: \.self) { year in
+                        Text("\(String(year)) (\(ArchiveBackupService.entries(inYear: year).count))").tag(Int?.some(year))
+                    }
+                }
+            case .month:
+                Picker("Year", selection: $selectedYear) {
+                    Text("Select a year").tag(Int?.none)
+                    ForEach(years, id: \.self) { Text(String($0)).tag(Int?.some($0)) }
+                }
+                if let selectedYear {
+                    Picker("Month", selection: $selectedMonth) {
+                        Text("Select a month").tag(Int?.none)
+                        ForEach(months, id: \.self) { month in
+                            Text("\(Self.monthName(month)) (\(ArchiveBackupService.entries(inYear: selectedYear, month: month).count))").tag(Int?.some(month))
+                        }
+                    }
+                }
+            case .custom:
+                DatePicker("From", selection: $customStart, displayedComponents: .date)
+                DatePicker("To", selection: $customEnd, displayedComponents: .date)
+            }
+
+            Button {
+                createArchive()
+            } label: {
+                HStack {
+                    Spacer()
+                    if isWorking { ProgressView() } else { Text("Create Archive") }
+                    Spacer()
+                }
+            }
+            .disabled(isWorking || !canArchive)
+        } header: {
+            Text("Archive")
+        } footer: {
+            Text("Periods are based on each receipt's work date (falling back to the scan date if missing). Creates a zip of that period's photos, attachments, and a CSV, then lets you save it via AirDrop, iCloud Drive, or Files. Nothing is deleted from the app.")
+        }
+    }
+
+    @ViewBuilder
+    private var backupSection: some View {
+        Section {
+            if let lastBackupDate {
+                Text("Last backup: \(lastBackupDate.formatted(date: .abbreviated, time: .shortened))")
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Never backed up").foregroundStyle(.secondary)
+            }
+            Button {
+                createBackup()
+            } label: {
+                HStack {
+                    Spacer()
+                    if isWorking { ProgressView() } else { Text("Back Up Now") }
+                    Spacer()
+                }
+            }
+            .disabled(isWorking)
+
+            Picker("Remind Me", selection: $reminderFrequency) {
+                ForEach(BackupReminderFrequency.allCases) { Text($0.displayName).tag($0) }
+            }
+            .onChange(of: reminderFrequency) { BackupSettings.reminderFrequency = $0 }
+        } header: {
+            Text("Backup")
+        } footer: {
+            Text("Backs up every receipt, photo, and category setting into one zip file. Save it to iCloud Drive or AirDrop it to your Mac so it's recoverable even if this phone is lost — an iPhone backup alone can't restore just this app's files individually. Never includes your API keys.")
+        }
+    }
+
+    private func createArchive() {
+        errorMessage = nil
+        isWorking = true
+        let scope = scopeKind
+        let year = selectedYear
+        let month = selectedMonth
+        let start = customStart
+        let end = customEnd
+        Task {
+            do {
+                let label: String
+                let entries: [HistoryEntry]
+                switch scope {
+                case .year:
+                    guard let year else { isWorking = false; return }
+                    label = "ReceiptDrop_\(year)"
+                    entries = ArchiveBackupService.entries(inYear: year)
+                case .month:
+                    guard let year, let month else { isWorking = false; return }
+                    label = "ReceiptDrop_\(year)-\(String(format: "%02d", month))"
+                    entries = ArchiveBackupService.entries(inYear: year, month: month)
+                case .custom:
+                    label = "ReceiptDrop_\(LocalReceiptStore.dateString(start))_to_\(LocalReceiptStore.dateString(end))"
+                    entries = ArchiveBackupService.entries(from: start, to: end)
+                }
+                let url = try ArchiveBackupService.buildArchive(label: label, entries: entries)
+                await MainActor.run {
+                    isWorking = false
+                    shareURL = IdentifiableURL(url: url)
+                }
+            } catch {
+                await MainActor.run {
+                    isWorking = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func createBackup() {
+        errorMessage = nil
+        isWorking = true
+        Task {
+            do {
+                let url = try ArchiveBackupService.buildFullBackup()
+                await MainActor.run {
+                    isWorking = false
+                    shareURL = IdentifiableURL(url: url)
+                    BackupSettings.lastBackupDate = Date()
+                    lastBackupDate = Date()
+                }
+            } catch {
+                await MainActor.run {
+                    isWorking = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private static func monthName(_ month: Int) -> String {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMMM")
+        var components = DateComponents()
+        components.month = month
+        components.year = 2000
+        return formatter.string(from: Calendar.current.date(from: components) ?? Date())
+    }
+}
+
+private struct IdentifiableURL: Identifiable {
+    let url: URL
+    var id: String { url.path }
+}
+
+/// Wraps the system share sheet (`UIActivityViewController`) so the user
+/// picks where the zip goes — AirDrop, iCloud Drive, Files, Mail, etc. Same
+/// mechanism as "Edit CSV in Numbers App": the app hands off the file, iOS
+/// requires the user's own tap to choose a destination, no way to bypass that.
+private struct ActivityShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

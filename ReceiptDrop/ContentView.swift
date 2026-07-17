@@ -2,21 +2,40 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @State private var selectedTab = 0
+    @State private var showBackupReminder = false
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             ReceiptsView()
                 .tabItem { Label("Receipts", systemImage: "list.bullet.clipboard") }
+                .tag(0)
             RetryQueueView()
                 .tabItem { Label("Retry Queue", systemImage: "arrow.clockwise") }
+                .tag(1)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gear") }
+                .tag(2)
         }
         .tint(Theme.skyBlue)
         // Receipts saved by the share extension land in the App Group spool;
         // drain them into Documents (visible in Files) whenever we foreground.
-        .onAppear(perform: LocalReceiptStore.drainSpoolIntoDocuments)
-        .onChange(of: scenePhase) { if $0 == .active { LocalReceiptStore.drainSpoolIntoDocuments() } }
+        .onAppear {
+            LocalReceiptStore.drainSpoolIntoDocuments()
+            showBackupReminder = BackupSettings.isReminderDue()
+        }
+        .onChange(of: scenePhase) {
+            if $0 == .active {
+                LocalReceiptStore.drainSpoolIntoDocuments()
+                showBackupReminder = BackupSettings.isReminderDue()
+            }
+        }
+        .alert("Back up your receipts?", isPresented: $showBackupReminder) {
+            Button("Remind Me Later", role: .cancel) {}
+            Button("Go to Backup") { selectedTab = 2 }
+        } message: {
+            Text("It's been a while since your last backup. Go to Settings → Archive & Backup to back up now.")
+        }
     }
 }
 

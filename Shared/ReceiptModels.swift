@@ -194,6 +194,180 @@ enum ExtractionSettings {
     }
 }
 
+// MARK: - Archive & Backup
+
+enum BackupReminderFrequency: String, Codable, CaseIterable, Identifiable {
+    case off, weekly, monthly
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .off: return "Off"
+        case .weekly: return "Weekly"
+        case .monthly: return "Monthly"
+        }
+    }
+    var intervalDays: Int? {
+        switch self {
+        case .off: return nil
+        case .weekly: return 7
+        case .monthly: return 30
+        }
+    }
+}
+
+/// Backup stamp + reminder preference, in App Group defaults.
+enum BackupSettings {
+    private static let defaults = UserDefaults(suiteName: AppConstants.appGroupID)!
+
+    static var lastBackupDate: Date? {
+        get { defaults.object(forKey: AppConstants.DefaultsKeys.lastBackupDate) as? Date }
+        set { defaults.set(newValue, forKey: AppConstants.DefaultsKeys.lastBackupDate) }
+    }
+
+    static var reminderFrequency: BackupReminderFrequency {
+        get {
+            guard let raw = defaults.string(forKey: AppConstants.DefaultsKeys.backupReminderFrequency),
+                  let value = BackupReminderFrequency(rawValue: raw) else { return .off }
+            return value
+        }
+        set { defaults.set(newValue.rawValue, forKey: AppConstants.DefaultsKeys.backupReminderFrequency) }
+    }
+
+    /// True if a reminder is due: frequency isn't Off, at least one backup
+    /// has ever been made (no nagging a user who's never backed up once —
+    /// that's a decision to surface once, on the Archive & Backup screen
+    /// itself, not a repeated interruption), and enough days have passed.
+    static func isReminderDue() -> Bool {
+        guard let days = reminderFrequency.intervalDays, let lastBackupDate else { return false }
+        return Date().timeIntervalSince(lastBackupDate) >= Double(days) * 86400
+    }
+}
+
+enum ArchiveBackupError: LocalizedError {
+    case noReceipts
+
+    var errorDescription: String? {
+        "No receipts found for that period."
+    }
+}
+
+/// Builds Archive (period-scoped) and Backup (everything) zip exports.
+/// "Period" is defined by each receipt's work date, falling back to its scan
+/// date when the work date is missing/unparseable — mirroring the Receipts
+/// screen's own grouping logic, so an archive matches what you'd see there.
+enum ArchiveBackupService {
+    static func periodDate(for entry: HistoryEntry) -> Date {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = AppConstants.sheetDateFormat
+        if !entry.workDate.isEmpty, let parsed = formatter.date(from: entry.workDate) {
+            return parsed
+        }
+        return entry.timestamp
+    }
+
+    static func availableYears() -> [Int] {
+        let years = SubmissionStore.loadHistory().map { Calendar.current.component(.year, from: periodDate(for: $0)) }
+        return Array(Set(years)).sorted(by: >)
+    }
+
+    static func availableMonths(inYear year: Int) -> [Int] {
+        let months = entries(inYear: year).map { Calendar.current.component(.month, from: periodDate(for: $0)) }
+        return Array(Set(months)).sorted()
+    }
+
+    static func entries(inYear year: Int) -> [HistoryEntry] {
+        SubmissionStore.loadHistory().filter { Calendar.current.component(.year, from: periodDate(for: $0)) == year }
+    }
+
+    static func entries(inYear year: Int, month: Int) -> [HistoryEntry] {
+        SubmissionStore.loadHistory().filter {
+            let date = periodDate(for: $0)
+            let calendar = Calendar.current
+            return calendar.component(.year, from: date) == year && calendar.component(.month, from: date) == month
+        }
+    }
+
+    static func entries(from start: Date, to end: Date) -> [HistoryEntry] {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: start)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: end)) ?? end
+        return SubmissionStore.loadHistory().filter {
+            let date = periodDate(for: $0)
+            return date >= startOfDay && date < endOfDay
+        }
+    }
+
+    /// Builds a period archive: per-category folders (hard-linked photos +
+    /// extras, never copies — zero extra disk space) plus a CSV filtered
+    /// from the real on-disk logs so Comments survive. `includeEverything`
+    /// (used by `buildFullBackup`) also writes manifest.json + history.json
+    /// at the zip root — never Keychain/API keys, which must never leave
+    /// the device in a file that could be AirDropped or emailed.
+    static func buildArchive(label: String, entries: [HistoryEntry], includeEverything: Bool = false) throws -> URL {
+        guard !entries.isEmpty else { throw ArchiveBackupError.noReceipts }
+
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ReceiptDropArchive_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let byCategory = Dictionary(grouping: entries, by: { $0.category })
+        for (category, categoryEntries) in byCategory {
+            let categoryFolder = tempRoot.appendingPathComponent(category, isDirectory: true)
+            try FileManager.default.createDirectory(at: categoryFolder, withIntermediateDirectories: true)
+
+            for entry in categoryEntries {
+                for filename in [entry.receiptLink] + entry.extraFiles {
+                    guard !filename.isEmpty, !SubmissionPipeline.isPlaceholderLabel(filename),
+                          let source = LocalReceiptStore.existingFileURL(category: category, filename: filename) else { continue }
+                    let dest = categoryFolder.appendingPathComponent(filename)
+                    guard !FileManager.default.fileExists(atPath: dest.path) else { continue }
+                    // Hard link (zero extra bytes on APFS); fall back to a
+                    // copy if linking fails for any reason.
+                    if (try? FileManager.default.linkItem(at: source, to: dest)) == nil {
+                        try? FileManager.default.copyItem(at: source, to: dest)
+                    }
+                }
+            }
+
+            let csvContent = LocalReceiptStore.filteredCSV(category: category, entries: categoryEntries)
+            try csvContent.write(to: categoryFolder.appendingPathComponent("\(category)_log.csv"), atomically: true, encoding: .utf8)
+        }
+
+        if includeEverything {
+            let manifest: [String: Any] = [
+                "categories": CategoryStore.shared.categories,
+                "categoryDescriptions": CategoryStore.shared.descriptions,
+                "extractionProvider": ExtractionSettings.provider.rawValue,
+                "extractionMode": ExtractionSettings.mode.rawValue,
+                "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
+                "backupDate": ISO8601DateFormatter().string(from: Date()),
+            ]
+            if let manifestData = try? JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys]) {
+                try manifestData.write(to: tempRoot.appendingPathComponent("manifest.json"))
+            }
+            let historyEncoder = JSONEncoder()
+            historyEncoder.dateEncodingStrategy = .iso8601
+            historyEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            if let historyData = try? historyEncoder.encode(SubmissionStore.loadHistory()) {
+                try historyData.write(to: tempRoot.appendingPathComponent("history.json"))
+            }
+        }
+
+        return try LocalReceiptStore.zipFolder(at: tempRoot, name: label)
+    }
+
+    /// Everything: all receipts, drained first so nothing the share
+    /// extension wrote since the app was last opened gets missed.
+    static func buildFullBackup() throws -> URL {
+        LocalReceiptStore.drainSpoolIntoDocuments()
+        let label = "ReceiptDrop_Backup_\(LocalReceiptStore.todayString())"
+        return try buildArchive(label: label, entries: SubmissionStore.loadHistory(), includeEverything: true)
+    }
+}
+
 /// Human-in-the-loop status of a saved receipt, surfaced in the Receipts list.
 enum VerificationStatus: String, Codable {
     case none         // no review needed, never flagged
