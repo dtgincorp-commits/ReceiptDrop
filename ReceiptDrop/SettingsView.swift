@@ -154,6 +154,7 @@ struct ArchiveBackupView: View {
 
     @State private var showRestorePicker = false
     @State private var restoreMessage: String?
+    @State private var showRestoreConfirmation = false
     @State private var localBackups: [URL] = LocalReceiptStore.listBackups()
 
     private var years: [Int] { ArchiveBackupService.availableYears() }
@@ -193,6 +194,11 @@ struct ArchiveBackupView: View {
             localBackups = LocalReceiptStore.listBackups()
             lastBackupDate = BackupSettings.lastBackupDate
             reminderFrequency = BackupSettings.reminderFrequency
+        }
+        .alert("Restore Complete", isPresented: $showRestoreConfirmation) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(restoreMessage ?? "")
         }
     }
 
@@ -244,7 +250,9 @@ struct ArchiveBackupView: View {
             .disabled(isWorking)
 
             if let restoreMessage {
-                Text(restoreMessage).font(.caption).foregroundStyle(.secondary)
+                Label(restoreMessage, systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.green)
             }
             if let errorMessage {
                 Text(errorMessage).font(.caption).foregroundStyle(.red)
@@ -269,6 +277,7 @@ struct ArchiveBackupView: View {
                     isWorking = false
                     restoreMessage = "Restored \(summary.receiptsRestored) receipt\(summary.receiptsRestored == 1 ? "" : "s") (\(summary.receiptsSkipped) already present)."
                     localBackups = LocalReceiptStore.listBackups()
+                    showRestoreConfirmation = true
                 }
             } catch {
                 await MainActor.run {
