@@ -189,12 +189,22 @@ struct ArchiveBackupView: View {
             case .failure(let error): errorMessage = error.localizedDescription
             }
         }
-        .onAppear { localBackups = LocalReceiptStore.listBackups() }
+        .onAppear {
+            localBackups = LocalReceiptStore.listBackups()
+            lastBackupDate = BackupSettings.lastBackupDate
+            reminderFrequency = BackupSettings.reminderFrequency
+        }
     }
 
     @ViewBuilder
     private var restoreSection: some View {
         Section {
+            if isWorking {
+                HStack {
+                    ProgressView()
+                    Text("Restoring…").foregroundStyle(.secondary)
+                }
+            }
             if localBackups.isEmpty {
                 Text("No backups on this phone yet — tap \"Back Up Now\" above.")
                     .foregroundStyle(.secondary)
@@ -228,6 +238,9 @@ struct ArchiveBackupView: View {
 
             if let restoreMessage {
                 Text(restoreMessage).font(.caption).foregroundStyle(.secondary)
+            }
+            if let errorMessage {
+                Text(errorMessage).font(.caption).foregroundStyle(.red)
             }
         } header: {
             Text("Restore")
