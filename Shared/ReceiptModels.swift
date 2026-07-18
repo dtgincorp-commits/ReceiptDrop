@@ -308,10 +308,15 @@ enum ArchiveBackupService {
     static func buildArchive(label: String, entries: [HistoryEntry], includeEverything: Bool = false) throws -> URL {
         guard !entries.isEmpty else { throw ArchiveBackupError.noReceipts }
 
-        let tempRoot = FileManager.default.temporaryDirectory
+        // The label-named folder goes *inside* a throwaway UUID parent:
+        // `.forUploading` zips include the zipped folder itself as the zip's
+        // top-level entry, so this is the name users see when they unzip the
+        // backup in the Files app (and the folder Restore expects to find).
+        let tempParent = FileManager.default.temporaryDirectory
             .appendingPathComponent("ReceiptDropArchive_\(UUID().uuidString)", isDirectory: true)
+        let tempRoot = tempParent.appendingPathComponent(label, isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { try? FileManager.default.removeItem(at: tempParent) }
 
         let byCategory = Dictionary(grouping: entries, by: { $0.category })
         for (category, categoryEntries) in byCategory {
@@ -411,8 +416,22 @@ enum RestoreService {
         defer { try? FileManager.default.removeItem(at: tempRoot) }
         try MinimalZipReader.extract(zipURL: zipURL, to: tempRoot)
 
-        let historyURL = tempRoot.appendingPathComponent("history.json")
-        let manifestURL = tempRoot.appendingPathComponent("manifest.json")
+        // `.forUploading`-created zips contain the zipped folder itself as
+        // their top-level entry, so the backup's files usually sit one
+        // directory down from the extraction root. Accept either layout:
+        // top-level, or nested in a single subfolder.
+        var contentRoot = tempRoot
+        if !FileManager.default.fileExists(atPath: contentRoot.appendingPathComponent("history.json").path) {
+            let children = (try? FileManager.default.contentsOfDirectory(
+                at: contentRoot, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+            let subdirs = children.filter {
+                (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            }
+            if subdirs.count == 1 { contentRoot = subdirs[0] }
+        }
+
+        let historyURL = contentRoot.appendingPathComponent("history.json")
+        let manifestURL = contentRoot.appendingPathComponent("manifest.json")
         guard FileManager.default.fileExists(atPath: historyURL.path),
               FileManager.default.fileExists(atPath: manifestURL.path) else {
             throw RestoreError.notAFullBackup
@@ -430,14 +449,14 @@ enum RestoreService {
         for entry in newEntries {
             for filename in [entry.receiptLink] + entry.extraFiles {
                 guard !filename.isEmpty, !SubmissionPipeline.isPlaceholderLabel(filename) else { continue }
-                let sourceURL = tempRoot.appendingPathComponent(entry.category).appendingPathComponent(filename)
+                let sourceURL = contentRoot.appendingPathComponent(entry.category).appendingPathComponent(filename)
                 guard FileManager.default.fileExists(atPath: sourceURL.path) else { continue }
                 try? LocalReceiptStore.importFile(from: sourceURL, category: entry.category, filename: filename)
             }
         }
 
         for category in Set(backupEntries.map(\.category)) {
-            let backupCSVURL = tempRoot.appendingPathComponent(category).appendingPathComponent("\(category)_log.csv")
+            let backupCSVURL = contentRoot.appendingPathComponent(category).appendingPathComponent("\(category)_log.csv")
             if let backupCSVText = try? String(contentsOf: backupCSVURL, encoding: .utf8) {
                 try? LocalReceiptStore.mergeCSVRows(category: category, csvText: backupCSVText)
             }
