@@ -154,6 +154,7 @@ struct ArchiveBackupView: View {
 
     @State private var showRestorePicker = false
     @State private var restoreMessage: String?
+    @State private var localBackups: [URL] = LocalReceiptStore.listBackups()
 
     private var years: [Int] { ArchiveBackupService.availableYears() }
     private var months: [Int] { selectedYear.map(ArchiveBackupService.availableMonths(inYear:)) ?? [] }
@@ -188,24 +189,50 @@ struct ArchiveBackupView: View {
             case .failure(let error): errorMessage = error.localizedDescription
             }
         }
+        .onAppear { localBackups = LocalReceiptStore.listBackups() }
     }
 
     @ViewBuilder
     private var restoreSection: some View {
         Section {
+            if localBackups.isEmpty {
+                Text("No backups on this phone yet — tap \"Back Up Now\" above.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(localBackups, id: \.self) { url in
+                    Button {
+                        restore(from: url)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(Self.backupDate(for: url)?.formatted(date: .abbreviated, time: .shortened) ?? url.lastPathComponent)
+                                    .foregroundStyle(.primary)
+                                Text(Self.backupSizeString(for: url))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .disabled(isWorking)
+                }
+                .onDelete(perform: deleteLocalBackups)
+            }
+
             Button {
                 showRestorePicker = true
             } label: {
-                Label("Restore from Backup", systemImage: "arrow.down.doc")
+                Label("Restore from Other Location…", systemImage: "arrow.down.doc")
             }
             .disabled(isWorking)
+
             if let restoreMessage {
                 Text(restoreMessage).font(.caption).foregroundStyle(.secondary)
             }
         } header: {
             Text("Restore")
         } footer: {
-            Text("Restores a full backup zip made with \"Back Up Now\" above (not a period Archive export). Never overwrites or deletes anything already on this phone — only adds what's missing. Your API key isn't stored in backups; re-enter it in Settings after restoring on a new phone.")
+            Text("Tap a backup to restore it — never overwrites or deletes anything already on this phone, only adds what's missing. Swipe to delete a backup you no longer need. \"Restore from Other Location\" opens the Files picker, for backups saved to iCloud Drive or from another phone. Your API key isn't stored in backups; re-enter it in Settings after restoring on a new phone.")
         }
     }
 
@@ -221,6 +248,7 @@ struct ArchiveBackupView: View {
                 await MainActor.run {
                     isWorking = false
                     restoreMessage = "Restored \(summary.receiptsRestored) receipt\(summary.receiptsRestored == 1 ? "" : "s") (\(summary.receiptsSkipped) already present)."
+                    localBackups = LocalReceiptStore.listBackups()
                 }
             } catch {
                 await MainActor.run {
@@ -363,6 +391,7 @@ struct ArchiveBackupView: View {
                     shareURL = IdentifiableURL(url: url)
                     BackupSettings.lastBackupDate = Date()
                     lastBackupDate = Date()
+                    localBackups = LocalReceiptStore.listBackups()
                 }
             } catch {
                 await MainActor.run {
@@ -380,6 +409,22 @@ struct ArchiveBackupView: View {
         components.month = month
         components.year = 2000
         return formatter.string(from: Calendar.current.date(from: components) ?? Date())
+    }
+
+    private func deleteLocalBackups(at offsets: IndexSet) {
+        for index in offsets {
+            try? FileManager.default.removeItem(at: localBackups[index])
+        }
+        localBackups = LocalReceiptStore.listBackups()
+    }
+
+    private static func backupDate(for url: URL) -> Date? {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+    }
+
+    private static func backupSizeString(for url: URL) -> String {
+        let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 }
 

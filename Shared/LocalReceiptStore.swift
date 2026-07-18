@@ -14,6 +14,7 @@ import Foundation
 /// simultaneous drain.
 enum LocalReceiptStore {
     private static let receiptsDirName = "Receipts"
+    private static let backupsDirName = "Backups"
 
     /// Saves `data` into the App Group spool for `category`, returning the
     /// filename used (also the name the file will keep once drained).
@@ -414,6 +415,50 @@ enum LocalReceiptStore {
     /// actually lives, visible in the Files app.
     static func documentsCategoryFolderURL(category: String) -> URL? {
         documentsRootURL()?.appendingPathComponent(category, isDirectory: true)
+    }
+
+    // MARK: - Backup library
+
+    /// Where full-backup zips are kept on-device, visible in Files under
+    /// On My iPhone > Receipt Drop > Backups — lets Restore list them by
+    /// date instead of requiring the document picker every time (which only
+    /// exists because the app has no way to see back into wherever a share
+    /// sheet destination like iCloud Drive actually put the file).
+    static func backupsFolderURL() -> URL? {
+        guard let folder = documentsRootURL()?.deletingLastPathComponent().appendingPathComponent(backupsDirName, isDirectory: true) else {
+            return nil
+        }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    /// All backup zips on-device, newest first (by modification date — the
+    /// filename only has day granularity, so two same-day backups need mtime
+    /// to sort correctly).
+    static func listBackups() -> [URL] {
+        guard let folder = backupsFolderURL(),
+              let files = try? FileManager.default.contentsOfDirectory(
+                  at: folder, includingPropertiesForKeys: [.contentModificationDateKey]) else {
+            return []
+        }
+        return files
+            .filter { $0.pathExtension.lowercased() == "zip" }
+            .sorted {
+                let d0 = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                let d1 = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                return d0 > d1
+            }
+    }
+
+    /// Deletes all but the newest `keeping` backups — each retained backup
+    /// costs roughly the full size of your photos, so unbounded retention
+    /// isn't free the way it is for CSVs/history.
+    static func pruneBackups(keeping: Int = 2) {
+        let backups = listBackups()
+        guard backups.count > keeping else { return }
+        for url in backups[keeping...] {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     /// Finds the category's CSV log, checking Documents (drained) then the

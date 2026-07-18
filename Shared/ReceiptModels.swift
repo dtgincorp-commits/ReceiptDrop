@@ -360,11 +360,29 @@ enum ArchiveBackupService {
     }
 
     /// Everything: all receipts, drained first so nothing the share
-    /// extension wrote since the app was last opened gets missed.
+    /// extension wrote since the app was last opened gets missed. Moves the
+    /// finished zip into the on-device backup library (Documents/Backups)
+    /// rather than leaving it in tmp — that's what lets Restore list past
+    /// backups by date instead of requiring the document picker every time.
+    /// Prunes to the 2 most recent afterward, since each retained backup
+    /// costs roughly the full size of your photos.
+    @discardableResult
     static func buildFullBackup() throws -> URL {
         LocalReceiptStore.drainSpoolIntoDocuments()
-        let label = "ReceiptDrop_Backup_\(LocalReceiptStore.todayString())"
-        return try buildArchive(label: label, entries: SubmissionStore.loadHistory(), includeEverything: true)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+        let label = "ReceiptDrop_Backup_\(formatter.string(from: Date()))"
+        let tempZipURL = try buildArchive(label: label, entries: SubmissionStore.loadHistory(), includeEverything: true)
+
+        guard let backupsFolder = LocalReceiptStore.backupsFolderURL() else {
+            return tempZipURL
+        }
+        let finalURL = backupsFolder.appendingPathComponent(tempZipURL.lastPathComponent)
+        try? FileManager.default.removeItem(at: finalURL)
+        try FileManager.default.moveItem(at: tempZipURL, to: finalURL)
+        LocalReceiptStore.pruneBackups(keeping: 2)
+        return finalURL
     }
 }
 
