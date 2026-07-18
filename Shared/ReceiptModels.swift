@@ -165,8 +165,10 @@ enum ExtractionSettings {
 
     static var provider: ExtractionProvider {
         get {
+            // Gemini is the default: it has a genuine free tier (no card,
+            // no per-user cost), unlike Claude/OpenAI which always bill.
             guard let raw = defaults.string(forKey: AppConstants.DefaultsKeys.extractionProvider),
-                  let value = ExtractionProvider(rawValue: raw) else { return .claude }
+                  let value = ExtractionProvider(rawValue: raw) else { return .gemini }
             return value
         }
         set { defaults.set(newValue.rawValue, forKey: AppConstants.DefaultsKeys.extractionProvider) }
