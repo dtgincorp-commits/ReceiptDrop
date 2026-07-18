@@ -230,6 +230,13 @@ struct ArchiveBackupView: View {
             }
 
             Button {
+                openBackupsFolder()
+            } label: {
+                Label("Show Backups Folder in Files", systemImage: "folder")
+            }
+            .disabled(isWorking)
+
+            Button {
                 showRestorePicker = true
             } label: {
                 Label("Restore from Other Location…", systemImage: "arrow.down.doc")
@@ -245,7 +252,7 @@ struct ArchiveBackupView: View {
         } header: {
             Text("Restore")
         } footer: {
-            Text("Tap a backup to restore it — never overwrites or deletes anything already on this phone, only adds what's missing. Swipe to delete a backup you no longer need. \"Restore from Other Location\" opens the Files picker, for backups saved to iCloud Drive or from another phone. Your API key isn't stored in backups; re-enter it in Settings after restoring on a new phone.")
+            Text("These backups are stored on this phone at Files → On My iPhone → Receipt Drop → Backups. Tap one to restore it — never overwrites or deletes anything already on this phone, only adds what's missing. Swipe to delete a backup you no longer need. \"Restore from Other Location\" opens the Files picker, for backups saved to iCloud Drive or from another phone. Your API key isn't stored in backups; re-enter it in Settings after restoring on a new phone.")
         }
     }
 
@@ -429,6 +436,16 @@ struct ArchiveBackupView: View {
             try? FileManager.default.removeItem(at: localBackups[index])
         }
         localBackups = LocalReceiptStore.listBackups()
+    }
+
+    /// Deep-links into the Files app at the Backups folder using the
+    /// `shareddocuments://` scheme — same mechanism as the category-folder
+    /// and CSV links on the Categories screen.
+    private func openBackupsFolder() {
+        guard let folderURL = LocalReceiptStore.backupsFolderURL(),
+              let filesURL = URL(string: folderURL.absoluteString
+                  .replacingOccurrences(of: "file://", with: "shareddocuments://")) else { return }
+        UIApplication.shared.open(filesURL)
     }
 
     private static func backupDate(for url: URL) -> Date? {
