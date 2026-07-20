@@ -129,7 +129,7 @@ struct ReceiptsView: View {
                 }
             }
             .navigationTitle("Receipts")
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search vendor, amount, category, date")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search vendor, amount, category, date")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {
