@@ -19,12 +19,14 @@ struct EditReceiptView: View {
     @State private var customTypes: [String] = CustomVendorTypeStore.customTypes
     @State private var showAddCustomType = false
     @State private var newCustomTypeName = ""
+    @State private var showManageCustomTypes = false
     @State private var message: String?
     @State private var isSaving = false
 
-    /// Sentinel tag for the "Add Custom Type…" picker row — never a real
-    /// stored value, just a trigger to open the text-entry prompt.
+    /// Sentinel tags for the picker's action rows — never real stored
+    /// values, just triggers for the text-entry prompt / management sheet.
     private static let addCustomTypeTag = "__add_custom_type__"
+    private static let manageCustomTypesTag = "__manage_custom_types__"
 
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var newPhotoData: Data?
@@ -89,14 +91,25 @@ struct EditReceiptView: View {
                             Text(custom).tag(custom)
                         }
                         Text("Add Custom Type…").tag(Self.addCustomTypeTag)
+                        if !customTypes.isEmpty {
+                            Text("Manage Custom Types…").tag(Self.manageCustomTypesTag)
+                        }
                     }
                     .disabled(isSaving)
                     .onChange(of: selectedVendorType) { newValue in
-                        guard newValue == Self.addCustomTypeTag else { return }
-                        // Revert the picker until the user actually submits a
-                        // name — this tag is a trigger, never a real value.
-                        selectedVendorType = entry.vendorType
-                        showAddCustomType = true
+                        // Both are triggers, never real stored values — revert
+                        // the picker before acting so an unrelated re-render
+                        // doesn't leave it stuck on a sentinel tag.
+                        switch newValue {
+                        case Self.addCustomTypeTag:
+                            selectedVendorType = entry.vendorType
+                            showAddCustomType = true
+                        case Self.manageCustomTypesTag:
+                            selectedVendorType = entry.vendorType
+                            showManageCustomTypes = true
+                        default:
+                            break
+                        }
                     }
                 }
 
@@ -172,6 +185,25 @@ struct EditReceiptView: View {
             }
         } message: {
             Text("Saved for future receipts too — reusable from this same picker.")
+        }
+        .sheet(isPresented: $showManageCustomTypes, onDismiss: {
+            customTypes = CustomVendorTypeStore.customTypes
+            // The type just removed might have been this receipt's current
+            // selection — fall back to Unclassified rather than keeping a
+            // now-nonexistent tag selected.
+            if !selectedVendorType.isEmpty, !VendorType.allRawValues.contains(selectedVendorType),
+               !customTypes.contains(selectedVendorType) {
+                selectedVendorType = ""
+            }
+        }) {
+            NavigationStack {
+                CustomVendorTypesView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showManageCustomTypes = false }
+                        }
+                    }
+            }
         }
     }
 

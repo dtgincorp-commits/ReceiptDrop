@@ -92,11 +92,6 @@ struct SettingsView: View {
                     if let classifyError {
                         Text(classifyError).font(.caption).foregroundStyle(.red)
                     }
-                    NavigationLink {
-                        CustomVendorTypesView()
-                    } label: {
-                        Label("Manage Custom Types", systemImage: "tag")
-                    }
                 } header: {
                     Text("Vendor Types")
                 } footer: {
