@@ -21,6 +21,15 @@ struct ReceiptsView: View {
     /// nil shows every category; otherwise the tree only shows this one.
     @State private var filterCategory: String?
     @State private var searchText = ""
+    /// Set only after a natural-language search (Return/submit) succeeds in
+    /// understanding something — nil means "show the plain instant search
+    /// results," not "show nothing."
+    @State private var semanticFilter: QueryParseResult?
+    /// Vendor names (lowercased) matching semanticFilter.vendorType, once
+    /// classified. nil until that classification completes.
+    @State private var matchedVendorNames: Set<String>?
+    @State private var isSemanticSearching = false
+    @State private var semanticError: String?
 
     private var filteredEntries: [HistoryEntry] {
         guard let filterCategory else { return entries }
@@ -97,6 +106,116 @@ struct ReceiptsView: View {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Results from the AI-understood filter, if one is active — nil means
+    /// no semantic filter is in effect (fall back to `searchResults`).
+    private var semanticResults: [HistoryEntry]? {
+        guard let semanticFilter else { return nil }
+        return filteredEntries.filter { entry in
+            if let vendorType = semanticFilter.vendorType, !vendorType.isEmpty {
+                guard let matchedVendorNames, matchedVendorNames.contains(entry.vendor.lowercased()) else { return false }
+            }
+            guard let amount = Double(entry.amount) else {
+                return semanticFilter.amountMin == nil && semanticFilter.amountMax == nil
+            }
+            if let min = semanticFilter.amountMin, amount < min { return false }
+            if let max = semanticFilter.amountMax, amount > max { return false }
+            return true
+        }.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    /// What the search list actually displays: the AI-understood filter's
+    /// results if one is active, otherwise the plain instant search.
+    private var effectiveSearchResults: [HistoryEntry] {
+        semanticResults ?? searchResults
+    }
+
+    /// Parses `searchText` via whichever AI provider is configured and, if a
+    /// business type was mentioned, classifies vendor names against it
+    /// (consulting the cache — see SemanticSearchService). Fired on
+    /// search-field submit, not per keystroke, since it's a real network
+    /// call. If the AI can't extract anything useful, silently falls back to
+    /// the plain instant search rather than showing an empty result set.
+    private func runSemanticSearch() {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        semanticError = nil
+        isSemanticSearching = true
+        let candidateVendors = Array(Set(filteredEntries.map(\.vendor))).filter { !$0.isEmpty }
+        Task {
+            do {
+                let parsed = try await SemanticSearchService.parseQuery(query)
+                var matched: Set<String>?
+                if let vendorType = parsed.vendorType, !vendorType.isEmpty {
+                    matched = try await SemanticSearchService.matchingVendors(typeQuery: vendorType, vendorNames: candidateVendors)
+                }
+                await MainActor.run {
+                    isSemanticSearching = false
+                    if parsed.isEmpty {
+                        semanticFilter = nil
+                        matchedVendorNames = nil
+                    } else {
+                        semanticFilter = parsed
+                        matchedVendorNames = matched
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isSemanticSearching = false
+                    semanticError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Removable filter chips shown above semantic search results — tapping
+    /// a chip's X clears just that part of the filter locally (no new AI
+    /// call needed, since the remaining filter is applied the same way).
+    @ViewBuilder
+    private func semanticChipsRow(for filter: QueryParseResult) -> some View {
+        HStack(spacing: 8) {
+            if let vendorType = filter.vendorType, !vendorType.isEmpty {
+                filterChip(label: vendorType.capitalized) {
+                    semanticFilter = QueryParseResult(vendorType: nil, amountMin: filter.amountMin, amountMax: filter.amountMax)
+                }
+            }
+            if let min = filter.amountMin, let max = filter.amountMax {
+                filterChip(label: "$\(Self.formatAmount(min)) – $\(Self.formatAmount(max))") {
+                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: nil, amountMax: nil)
+                }
+            } else if let min = filter.amountMin {
+                filterChip(label: "over $\(Self.formatAmount(min))") {
+                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: nil, amountMax: filter.amountMax)
+                }
+            } else if let max = filter.amountMax {
+                filterChip(label: "under $\(Self.formatAmount(max))") {
+                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: filter.amountMin, amountMax: nil)
+                }
+            }
+            Spacer()
+        }
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        .listRowSeparator(.hidden)
+    }
+
+    private func filterChip(label: String, onRemove: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            Text(label).font(.caption.weight(.semibold))
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill").font(.caption2)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Theme.skyBlueBright.opacity(0.15))
+        .foregroundStyle(Theme.skyBlue)
+        .clipShape(Capsule())
+    }
+
+    private static func formatAmount(_ value: Double) -> String {
+        value.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", value) : String(format: "%.2f", value)
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -106,20 +225,30 @@ struct ReceiptsView: View {
                         message: "Receipts you submit will appear here."
                     )
                 } else if isSearching {
-                    if searchResults.isEmpty {
-                        List {
-                            categoryPillRow
+                    List {
+                        categoryPillRow
+                        if let semanticFilter, semanticResults != nil {
+                            semanticChipsRow(for: semanticFilter)
+                        }
+                        if isSemanticSearching {
+                            HStack {
+                                ProgressView()
+                                Text("Understanding your search…").foregroundStyle(.secondary)
+                            }
+                            .listRowSeparator(.hidden)
+                        }
+                        if let semanticError {
+                            Text(semanticError).font(.caption).foregroundStyle(.red)
+                                .listRowSeparator(.hidden)
+                        }
+                        if effectiveSearchResults.isEmpty && !isSemanticSearching {
                             ContentUnavailableCompatView(
                                 title: "No Matches",
                                 message: "No receipts match \"\(searchText)\"."
                             )
                             .listRowSeparator(.hidden)
-                        }
-                        .listStyle(.plain)
-                    } else {
-                        List {
-                            categoryPillRow
-                            ForEach(searchResults) { entry in
+                        } else {
+                            ForEach(effectiveSearchResults) { entry in
                                 ReceiptRow(entry: entry, onReview: { editingEntry = entry })
                                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -139,8 +268,8 @@ struct ReceiptsView: View {
                                     }
                             }
                         }
-                        .listStyle(.plain)
                     }
+                    .listStyle(.plain)
                 } else if filteredEntries.isEmpty {
                     List {
                         categoryPillRow
@@ -183,7 +312,13 @@ struct ReceiptsView: View {
             }
             .navigationTitle("Receipts")
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search, or try >80 for amounts over $80")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search, or try \"restaurants over $100\"")
+            .onSubmit(of: .search) { runSemanticSearch() }
+            .onChange(of: searchText) { _ in
+                semanticFilter = nil
+                matchedVendorNames = nil
+                semanticError = nil
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {

@@ -35,6 +35,7 @@ enum AppConstants {
         static let extractionMode = "extractionMode"
         static let lastBackupDate = "lastBackupDate"
         static let backupReminderFrequency = "backupReminderFrequency"
+        static let vendorTypeCache = "vendorTypeCache"
     }
 
     /// Date format written to the Work_Date column.

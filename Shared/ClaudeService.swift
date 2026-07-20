@@ -446,3 +446,351 @@ struct GeminiService: ReceiptExtractor {
             modelReason: string("confidence_reason"))
     }
 }
+
+// MARK: - Semantic search
+
+/// A search query broken into a structured filter, e.g. "restaurant receipts
+/// over 100" → vendorType "restaurant", amountMin 100.
+struct QueryParseResult {
+    let vendorType: String?
+    let amountMin: Double?
+    let amountMax: Double?
+
+    var isEmpty: Bool { vendorType == nil && amountMin == nil && amountMax == nil }
+}
+
+enum SemanticSearchError: LocalizedError {
+    case missingAPIKey
+    case api(String)
+    case parsing(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingAPIKey:
+            return "No API key configured for the selected AI Provider — add one in Settings to use natural-language search."
+        case .api(let detail):
+            return "AI search error: \(detail)"
+        case .parsing(let detail):
+            return "Couldn't understand that search: \(detail)"
+        }
+    }
+}
+
+/// Turns a free-form search phrase into a structured filter, and separately
+/// classifies vendor names into business types ("is 'Chili's' a
+/// restaurant?") — both via whichever AI provider is currently selected in
+/// Settings, reusing the same keys/models as receipt extraction. Vendor
+/// classifications are cached forever per (type, vendor) pair, so repeat
+/// searches — and searches for previously-classified vendors under a new
+/// type query — don't repeatedly re-ask the AI; only genuinely new vendor
+/// names for a given type trigger a call.
+enum SemanticSearchService {
+    static func parseQuery(_ text: String) async throws -> QueryParseResult {
+        switch ExtractionSettings.provider {
+        case .claude: return try await parseQueryViaClaude(text)
+        case .openAI: return try await parseQueryViaOpenAI(text)
+        case .gemini, .appleOnDevice: return try await parseQueryViaGemini(text)
+        }
+    }
+
+    /// Returns the subset of `vendorNames` that are of `typeQuery`'s business
+    /// type, consulting the cache first and only asking the AI about
+    /// vendors it hasn't classified for this type before.
+    static func matchingVendors(typeQuery: String, vendorNames: [String]) async throws -> Set<String> {
+        let normalizedType = typeQuery.lowercased().trimmingCharacters(in: .whitespaces)
+        guard !normalizedType.isEmpty, !vendorNames.isEmpty else { return [] }
+
+        var cache = loadCache()
+        var typeCache = cache[normalizedType] ?? [:]
+
+        let unclassified = vendorNames.filter { typeCache[$0.lowercased()] == nil }
+        if !unclassified.isEmpty {
+            let matches = try await classifyVendors(unclassified, typeQuery: normalizedType)
+            for vendor in unclassified {
+                typeCache[vendor.lowercased()] = matches.contains(vendor.lowercased())
+            }
+            cache[normalizedType] = typeCache
+            saveCache(cache)
+        }
+
+        return Set(vendorNames.filter { typeCache[$0.lowercased()] == true })
+    }
+
+    private static func classifyVendors(_ vendorNames: [String], typeQuery: String) async throws -> Set<String> {
+        switch ExtractionSettings.provider {
+        case .claude: return try await classifyVendorsViaClaude(vendorNames, typeQuery: typeQuery)
+        case .openAI: return try await classifyVendorsViaOpenAI(vendorNames, typeQuery: typeQuery)
+        case .gemini, .appleOnDevice: return try await classifyVendorsViaGemini(vendorNames, typeQuery: typeQuery)
+        }
+    }
+
+    // MARK: Cache
+
+    private static let defaults = UserDefaults(suiteName: AppConstants.appGroupID)!
+
+    private static func loadCache() -> [String: [String: Bool]] {
+        guard let data = defaults.data(forKey: AppConstants.DefaultsKeys.vendorTypeCache),
+              let decoded = try? JSONDecoder().decode([String: [String: Bool]].self, from: data) else { return [:] }
+        return decoded
+    }
+
+    private static func saveCache(_ cache: [String: [String: Bool]]) {
+        guard let data = try? JSONEncoder().encode(cache) else { return }
+        defaults.set(data, forKey: AppConstants.DefaultsKeys.vendorTypeCache)
+    }
+
+    // MARK: Claude
+
+    private static func parseQueryViaClaude(_ text: String) async throws -> QueryParseResult {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.anthropicAPIKey), !apiKey.isEmpty else {
+            throw SemanticSearchError.missingAPIKey
+        }
+        let tool: [String: Any] = [
+            "name": "parse_search_query",
+            "description": "Extract a structured filter from a natural-language receipt search query.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "vendor_type": ["type": ["string", "null"], "description": "The kind of business being searched for (e.g. 'restaurant', 'gas station', 'hardware store'). Null if the query doesn't mention a business type."],
+                    "amount_min": ["type": ["number", "null"], "description": "Minimum amount if the query implies a lower bound (e.g. 'over 100', 'at least 50'). Null if none."],
+                    "amount_max": ["type": ["number", "null"], "description": "Maximum amount if the query implies an upper bound (e.g. 'under 20', 'below $50'). Null if none."],
+                ],
+                "required": ["vendor_type", "amount_min", "amount_max"],
+            ],
+        ]
+        let body: [String: Any] = [
+            "model": AppConstants.claudeModel,
+            "max_tokens": 512,
+            "tools": [tool],
+            "tool_choice": ["type": "tool", "name": "parse_search_query"],
+            "messages": [["role": "user", "content": "Parse this receipt search query: \"\(text)\""]],
+        ]
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw SemanticSearchError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let content = json["content"] as? [[String: Any]],
+              let toolUse = content.first(where: { $0["type"] as? String == "tool_use" }),
+              let input = toolUse["input"] as? [String: Any] else {
+            throw SemanticSearchError.parsing("Malformed response")
+        }
+        return QueryParseResult(
+            vendorType: input["vendor_type"] as? String,
+            amountMin: (input["amount_min"] as? NSNumber)?.doubleValue,
+            amountMax: (input["amount_max"] as? NSNumber)?.doubleValue)
+    }
+
+    private static func classifyVendorsViaClaude(_ vendorNames: [String], typeQuery: String) async throws -> Set<String> {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.anthropicAPIKey), !apiKey.isEmpty else {
+            throw SemanticSearchError.missingAPIKey
+        }
+        let tool: [String: Any] = [
+            "name": "classify_vendors",
+            "description": "Return which of the given vendor names are of the requested business type.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "matching_vendors": ["type": "array", "items": ["type": "string"], "description": "Exact vendor names from the provided list that are '\(typeQuery)' businesses."],
+                ],
+                "required": ["matching_vendors"],
+            ],
+        ]
+        let vendorList = vendorNames.joined(separator: "\n")
+        let body: [String: Any] = [
+            "model": AppConstants.claudeModel,
+            "max_tokens": 1024,
+            "tools": [tool],
+            "tool_choice": ["type": "tool", "name": "classify_vendors"],
+            "messages": [["role": "user", "content": "Vendor/business names, one per line:\n\n\(vendorList)\n\nWhich of these are '\(typeQuery)' businesses? Use general knowledge of what the name suggests. Return exact names from the list only."]],
+        ]
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw SemanticSearchError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let content = json["content"] as? [[String: Any]],
+              let toolUse = content.first(where: { $0["type"] as? String == "tool_use" }),
+              let input = toolUse["input"] as? [String: Any],
+              let matches = input["matching_vendors"] as? [String] else {
+            throw SemanticSearchError.parsing("Malformed response")
+        }
+        return Set(matches.map { $0.lowercased() })
+    }
+
+    // MARK: OpenAI
+
+    private static func parseQueryViaOpenAI(_ text: String) async throws -> QueryParseResult {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.openAIAPIKey), !apiKey.isEmpty else {
+            throw SemanticSearchError.missingAPIKey
+        }
+        let schema: [String: Any] = [
+            "type": "object",
+            "properties": [
+                "vendor_type": ["type": ["string", "null"]],
+                "amount_min": ["type": ["number", "null"]],
+                "amount_max": ["type": ["number", "null"]],
+            ],
+            "required": ["vendor_type", "amount_min", "amount_max"],
+            "additionalProperties": false,
+        ]
+        let body: [String: Any] = [
+            "model": AppConstants.openAIModel,
+            "messages": [["role": "user", "content": "Parse this receipt search query into a structured filter: \"\(text)\""]],
+            "response_format": ["type": "json_schema", "json_schema": ["name": "parse_search_query", "strict": true, "schema": schema]],
+        ]
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw SemanticSearchError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let contentString = message["content"] as? String,
+              let fieldsData = contentString.data(using: .utf8),
+              let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any] else {
+            throw SemanticSearchError.parsing("Malformed response")
+        }
+        return QueryParseResult(
+            vendorType: fields["vendor_type"] as? String,
+            amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
+            amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue)
+    }
+
+    private static func classifyVendorsViaOpenAI(_ vendorNames: [String], typeQuery: String) async throws -> Set<String> {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.openAIAPIKey), !apiKey.isEmpty else {
+            throw SemanticSearchError.missingAPIKey
+        }
+        let schema: [String: Any] = [
+            "type": "object",
+            "properties": ["matching_vendors": ["type": "array", "items": ["type": "string"]]],
+            "required": ["matching_vendors"],
+            "additionalProperties": false,
+        ]
+        let vendorList = vendorNames.joined(separator: "\n")
+        let body: [String: Any] = [
+            "model": AppConstants.openAIModel,
+            "messages": [["role": "user", "content": "Vendor/business names, one per line:\n\n\(vendorList)\n\nWhich of these are '\(typeQuery)' businesses? Return exact names from the list only."]],
+            "response_format": ["type": "json_schema", "json_schema": ["name": "classify_vendors", "strict": true, "schema": schema]],
+        ]
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw SemanticSearchError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let contentString = message["content"] as? String,
+              let fieldsData = contentString.data(using: .utf8),
+              let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any],
+              let matches = fields["matching_vendors"] as? [String] else {
+            throw SemanticSearchError.parsing("Malformed response")
+        }
+        return Set(matches.map { $0.lowercased() })
+    }
+
+    // MARK: Gemini
+
+    private static func parseQueryViaGemini(_ text: String) async throws -> QueryParseResult {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.geminiAPIKey), !apiKey.isEmpty else {
+            throw SemanticSearchError.missingAPIKey
+        }
+        let schema: [String: Any] = [
+            "type": "OBJECT",
+            "properties": [
+                "vendor_type": ["type": "STRING", "nullable": true],
+                "amount_min": ["type": "NUMBER", "nullable": true],
+                "amount_max": ["type": "NUMBER", "nullable": true],
+            ],
+        ]
+        let body: [String: Any] = [
+            "contents": [["parts": [["text": "Parse this receipt search query into a structured filter: \"\(text)\""]]]],
+            "generationConfig": ["responseMimeType": "application/json", "responseSchema": schema],
+        ]
+        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(AppConstants.geminiModel):generateContent?key=\(apiKey)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw SemanticSearchError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let candidates = json["candidates"] as? [[String: Any]],
+              let contentDict = candidates.first?["content"] as? [String: Any],
+              let parts = contentDict["parts"] as? [[String: Any]],
+              let text = parts.first?["text"] as? String,
+              let fieldsData = text.data(using: .utf8),
+              let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any] else {
+            throw SemanticSearchError.parsing("Malformed response")
+        }
+        return QueryParseResult(
+            vendorType: fields["vendor_type"] as? String,
+            amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
+            amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue)
+    }
+
+    private static func classifyVendorsViaGemini(_ vendorNames: [String], typeQuery: String) async throws -> Set<String> {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.geminiAPIKey), !apiKey.isEmpty else {
+            throw SemanticSearchError.missingAPIKey
+        }
+        let schema: [String: Any] = [
+            "type": "OBJECT",
+            "properties": ["matching_vendors": ["type": "ARRAY", "items": ["type": "STRING"]]],
+        ]
+        let vendorList = vendorNames.joined(separator: "\n")
+        let body: [String: Any] = [
+            "contents": [["parts": [["text": "Vendor/business names, one per line:\n\n\(vendorList)\n\nWhich of these are '\(typeQuery)' businesses? Return exact names from the list only."]]]],
+            "generationConfig": ["responseMimeType": "application/json", "responseSchema": schema],
+        ]
+        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(AppConstants.geminiModel):generateContent?key=\(apiKey)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw SemanticSearchError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let candidates = json["candidates"] as? [[String: Any]],
+              let contentDict = candidates.first?["content"] as? [String: Any],
+              let parts = contentDict["parts"] as? [[String: Any]],
+              let text = parts.first?["text"] as? String,
+              let fieldsData = text.data(using: .utf8),
+              let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any],
+              let matches = fields["matching_vendors"] as? [String] else {
+            throw SemanticSearchError.parsing("Malformed response")
+        }
+        return Set(matches.map { $0.lowercased() })
+    }
+}
