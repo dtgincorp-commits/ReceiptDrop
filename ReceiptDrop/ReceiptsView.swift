@@ -27,10 +27,19 @@ struct ReceiptsView: View {
     @State private var semanticFilter: QueryParseResult?
     @State private var isSemanticSearching = false
     @State private var semanticError: String?
+    /// Toggled by the "N receipts need review" banner — shows a flat list of
+    /// just those entries instead of the tree, same mechanism as search
+    /// results. Replaces per-row pulsing as the primary way of surfacing
+    /// this: one calm aggregate call-to-action instead of N animated nags.
+    @State private var reviewFilterActive = false
 
     private var filteredEntries: [HistoryEntry] {
         guard let filterCategory else { return entries }
         return entries.filter { $0.category == filterCategory }
+    }
+
+    private var needsReviewEntries: [HistoryEntry] {
+        filteredEntries.filter { $0.verificationStatus == .needsReview }
     }
 
     /// Matches vendor, amount, category, or work date against the search
@@ -125,10 +134,14 @@ struct ReceiptsView: View {
         }.sorted { $0.timestamp > $1.timestamp }
     }
 
-    /// What the search list actually displays: the AI-understood filter's
-    /// results if one is active, otherwise the plain instant search.
+    /// What the flat list actually displays, in priority order: the "needs
+    /// review" filter (if active, via the banner), then the AI-understood
+    /// search filter, then the plain instant search.
     private var effectiveSearchResults: [HistoryEntry] {
-        semanticResults ?? searchResults
+        if reviewFilterActive {
+            return needsReviewEntries.sorted { $0.timestamp > $1.timestamp }
+        }
+        return semanticResults ?? searchResults
     }
 
     /// Parses `searchText` via whichever AI provider is configured. Fired on
@@ -266,6 +279,35 @@ struct ReceiptsView: View {
         .listRowBackground(Color.clear)
     }
 
+    /// Single calm aggregate call-to-action, replacing per-row pulsing as
+    /// the primary way of surfacing receipts needing review — tapping opens
+    /// a flat filtered list (same mechanism as search) rather than a chase
+    /// of individually-animated rows.
+    @ViewBuilder
+    private var needsReviewBanner: some View {
+        Button {
+            reviewFilterActive = true
+        } label: {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("\(needsReviewEntries.count) receipt\(needsReviewEntries.count == 1 ? "" : "s") need\(needsReviewEntries.count == 1 ? "s" : "") review")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .background(Color.orange.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        .listRowSeparator(.hidden)
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -274,9 +316,14 @@ struct ReceiptsView: View {
                         title: "No Receipts Yet",
                         message: "Receipts you submit will appear here."
                     )
-                } else if isSearching {
+                } else if isSearching || reviewFilterActive {
                     List {
                         categoryPillRow
+                        if reviewFilterActive {
+                            filterChip(label: "Needs Review") { reviewFilterActive = false }
+                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                                .listRowSeparator(.hidden)
+                        }
                         if let semanticFilter, semanticResults != nil {
                             semanticChipsRow(for: semanticFilter)
                         }
@@ -294,7 +341,7 @@ struct ReceiptsView: View {
                         if effectiveSearchResults.isEmpty && !isSemanticSearching {
                             ContentUnavailableCompatView(
                                 title: "No Matches",
-                                message: "No receipts match \"\(searchText)\"."
+                                message: reviewFilterActive ? "Nothing needs review." : "No receipts match \"\(searchText)\"."
                             )
                             .listRowSeparator(.hidden)
                         } else {
@@ -334,6 +381,9 @@ struct ReceiptsView: View {
                 } else {
                     List {
                         summaryHeader
+                        if !needsReviewEntries.isEmpty {
+                            needsReviewBanner
+                        }
                         categoryPillRow
                         ForEach(flatRows(from: YearGroup.build(from: filteredEntries, groupByWorkDate: groupByWorkDate))) { row in
                             rowView(for: row)
@@ -370,6 +420,7 @@ struct ReceiptsView: View {
             .onChange(of: searchText) { _ in
                 semanticFilter = nil
                 semanticError = nil
+                reviewFilterActive = false
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -723,7 +774,6 @@ private struct ReceiptRow: View {
     @State private var showPreview = false
     @State private var missingFileAlert = false
     @State private var missingCSVAlert = false
-    @State private var isPulsing = false
 
     private var isManualEntry: Bool { entry.receiptLink == SubmissionPipeline.manualEntryLabel }
     private var isScannedText: Bool { entry.receiptLink == SubmissionPipeline.scannedTextLabel }
@@ -759,15 +809,13 @@ private struct ReceiptRow: View {
                     .font(.subheadline.weight(.semibold))
                 Spacer()
                 if entry.verificationStatus == .needsReview {
+                    // Static, not pulsing — the aggregate "N receipts need
+                    // review" banner above the list is now the primary,
+                    // calmer way this gets surfaced; this stays as a quiet
+                    // per-row marker for browsing the tree directly.
                     Button(action: onReview) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
-                            .opacity(isPulsing ? 0.35 : 1.0)
-                            .onAppear {
-                                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                                    isPulsing = true
-                                }
-                            }
                     }
                     .buttonStyle(.plain)
                 } else if entry.verificationStatus == .verified {
