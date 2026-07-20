@@ -30,22 +30,18 @@ struct ReceiptsView: View {
     /// Matches vendor, amount, category, or work date against the search
     /// text — composes with the category pill filter (both apply together).
     /// A query like ">80", "<50", or ">=100" switches to a numeric amount
-    /// comparison instead of substring matching. Comments aren't searchable:
-    /// they live only in the CSV, not in HistoryEntry, so including them
-    /// would mean parsing every CSV on every keystroke.
+    /// comparison; two joined with "and" (e.g. ">20 and <=25") become a
+    /// range — both conditions must hold. Comments aren't searchable: they
+    /// live only in the CSV, not in HistoryEntry, so including them would
+    /// mean parsing every CSV on every keystroke.
     private var searchResults: [HistoryEntry] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else { return [] }
 
-        if let (comparison, threshold) = Self.parseAmountComparison(query) {
+        if let conditions = Self.parseAmountConditions(query) {
             return filteredEntries.filter { entry in
                 guard let amount = Double(entry.amount) else { return false }
-                switch comparison {
-                case .greaterThan: return amount > threshold
-                case .greaterThanOrEqual: return amount >= threshold
-                case .lessThan: return amount < threshold
-                case .lessThanOrEqual: return amount <= threshold
-                }
+                return conditions.allSatisfy { Self.satisfies(amount: amount, condition: $0) }
             }.sorted { $0.timestamp > $1.timestamp }
         }
 
@@ -61,11 +57,29 @@ struct ReceiptsView: View {
         case greaterThan, greaterThanOrEqual, lessThan, lessThanOrEqual
     }
 
-    /// Parses queries like ">80", ">= 100", "<50.25", "< $20" into a
-    /// comparison + threshold. ">="/"<=" are checked before the single-
-    /// character operators so they aren't misread as ">"/"<" followed by a
-    /// stray "=". Returns nil for anything that isn't this exact shape,
-    /// falling back to ordinary substring search.
+    private static func satisfies(amount: Double, condition: (AmountComparison, Double)) -> Bool {
+        switch condition.0 {
+        case .greaterThan: return amount > condition.1
+        case .greaterThanOrEqual: return amount >= condition.1
+        case .lessThan: return amount < condition.1
+        case .lessThanOrEqual: return amount <= condition.1
+        }
+    }
+
+    /// Parses one or two (joined by " and ") comparisons like ">80",
+    /// ">= 100 and <= 150", "<50.25" into comparison + threshold pairs, all
+    /// of which must hold. Returns nil for anything that isn't this exact
+    /// shape, falling back to ordinary substring search.
+    private static func parseAmountConditions(_ query: String) -> [(AmountComparison, Double)]? {
+        let parts = query.components(separatedBy: " and ")
+        let conditions = parts.compactMap { parseAmountComparison($0.trimmingCharacters(in: .whitespaces)) }
+        guard conditions.count == parts.count, !conditions.isEmpty else { return nil }
+        return conditions
+    }
+
+    /// Parses a single comparison like ">80", ">= 100", "< $20". ">="/"<="
+    /// are checked before the single-character operators so they aren't
+    /// misread as ">"/"<" followed by a stray "=".
     private static func parseAmountComparison(_ query: String) -> (AmountComparison, Double)? {
         let trimmed = query.replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
         let operators: [(String, AmountComparison)] = [
