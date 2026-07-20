@@ -29,18 +29,54 @@ struct ReceiptsView: View {
 
     /// Matches vendor, amount, category, or work date against the search
     /// text — composes with the category pill filter (both apply together).
-    /// Comments aren't searchable: they live only in the CSV, not in
-    /// HistoryEntry, so including them would mean parsing every CSV on
-    /// every keystroke.
+    /// A query like ">80", "<50", or ">=100" switches to a numeric amount
+    /// comparison instead of substring matching. Comments aren't searchable:
+    /// they live only in the CSV, not in HistoryEntry, so including them
+    /// would mean parsing every CSV on every keystroke.
     private var searchResults: [HistoryEntry] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else { return [] }
+
+        if let (comparison, threshold) = Self.parseAmountComparison(query) {
+            return filteredEntries.filter { entry in
+                guard let amount = Double(entry.amount) else { return false }
+                switch comparison {
+                case .greaterThan: return amount > threshold
+                case .greaterThanOrEqual: return amount >= threshold
+                case .lessThan: return amount < threshold
+                case .lessThanOrEqual: return amount <= threshold
+                }
+            }.sorted { $0.timestamp > $1.timestamp }
+        }
+
         return filteredEntries.filter { entry in
             entry.vendor.lowercased().contains(query)
                 || entry.amount.lowercased().contains(query)
                 || entry.category.lowercased().contains(query)
                 || entry.workDate.lowercased().contains(query)
         }.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    private enum AmountComparison {
+        case greaterThan, greaterThanOrEqual, lessThan, lessThanOrEqual
+    }
+
+    /// Parses queries like ">80", ">= 100", "<50.25", "< $20" into a
+    /// comparison + threshold. ">="/"<=" are checked before the single-
+    /// character operators so they aren't misread as ">"/"<" followed by a
+    /// stray "=". Returns nil for anything that isn't this exact shape,
+    /// falling back to ordinary substring search.
+    private static func parseAmountComparison(_ query: String) -> (AmountComparison, Double)? {
+        let trimmed = query.replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
+        let operators: [(String, AmountComparison)] = [
+            (">=", .greaterThanOrEqual), ("<=", .lessThanOrEqual),
+            (">", .greaterThan), ("<", .lessThan),
+        ]
+        for (prefix, comparison) in operators where trimmed.hasPrefix(prefix) {
+            let numberPart = trimmed.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+            if let value = Double(numberPart) { return (comparison, value) }
+        }
+        return nil
     }
 
     private var isSearching: Bool {
@@ -129,7 +165,7 @@ struct ReceiptsView: View {
                 }
             }
             .navigationTitle("Receipts")
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search vendor, amount, category, date")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search, or try >80 for amounts over $80")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {
