@@ -539,7 +539,12 @@ enum SemanticSearchService {
             saveCache(cache)
         }
 
-        return Set(vendorNames.filter { typeCache[$0.lowercased()] == true })
+        // Returned lowercased — callers (ReceiptsView.semanticResults) probe
+        // this set with entry.vendor.lowercased(); returning original-case
+        // names here meant "Thai Favorite Cuisine" (this set) never matched
+        // "thai favorite cuisine" (the probe), silently dropping every
+        // classified match regardless of what the AI actually answered.
+        return Set(vendorNames.filter { typeCache[$0.lowercased()] == true }.map { $0.lowercased() })
     }
 
     private static func classifyVendors(_ vendorNames: [String], typeQuery: String) async throws -> Set<String> {
