@@ -493,6 +493,32 @@ enum SemanticSearchService {
         }
     }
 
+    /// Shared, deliberately directive prompt: models were observed answering
+    /// too conservatively (returning zero matches even for an unambiguous
+    /// case like "Thai Favorite Cuisine" under a "restaurant" query) when
+    /// asked with a bare, terse instruction. Explicit permission to infer
+    /// from name alone, plus a worked example, fixes that.
+    private static func classifyPrompt(numbered: String, typeQuery: String) -> String {
+        """
+        Numbered list of vendor/business names from receipts:
+
+        \(numbered)
+
+        Which list numbers are '\(typeQuery)' businesses? Judge based on what the name itself suggests — do not require certainty. For example, "Thai Favorite Cuisine" or "Joe's Grill" should be classified as a restaurant based on the name alone, even with no other information. Include every list number that plausibly fits, not just the most obvious ones. If truly none fit, return an empty list.
+        """
+    }
+
+    /// Accepts indices as JSON numbers (the normal case) or, defensively, as
+    /// numeric strings — belt-and-suspenders against a provider not
+    /// following its own schema exactly.
+    private static func parseIndices(_ raw: [Any]) -> [Int] {
+        raw.compactMap { element in
+            if let number = element as? NSNumber { return number.intValue }
+            if let string = element as? String { return Int(string) }
+            return nil
+        }
+    }
+
     /// Returns the subset of `vendorNames` that are of `typeQuery`'s business
     /// type, consulting the cache first and only asking the AI about
     /// vendors it hasn't classified for this type before.
@@ -614,7 +640,7 @@ enum SemanticSearchService {
             "max_tokens": 1024,
             "tools": [tool],
             "tool_choice": ["type": "tool", "name": "classify_vendors"],
-            "messages": [["role": "user", "content": "Numbered list of vendor/business names:\n\n\(numbered)\n\nWhich list numbers are '\(typeQuery)' businesses? Use general knowledge of what the name suggests."]],
+            "messages": [["role": "user", "content": Self.classifyPrompt(numbered: numbered, typeQuery: typeQuery)]],
         ]
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
@@ -634,7 +660,7 @@ enum SemanticSearchService {
               let indicesRaw = input["matching_indices"] as? [Any] else {
             throw SemanticSearchError.parsing("Malformed response")
         }
-        let indices = indicesRaw.compactMap { ($0 as? NSNumber)?.intValue }
+        let indices = Self.parseIndices(indicesRaw)
         let matched = indices.compactMap { idx -> String? in
             guard idx >= 1, idx <= vendorNames.count else { return nil }
             return vendorNames[idx - 1]
@@ -702,7 +728,7 @@ enum SemanticSearchService {
         let numbered = vendorNames.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
         let body: [String: Any] = [
             "model": AppConstants.openAIModel,
-            "messages": [["role": "user", "content": "Numbered list of vendor/business names:\n\n\(numbered)\n\nWhich list numbers are '\(typeQuery)' businesses? Use general knowledge of what the name suggests."]],
+            "messages": [["role": "user", "content": Self.classifyPrompt(numbered: numbered, typeQuery: typeQuery)]],
             "response_format": ["type": "json_schema", "json_schema": ["name": "classify_vendors", "strict": true, "schema": schema]],
         ]
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
@@ -724,7 +750,7 @@ enum SemanticSearchService {
               let indicesRaw = fields["matching_indices"] as? [Any] else {
             throw SemanticSearchError.parsing("Malformed response")
         }
-        let indices = indicesRaw.compactMap { ($0 as? NSNumber)?.intValue }
+        let indices = Self.parseIndices(indicesRaw)
         let matched = indices.compactMap { idx -> String? in
             guard idx >= 1, idx <= vendorNames.count else { return nil }
             return vendorNames[idx - 1]
@@ -784,10 +810,11 @@ enum SemanticSearchService {
         let schema: [String: Any] = [
             "type": "OBJECT",
             "properties": ["matching_indices": ["type": "ARRAY", "items": ["type": "INTEGER"]]],
+            "required": ["matching_indices"],
         ]
         let numbered = vendorNames.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
         let body: [String: Any] = [
-            "contents": [["parts": [["text": "Numbered list of vendor/business names:\n\n\(numbered)\n\nWhich list numbers are '\(typeQuery)' businesses? Use general knowledge of what the name suggests."]]]],
+            "contents": [["parts": [["text": Self.classifyPrompt(numbered: numbered, typeQuery: typeQuery)]]]],
             "generationConfig": ["responseMimeType": "application/json", "responseSchema": schema],
         ]
         let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(AppConstants.geminiModel):generateContent?key=\(apiKey)")!
@@ -810,7 +837,7 @@ enum SemanticSearchService {
               let indicesRaw = fields["matching_indices"] as? [Any] else {
             throw SemanticSearchError.parsing("Malformed response")
         }
-        let indices = indicesRaw.compactMap { ($0 as? NSNumber)?.intValue }
+        let indices = Self.parseIndices(indicesRaw)
         let matched = indices.compactMap { idx -> String? in
             guard idx >= 1, idx <= vendorNames.count else { return nil }
             return vendorNames[idx - 1]
