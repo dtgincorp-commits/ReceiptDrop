@@ -332,6 +332,17 @@ struct ReceiptsView: View {
                         }
                         Divider()
                         Button {
+                            collapsed = []
+                        } label: {
+                            Label("Expand All", systemImage: "chevron.down")
+                        }
+                        Button {
+                            collapseAllToYears()
+                        } label: {
+                            Label("Collapse All", systemImage: "chevron.right")
+                        }
+                        Divider()
+                        Button {
                             showCategories = true
                         } label: {
                             Label("Manage Categories…", systemImage: "folder.badge.gearshape")
@@ -452,6 +463,14 @@ struct ReceiptsView: View {
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+    }
+
+    /// Collapses every month (which also hides the days beneath it) while
+    /// leaving Year headers visible and expandable — a compact overview
+    /// rather than hiding everything, including the years themselves.
+    private func collapseAllToYears() {
+        let years = YearGroup.build(from: filteredEntries, groupByWorkDate: groupByWorkDate)
+        collapsed = Set(years.flatMap { year in year.months.map { AnyHashable($0.id) } })
     }
 
     private func delete(_ entry: HistoryEntry) {
