@@ -224,19 +224,6 @@ struct ReceiptsView: View {
         filteredEntries.reduce(0.0) { $0 + (Double($1.amount) ?? 0) }
     }
 
-    /// Per-category breakdown chips — only meaningful when viewing "All"
-    /// categories at once; a single-category filter already makes the
-    /// grand total above equal to that one category's total.
-    private var categoryTotals: [(category: String, total: Double)] {
-        guard filterCategory == nil else { return [] }
-        let grouped = Dictionary(grouping: filteredEntries, by: { $0.category })
-        return categoryStore.categories.compactMap { category in
-            guard let items = grouped[category], !items.isEmpty else { return nil }
-            let total = items.reduce(0.0) { $0 + (Double($1.amount) ?? 0) }
-            return (category, total)
-        }
-    }
-
     private static func currencyString(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
@@ -246,30 +233,12 @@ struct ReceiptsView: View {
 
     @ViewBuilder
     private var summaryHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(Self.currencyString(summaryTotal))
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                Text("· \(filteredEntries.count) receipt\(filteredEntries.count == 1 ? "" : "s")")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            if !categoryTotals.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(categoryTotals, id: \.category) { item in
-                            HStack(spacing: 4) {
-                                Text(item.category).font(.caption2.weight(.semibold))
-                                Text(Self.currencyString(item.total)).font(.caption2).foregroundStyle(.secondary)
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.gray.opacity(0.1))
-                            .clipShape(Capsule())
-                        }
-                    }
-                }
-            }
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(Self.currencyString(summaryTotal))
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+            Text("· \(filteredEntries.count) receipt\(filteredEntries.count == 1 ? "" : "s")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
         .padding(.top, 6)
