@@ -588,28 +588,33 @@ enum SemanticSearchService {
             amountMax: (input["amount_max"] as? NSNumber)?.doubleValue)
     }
 
+    /// Asks the AI for matching *indices* into a numbered vendor list rather
+    /// than asking it to echo back exact name strings — an LLM reproducing
+    /// text verbatim (whitespace, capitalization, minor rewording) is
+    /// unreliable, and a single mismatched character silently drops a
+    /// genuine match. Indices sidestep that entirely.
     private static func classifyVendorsViaClaude(_ vendorNames: [String], typeQuery: String) async throws -> Set<String> {
         guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.anthropicAPIKey), !apiKey.isEmpty else {
             throw SemanticSearchError.missingAPIKey
         }
         let tool: [String: Any] = [
             "name": "classify_vendors",
-            "description": "Return which of the given vendor names are of the requested business type.",
+            "description": "Return the list numbers of businesses matching the requested type.",
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "matching_vendors": ["type": "array", "items": ["type": "string"], "description": "Exact vendor names from the provided list that are '\(typeQuery)' businesses."],
+                    "matching_indices": ["type": "array", "items": ["type": "integer"], "description": "The list numbers (from the numbered list, 1-based) of businesses that are '\(typeQuery)' businesses."],
                 ],
-                "required": ["matching_vendors"],
+                "required": ["matching_indices"],
             ],
         ]
-        let vendorList = vendorNames.joined(separator: "\n")
+        let numbered = vendorNames.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
         let body: [String: Any] = [
             "model": AppConstants.claudeModel,
             "max_tokens": 1024,
             "tools": [tool],
             "tool_choice": ["type": "tool", "name": "classify_vendors"],
-            "messages": [["role": "user", "content": "Vendor/business names, one per line:\n\n\(vendorList)\n\nWhich of these are '\(typeQuery)' businesses? Use general knowledge of what the name suggests. Return exact names from the list only."]],
+            "messages": [["role": "user", "content": "Numbered list of vendor/business names:\n\n\(numbered)\n\nWhich list numbers are '\(typeQuery)' businesses? Use general knowledge of what the name suggests."]],
         ]
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
@@ -626,10 +631,15 @@ enum SemanticSearchService {
               let content = json["content"] as? [[String: Any]],
               let toolUse = content.first(where: { $0["type"] as? String == "tool_use" }),
               let input = toolUse["input"] as? [String: Any],
-              let matches = input["matching_vendors"] as? [String] else {
+              let indicesRaw = input["matching_indices"] as? [Any] else {
             throw SemanticSearchError.parsing("Malformed response")
         }
-        return Set(matches.map { $0.lowercased() })
+        let indices = indicesRaw.compactMap { ($0 as? NSNumber)?.intValue }
+        let matched = indices.compactMap { idx -> String? in
+            guard idx >= 1, idx <= vendorNames.count else { return nil }
+            return vendorNames[idx - 1]
+        }
+        return Set(matched.map { $0.lowercased() })
     }
 
     // MARK: OpenAI
@@ -677,20 +687,22 @@ enum SemanticSearchService {
             amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue)
     }
 
+    /// See classifyVendorsViaClaude's doc comment: indices instead of exact
+    /// name echoes, since text-reproduction fidelity isn't reliable enough.
     private static func classifyVendorsViaOpenAI(_ vendorNames: [String], typeQuery: String) async throws -> Set<String> {
         guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.openAIAPIKey), !apiKey.isEmpty else {
             throw SemanticSearchError.missingAPIKey
         }
         let schema: [String: Any] = [
             "type": "object",
-            "properties": ["matching_vendors": ["type": "array", "items": ["type": "string"]]],
-            "required": ["matching_vendors"],
+            "properties": ["matching_indices": ["type": "array", "items": ["type": "integer"]]],
+            "required": ["matching_indices"],
             "additionalProperties": false,
         ]
-        let vendorList = vendorNames.joined(separator: "\n")
+        let numbered = vendorNames.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
         let body: [String: Any] = [
             "model": AppConstants.openAIModel,
-            "messages": [["role": "user", "content": "Vendor/business names, one per line:\n\n\(vendorList)\n\nWhich of these are '\(typeQuery)' businesses? Return exact names from the list only."]],
+            "messages": [["role": "user", "content": "Numbered list of vendor/business names:\n\n\(numbered)\n\nWhich list numbers are '\(typeQuery)' businesses? Use general knowledge of what the name suggests."]],
             "response_format": ["type": "json_schema", "json_schema": ["name": "classify_vendors", "strict": true, "schema": schema]],
         ]
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
@@ -709,10 +721,15 @@ enum SemanticSearchService {
               let contentString = message["content"] as? String,
               let fieldsData = contentString.data(using: .utf8),
               let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any],
-              let matches = fields["matching_vendors"] as? [String] else {
+              let indicesRaw = fields["matching_indices"] as? [Any] else {
             throw SemanticSearchError.parsing("Malformed response")
         }
-        return Set(matches.map { $0.lowercased() })
+        let indices = indicesRaw.compactMap { ($0 as? NSNumber)?.intValue }
+        let matched = indices.compactMap { idx -> String? in
+            guard idx >= 1, idx <= vendorNames.count else { return nil }
+            return vendorNames[idx - 1]
+        }
+        return Set(matched.map { $0.lowercased() })
     }
 
     // MARK: Gemini
@@ -758,17 +775,19 @@ enum SemanticSearchService {
             amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue)
     }
 
+    /// See classifyVendorsViaClaude's doc comment: indices instead of exact
+    /// name echoes, since text-reproduction fidelity isn't reliable enough.
     private static func classifyVendorsViaGemini(_ vendorNames: [String], typeQuery: String) async throws -> Set<String> {
         guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.geminiAPIKey), !apiKey.isEmpty else {
             throw SemanticSearchError.missingAPIKey
         }
         let schema: [String: Any] = [
             "type": "OBJECT",
-            "properties": ["matching_vendors": ["type": "ARRAY", "items": ["type": "STRING"]]],
+            "properties": ["matching_indices": ["type": "ARRAY", "items": ["type": "INTEGER"]]],
         ]
-        let vendorList = vendorNames.joined(separator: "\n")
+        let numbered = vendorNames.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
         let body: [String: Any] = [
-            "contents": [["parts": [["text": "Vendor/business names, one per line:\n\n\(vendorList)\n\nWhich of these are '\(typeQuery)' businesses? Return exact names from the list only."]]]],
+            "contents": [["parts": [["text": "Numbered list of vendor/business names:\n\n\(numbered)\n\nWhich list numbers are '\(typeQuery)' businesses? Use general knowledge of what the name suggests."]]]],
             "generationConfig": ["responseMimeType": "application/json", "responseSchema": schema],
         ]
         let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(AppConstants.geminiModel):generateContent?key=\(apiKey)")!
@@ -788,9 +807,14 @@ enum SemanticSearchService {
               let text = parts.first?["text"] as? String,
               let fieldsData = text.data(using: .utf8),
               let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any],
-              let matches = fields["matching_vendors"] as? [String] else {
+              let indicesRaw = fields["matching_indices"] as? [Any] else {
             throw SemanticSearchError.parsing("Malformed response")
         }
-        return Set(matches.map { $0.lowercased() })
+        let indices = indicesRaw.compactMap { ($0 as? NSNumber)?.intValue }
+        let matched = indices.compactMap { idx -> String? in
+            guard idx >= 1, idx <= vendorNames.count else { return nil }
+            return vendorNames[idx - 1]
+        }
+        return Set(matched.map { $0.lowercased() })
     }
 }

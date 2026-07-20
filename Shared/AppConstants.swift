@@ -35,7 +35,11 @@ enum AppConstants {
         static let extractionMode = "extractionMode"
         static let lastBackupDate = "lastBackupDate"
         static let backupReminderFrequency = "backupReminderFrequency"
-        static let vendorTypeCache = "vendorTypeCache"
+        // v2: the v1 classification prompt asked the AI to echo back exact
+        // vendor name strings, which is unreliable and silently cached false
+        // negatives. Renamed to abandon that bad cached data automatically
+        // rather than requiring a migration.
+        static let vendorTypeCache = "vendorTypeCacheV2"
     }
 
     /// Date format written to the Work_Date column.
