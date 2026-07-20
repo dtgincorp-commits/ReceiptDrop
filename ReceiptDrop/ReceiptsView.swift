@@ -179,7 +179,8 @@ struct ReceiptsView: View {
                 }
             }
             .navigationTitle("Receipts")
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search, or try >80 for amounts over $80")
+            .navigationBarTitleDisplayMode(.large)
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search, or try >80 for amounts over $80")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {
