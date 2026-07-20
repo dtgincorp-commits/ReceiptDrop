@@ -348,7 +348,7 @@ struct ReceiptsView: View {
                             Label("Manage Categories…", systemImage: "folder.badge.gearshape")
                         }
                     } label: {
-                        Label("Sort", systemImage: "arrow.up.arrow.down")
+                        Label("Options", systemImage: "ellipsis.circle")
                     }
                     .tint(.white)
                 }
