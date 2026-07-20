@@ -20,10 +20,31 @@ struct ReceiptsView: View {
     @State private var showCategories = false
     /// nil shows every category; otherwise the tree only shows this one.
     @State private var filterCategory: String?
+    @State private var searchText = ""
 
     private var filteredEntries: [HistoryEntry] {
         guard let filterCategory else { return entries }
         return entries.filter { $0.category == filterCategory }
+    }
+
+    /// Matches vendor, amount, category, or work date against the search
+    /// text — composes with the category pill filter (both apply together).
+    /// Comments aren't searchable: they live only in the CSV, not in
+    /// HistoryEntry, so including them would mean parsing every CSV on
+    /// every keystroke.
+    private var searchResults: [HistoryEntry] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return [] }
+        return filteredEntries.filter { entry in
+            entry.vendor.lowercased().contains(query)
+                || entry.amount.lowercased().contains(query)
+                || entry.category.lowercased().contains(query)
+                || entry.workDate.lowercased().contains(query)
+        }.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -37,7 +58,39 @@ struct ReceiptsView: View {
                 } else {
                     VStack(spacing: 0) {
                         categoryFilterRow
-                        if filteredEntries.isEmpty {
+                        if isSearching {
+                            if searchResults.isEmpty {
+                                Spacer()
+                                ContentUnavailableCompatView(
+                                    title: "No Matches",
+                                    message: "No receipts match \"\(searchText)\"."
+                                )
+                                Spacer()
+                            } else {
+                                List {
+                                    ForEach(searchResults) { entry in
+                                        ReceiptRow(entry: entry, onReview: { editingEntry = entry })
+                                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                                Button(role: .destructive) {
+                                                    delete(entry)
+                                                } label: {
+                                                    Label("Delete", systemImage: "trash")
+                                                }
+                                            }
+                                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                                Button {
+                                                    editingEntry = entry
+                                                } label: {
+                                                    Label("Edit", systemImage: "pencil")
+                                                }
+                                                .tint(Theme.skyBlue)
+                                            }
+                                    }
+                                }
+                                .listStyle(.plain)
+                            }
+                        } else if filteredEntries.isEmpty {
                             Spacer()
                             ContentUnavailableCompatView(
                                 title: "No Receipts",
@@ -76,6 +129,7 @@ struct ReceiptsView: View {
                 }
             }
             .navigationTitle("Receipts")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search vendor, amount, category, date")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {
@@ -410,7 +464,7 @@ private struct ReceiptRow: View {
                 } label: {
                     Text(entry.category)
                         .font(.caption2.weight(.heavy))
-                        .padding(.horizontal, 2.5)
+                        .padding(.horizontal, 0.5)
                         .padding(.vertical, 0.25)
                         .background(Theme.skyBlueBright)
                         .foregroundStyle(.white)
