@@ -25,9 +25,6 @@ struct ReceiptsView: View {
     /// understanding something — nil means "show the plain instant search
     /// results," not "show nothing."
     @State private var semanticFilter: QueryParseResult?
-    /// Vendor names (lowercased) matching semanticFilter.vendorType, once
-    /// classified. nil until that classification completes.
-    @State private var matchedVendorNames: Set<String>?
     @State private var isSemanticSearching = false
     @State private var semanticError: String?
 
@@ -107,12 +104,17 @@ struct ReceiptsView: View {
     }
 
     /// Results from the AI-understood filter, if one is active — nil means
-    /// no semantic filter is in effect (fall back to `searchResults`).
+    /// no semantic filter is in effect (fall back to `searchResults`). The
+    /// vendor-type match is a plain local equality check against
+    /// HistoryEntry.vendorType, which was classified once at save time (or
+    /// via the "Classify Untyped Receipts" backfill) — no AI call needed
+    /// here, unlike the old design which had to ask the AI "which of my
+    /// vendors are restaurants?" on every search.
     private var semanticResults: [HistoryEntry]? {
         guard let semanticFilter else { return nil }
         return filteredEntries.filter { entry in
             if let vendorType = semanticFilter.vendorType, !vendorType.isEmpty {
-                guard let matchedVendorNames, matchedVendorNames.contains(entry.vendor.lowercased()) else { return false }
+                guard entry.vendorType == vendorType else { return false }
             }
             guard let amount = Double(entry.amount) else {
                 return semanticFilter.amountMin == nil && semanticFilter.amountMax == nil
@@ -129,9 +131,7 @@ struct ReceiptsView: View {
         semanticResults ?? searchResults
     }
 
-    /// Parses `searchText` via whichever AI provider is configured and, if a
-    /// business type was mentioned, classifies vendor names against it
-    /// (consulting the cache — see SemanticSearchService). Fired on
+    /// Parses `searchText` via whichever AI provider is configured. Fired on
     /// search-field submit, not per keystroke, since it's a real network
     /// call. If the AI can't extract anything useful, silently falls back to
     /// the plain instant search rather than showing an empty result set.
@@ -140,23 +140,12 @@ struct ReceiptsView: View {
         guard !query.isEmpty else { return }
         semanticError = nil
         isSemanticSearching = true
-        let candidateVendors = Array(Set(filteredEntries.map(\.vendor))).filter { !$0.isEmpty }
         Task {
             do {
                 let parsed = try await SemanticSearchService.parseQuery(query)
-                var matched: Set<String>?
-                if let vendorType = parsed.vendorType, !vendorType.isEmpty {
-                    matched = try await SemanticSearchService.matchingVendors(typeQuery: vendorType, vendorNames: candidateVendors)
-                }
                 await MainActor.run {
                     isSemanticSearching = false
-                    if parsed.isEmpty {
-                        semanticFilter = nil
-                        matchedVendorNames = nil
-                    } else {
-                        semanticFilter = parsed
-                        matchedVendorNames = matched
-                    }
+                    semanticFilter = parsed.isEmpty ? nil : parsed
                 }
             } catch {
                 await MainActor.run {
@@ -174,7 +163,7 @@ struct ReceiptsView: View {
     private func semanticChipsRow(for filter: QueryParseResult) -> some View {
         HStack(spacing: 8) {
             if let vendorType = filter.vendorType, !vendorType.isEmpty {
-                filterChip(label: vendorType.capitalized) {
+                filterChip(label: VendorType(rawValue: vendorType)?.displayName ?? vendorType.capitalized) {
                     semanticFilter = QueryParseResult(vendorType: nil, amountMin: filter.amountMin, amountMax: filter.amountMax)
                 }
             }
@@ -316,7 +305,6 @@ struct ReceiptsView: View {
             .onSubmit(of: .search) { runSemanticSearch() }
             .onChange(of: searchText) { _ in
                 semanticFilter = nil
-                matchedVendorNames = nil
                 semanticError = nil
             }
             .toolbar {

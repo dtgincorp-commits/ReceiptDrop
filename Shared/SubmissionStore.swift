@@ -60,6 +60,26 @@ enum SubmissionStore {
         encode(items, key: AppConstants.DefaultsKeys.history)
     }
 
+    /// Replaces multiple entries at once (matched by id), re-encoding the
+    /// whole history array only once regardless of how many changed — used
+    /// by the vendor-type backfill, which may touch many entries in one run;
+    /// calling `updateHistory` in a loop would reload/re-save on every entry.
+    @discardableResult
+    static func updateHistoryEntries(_ updates: [HistoryEntry]) -> Int {
+        guard !updates.isEmpty else { return 0 }
+        var items = loadHistory()
+        let updatesByID = Dictionary(uniqueKeysWithValues: updates.map { ($0.id, $0) })
+        var count = 0
+        for index in items.indices {
+            if let replacement = updatesByID[items[index].id] {
+                items[index] = replacement
+                count += 1
+            }
+        }
+        encode(items, key: AppConstants.DefaultsKeys.history)
+        return count
+    }
+
     // MARK: - Retry queue
 
     static func loadQueue() -> [QueueEntry] {

@@ -15,6 +15,7 @@ struct EditReceiptView: View {
     @State private var amount: String
     @State private var workDate: Date
     @State private var comments = ""
+    @State private var selectedVendorType: String
     @State private var message: String?
     @State private var isSaving = false
 
@@ -35,6 +36,7 @@ struct EditReceiptView: View {
         _amount = State(initialValue: entry.amount)
         _workDate = State(initialValue: EditReceiptView.parseWorkDate(entry.workDate))
         _remainingExtraFiles = State(initialValue: entry.extraFiles)
+        _selectedVendorType = State(initialValue: entry.vendorType)
     }
 
     private var isPlaceholder: Bool { SubmissionPipeline.isPlaceholderLabel(entry.receiptLink) }
@@ -71,6 +73,13 @@ struct EditReceiptView: View {
                     TextField("Comments", text: $comments, axis: .vertical)
                         .lineLimit(2...4)
                         .disabled(isSaving)
+                    Picker("Type", selection: $selectedVendorType) {
+                        Text("Unclassified").tag("")
+                        ForEach(VendorType.allCases, id: \.rawValue) { type in
+                            Text(type.displayName).tag(type.rawValue)
+                        }
+                    }
+                    .disabled(isSaving)
                 }
 
                 if let message {
@@ -264,6 +273,7 @@ struct EditReceiptView: View {
                     newWorkDate: LocalReceiptStore.dateString(workDate),
                     newAmount: normalizedAmount,
                     newComments: comments.trimmingCharacters(in: .whitespacesAndNewlines),
+                    newVendorType: selectedVendorType,
                     newPhoto: newPhoto,
                     newExtraPhotos: newExtraPhotos,
                     removedExtraFiles: removedExtras)

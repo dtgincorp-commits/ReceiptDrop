@@ -17,6 +17,61 @@ enum ReceiptKind: String, Codable {
     var mimeType: String { self == .image ? "image/jpeg" : "application/pdf" }
 }
 
+/// The fixed business-type vocabulary used for vendor classification, shared
+/// by every call site that needs it: receipt extraction (classify once at
+/// save time), the search query parser (map a phrase like "restaurants" onto
+/// the same token), and the one-time backfill for pre-existing receipts.
+/// Deliberately a single source of truth — schema `enum` arrays for all
+/// three AI providers, in both extraction and search, are built from
+/// `VendorType.allCases` rather than retyped as prose in six separate
+/// prompts, so the vocabulary can't silently drift between call sites.
+///
+/// Near-synonym categories are deliberately merged into one bucket (e.g.
+/// hardware store and home improvement store share one case) — if the
+/// vocabulary offered both, a vendor like Home Depot could be filed under
+/// either one, and a search for one term would silently miss receipts
+/// classified under the other. One bucket per real-world concept avoids that.
+enum VendorType: String, CaseIterable, Codable {
+    case restaurant
+    case gasStation = "gas_station"
+    case grocery
+    case hardwareHomeImprovement = "hardware_home_improvement"
+    case retail
+    case autoRepair = "auto_repair"
+    case lodging
+    case medical
+    case professionalServices = "professional_services"
+    case entertainment
+    case utilities
+    case other
+
+    var displayName: String {
+        switch self {
+        case .restaurant: return "Restaurant"
+        case .gasStation: return "Gas Station"
+        case .grocery: return "Grocery"
+        case .hardwareHomeImprovement: return "Hardware / Home Improvement"
+        case .retail: return "Retail"
+        case .autoRepair: return "Auto Repair"
+        case .lodging: return "Lodging"
+        case .medical: return "Medical"
+        case .professionalServices: return "Professional Services"
+        case .entertainment: return "Entertainment"
+        case .utilities: return "Utilities"
+        case .other: return "Other"
+        }
+    }
+
+    static var allRawValues: [String] { allCases.map(\.rawValue) }
+
+    /// nil for anything not exactly matching a known token — callers should
+    /// treat that as "unrecognized," not silently coerce to `.other`.
+    static func from(_ raw: String?) -> VendorType? {
+        guard let raw else { return nil }
+        return VendorType(rawValue: raw.lowercased().trimmingCharacters(in: .whitespaces))
+    }
+}
+
 /// Structured data Claude reads off a receipt. All fields are strings so they
 /// round-trip cleanly into a spreadsheet row.
 struct ExtractedReceipt {
@@ -24,6 +79,10 @@ struct ExtractedReceipt {
     let workDate: String   // normalized to yyyy-MM-dd
     let amount: String     // plain number, no currency symbol
     let comments: String
+    /// A `VendorType` raw value, or empty string if the model couldn't
+    /// confidently place it (treated the same as "unclassified" —
+    /// searchable later via the backfill action, never blocks saving).
+    let vendorType: String
     /// True if the extraction backend reported low confidence, or a heuristic
     /// safety net (empty vendor/amount, unparseable date) caught a likely-bad
     /// read. Model-agnostic by design: whatever fills these in — Claude today,
@@ -38,7 +97,7 @@ struct ExtractedReceipt {
     /// Keeping this in one place means Claude, OpenAI, and Gemini all get
     /// identical HITL flagging behavior.
     static func build(vendor: String, rawWorkDate: String, amount: String, comments: String,
-                      modelReportedLowConfidence: Bool, modelReason: String) -> ExtractedReceipt {
+                      rawVendorType: String, modelReportedLowConfidence: Bool, modelReason: String) -> ExtractedReceipt {
         var needsReview = modelReportedLowConfidence
         var reason = modelReason
         if vendor.isEmpty {
@@ -69,11 +128,15 @@ struct ExtractedReceipt {
                 if reason.isEmpty { reason = "Date is over a year old — please confirm" }
             }
         }
+        // Only ever store a recognized token or empty — never let a model's
+        // free-text deviation into the vocabulary silently corrupt it.
+        let resolvedVendorType = VendorType.from(rawVendorType)?.rawValue ?? ""
         return ExtractedReceipt(
             vendor: vendor,
             workDate: ClaudeService.normalizeDate(rawWorkDate),
             amount: amount,
             comments: comments,
+            vendorType: resolvedVendorType,
             needsReview: needsReview,
             reviewReason: reason)
     }
@@ -520,11 +583,16 @@ struct HistoryEntry: Codable, Identifiable {
     /// never sent to Claude, never written to the CSV. Filenames live in the
     /// same category folder as the primary file.
     var extraFiles: [String] = []
+    /// A `VendorType` raw value, classified once at save time (or later via
+    /// the backfill action) and never re-derived at search time. Empty
+    /// string means unclassified — manual entries, entries from before this
+    /// field existed, or anything the model couldn't confidently place.
+    var vendorType: String = ""
 
     init(id: UUID = UUID(), category: String, vendor: String, workDate: String, amount: String,
          receiptLink: String, timestamp: Date,
          verificationStatus: VerificationStatus = .none, reviewReason: String = "",
-         extraFiles: [String] = []) {
+         extraFiles: [String] = [], vendorType: String = "") {
         self.id = id
         self.category = category
         self.vendor = vendor
@@ -535,13 +603,14 @@ struct HistoryEntry: Codable, Identifiable {
         self.verificationStatus = verificationStatus
         self.reviewReason = reviewReason
         self.extraFiles = extraFiles
+        self.vendorType = vendorType
     }
 
     // Custom Decodable so history persisted before these fields existed
     // (App Group UserDefaults) still decodes, defaulting to `.none`/empty.
     private enum CodingKeys: String, CodingKey {
         case id, category, vendor, workDate, amount, receiptLink, timestamp
-        case verificationStatus, reviewReason, extraFiles
+        case verificationStatus, reviewReason, extraFiles, vendorType
     }
 
     init(from decoder: Decoder) throws {
@@ -556,6 +625,7 @@ struct HistoryEntry: Codable, Identifiable {
         verificationStatus = try container.decodeIfPresent(VerificationStatus.self, forKey: .verificationStatus) ?? .none
         reviewReason = try container.decodeIfPresent(String.self, forKey: .reviewReason) ?? ""
         extraFiles = try container.decodeIfPresent([String].self, forKey: .extraFiles) ?? []
+        vendorType = try container.decodeIfPresent(String.self, forKey: .vendorType) ?? ""
     }
 }
 
@@ -568,4 +638,32 @@ struct QueueEntry: Codable, Identifiable {
     let kind: ReceiptKind
     let error: String
     let timestamp: Date
+}
+
+/// One-time (re-runnable) maintenance action: classifies every history entry
+/// still missing a `vendorType` — manual entries (never touched by any AI),
+/// receipts saved before this field existed, or entries whose vendor was
+/// renamed since (which resets the type, see `SubmissionPipeline.updateEntry`).
+/// Safe to run anytime; only entries still empty get touched, and unique
+/// vendor names are classified once each even if they appear on many receipts.
+enum VendorTypeBackfillService {
+    @discardableResult
+    static func classifyUnclassified() async throws -> Int {
+        let history = SubmissionStore.loadHistory()
+        let unclassifiedVendors = Array(Set(
+            history.filter { $0.vendorType.isEmpty && !$0.vendor.isEmpty }.map(\.vendor)))
+        guard !unclassifiedVendors.isEmpty else { return 0 }
+
+        let classifications = try await VendorTypeClassificationService.classify(vendorNames: unclassifiedVendors)
+        guard !classifications.isEmpty else { return 0 }
+
+        var updates: [HistoryEntry] = []
+        for entry in history where entry.vendorType.isEmpty {
+            guard let type = classifications[entry.vendor] else { continue }
+            var updated = entry
+            updated.vendorType = type.rawValue
+            updates.append(updated)
+        }
+        return SubmissionStore.updateHistoryEntries(updates)
+    }
 }

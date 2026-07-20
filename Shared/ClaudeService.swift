@@ -134,8 +134,13 @@ struct ClaudeService: ReceiptExtractor {
                         "type": "string",
                         "description": "If confidence is \"low\", a short phrase explaining why (e.g. \"handwritten total, hard to read\"). Empty string if confidence is \"high\".",
                     ],
+                    "vendor_type": [
+                        "type": "string",
+                        "enum": VendorType.allRawValues,
+                        "description": "The kind of business this vendor is, judged from its name/context. Pick the closest fit from the list; use \"other\" if none fit well.",
+                    ],
                 ],
-                "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason"],
+                "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason", "vendor_type"],
             ],
         ]
 
@@ -177,7 +182,7 @@ struct ClaudeService: ReceiptExtractor {
 
         return ExtractedReceipt.build(
             vendor: string("vendor"), rawWorkDate: string("work_date"), amount: string("amount"),
-            comments: string("comments"),
+            comments: string("comments"), rawVendorType: string("vendor_type"),
             modelReportedLowConfidence: string("confidence").lowercased() == "low",
             modelReason: string("confidence_reason"))
     }
@@ -297,8 +302,9 @@ struct OpenAIService: ReceiptExtractor {
                 "comments": ["type": "string", "description": "A short (max ~12 word) description of what was purchased."],
                 "confidence": ["type": "string", "enum": ["high", "low"], "description": "\"low\" if the receipt is handwritten, blurry, damaged, or any field was hard to read or guessed. \"high\" only if every field is confidently accurate."],
                 "confidence_reason": ["type": "string", "description": "If confidence is \"low\", a short phrase explaining why. Empty string if confidence is \"high\"."],
+                "vendor_type": ["type": "string", "enum": VendorType.allRawValues, "description": "The kind of business this vendor is, judged from its name/context. Pick the closest fit; use \"other\" if none fit well."],
             ],
-            "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason"],
+            "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason", "vendor_type"],
             "additionalProperties": false,
         ]
 
@@ -340,7 +346,7 @@ struct OpenAIService: ReceiptExtractor {
 
         return ExtractedReceipt.build(
             vendor: string("vendor"), rawWorkDate: string("work_date"), amount: string("amount"),
-            comments: string("comments"),
+            comments: string("comments"), rawVendorType: string("vendor_type"),
             modelReportedLowConfidence: string("confidence").lowercased() == "low",
             modelReason: string("confidence_reason"))
     }
@@ -399,8 +405,9 @@ struct GeminiService: ReceiptExtractor {
                 "comments": ["type": "STRING"],
                 "confidence": ["type": "STRING", "enum": ["high", "low"]],
                 "confidence_reason": ["type": "STRING"],
+                "vendor_type": ["type": "STRING", "enum": VendorType.allRawValues],
             ],
-            "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason"],
+            "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason", "vendor_type"],
         ]
 
         let body: [String: Any] = [
@@ -441,7 +448,7 @@ struct GeminiService: ReceiptExtractor {
 
         return ExtractedReceipt.build(
             vendor: string("vendor"), rawWorkDate: string("work_date"), amount: string("amount"),
-            comments: string("comments"),
+            comments: string("comments"), rawVendorType: string("vendor_type"),
             modelReportedLowConfidence: string("confidence").lowercased() == "low",
             modelReason: string("confidence_reason"))
     }
@@ -476,14 +483,15 @@ enum SemanticSearchError: LocalizedError {
     }
 }
 
-/// Turns a free-form search phrase into a structured filter, and separately
-/// classifies vendor names into business types ("is 'Chili's' a
-/// restaurant?") — both via whichever AI provider is currently selected in
-/// Settings, reusing the same keys/models as receipt extraction. Vendor
-/// classifications are cached forever per (type, vendor) pair, so repeat
-/// searches — and searches for previously-classified vendors under a new
-/// type query — don't repeatedly re-ask the AI; only genuinely new vendor
-/// names for a given type trigger a call.
+/// Parses a free-form search phrase (e.g. "restaurants over 100") into a
+/// structured filter — the AI provider currently selected in Settings, same
+/// keys/models as receipt extraction. `vendorType` is constrained to
+/// `VendorType`'s fixed vocabulary (the same one used at extraction time),
+/// so its output can be compared directly against `HistoryEntry.vendorType`
+/// with a plain local equality check — no second AI call needed to figure
+/// out which vendors match, since that's already decided and stored on each
+/// receipt (see `VendorTypeClassificationService` for how existing/manual
+/// entries get that field backfilled).
 enum SemanticSearchService {
     static func parseQuery(_ text: String) async throws -> QueryParseResult {
         switch ExtractionSettings.provider {
@@ -491,83 +499,6 @@ enum SemanticSearchService {
         case .openAI: return try await parseQueryViaOpenAI(text)
         case .gemini, .appleOnDevice: return try await parseQueryViaGemini(text)
         }
-    }
-
-    /// Shared, deliberately directive prompt: models were observed answering
-    /// too conservatively (returning zero matches even for an unambiguous
-    /// case like "Thai Favorite Cuisine" under a "restaurant" query) when
-    /// asked with a bare, terse instruction. Explicit permission to infer
-    /// from name alone, plus a worked example, fixes that.
-    private static func classifyPrompt(numbered: String, typeQuery: String) -> String {
-        """
-        Numbered list of vendor/business names from receipts:
-
-        \(numbered)
-
-        Which list numbers are '\(typeQuery)' businesses? Judge based on what the name itself suggests — do not require certainty. For example, "Thai Favorite Cuisine" or "Joe's Grill" should be classified as a restaurant based on the name alone, even with no other information. Include every list number that plausibly fits, not just the most obvious ones. If truly none fit, return an empty list.
-        """
-    }
-
-    /// Accepts indices as JSON numbers (the normal case) or, defensively, as
-    /// numeric strings — belt-and-suspenders against a provider not
-    /// following its own schema exactly.
-    private static func parseIndices(_ raw: [Any]) -> [Int] {
-        raw.compactMap { element in
-            if let number = element as? NSNumber { return number.intValue }
-            if let string = element as? String { return Int(string) }
-            return nil
-        }
-    }
-
-    /// Returns the subset of `vendorNames` that are of `typeQuery`'s business
-    /// type, consulting the cache first and only asking the AI about
-    /// vendors it hasn't classified for this type before.
-    static func matchingVendors(typeQuery: String, vendorNames: [String]) async throws -> Set<String> {
-        let normalizedType = typeQuery.lowercased().trimmingCharacters(in: .whitespaces)
-        guard !normalizedType.isEmpty, !vendorNames.isEmpty else { return [] }
-
-        var cache = loadCache()
-        var typeCache = cache[normalizedType] ?? [:]
-
-        let unclassified = vendorNames.filter { typeCache[$0.lowercased()] == nil }
-        if !unclassified.isEmpty {
-            let matches = try await classifyVendors(unclassified, typeQuery: normalizedType)
-            for vendor in unclassified {
-                typeCache[vendor.lowercased()] = matches.contains(vendor.lowercased())
-            }
-            cache[normalizedType] = typeCache
-            saveCache(cache)
-        }
-
-        // Returned lowercased — callers (ReceiptsView.semanticResults) probe
-        // this set with entry.vendor.lowercased(); returning original-case
-        // names here meant "Thai Favorite Cuisine" (this set) never matched
-        // "thai favorite cuisine" (the probe), silently dropping every
-        // classified match regardless of what the AI actually answered.
-        return Set(vendorNames.filter { typeCache[$0.lowercased()] == true }.map { $0.lowercased() })
-    }
-
-    private static func classifyVendors(_ vendorNames: [String], typeQuery: String) async throws -> Set<String> {
-        switch ExtractionSettings.provider {
-        case .claude: return try await classifyVendorsViaClaude(vendorNames, typeQuery: typeQuery)
-        case .openAI: return try await classifyVendorsViaOpenAI(vendorNames, typeQuery: typeQuery)
-        case .gemini, .appleOnDevice: return try await classifyVendorsViaGemini(vendorNames, typeQuery: typeQuery)
-        }
-    }
-
-    // MARK: Cache
-
-    private static let defaults = UserDefaults(suiteName: AppConstants.appGroupID)!
-
-    private static func loadCache() -> [String: [String: Bool]] {
-        guard let data = defaults.data(forKey: AppConstants.DefaultsKeys.vendorTypeCache),
-              let decoded = try? JSONDecoder().decode([String: [String: Bool]].self, from: data) else { return [:] }
-        return decoded
-    }
-
-    private static func saveCache(_ cache: [String: [String: Bool]]) {
-        guard let data = try? JSONEncoder().encode(cache) else { return }
-        defaults.set(data, forKey: AppConstants.DefaultsKeys.vendorTypeCache)
     }
 
     // MARK: Claude
@@ -582,7 +513,7 @@ enum SemanticSearchService {
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "vendor_type": ["type": ["string", "null"], "description": "The kind of business being searched for (e.g. 'restaurant', 'gas station', 'hardware store'). Null if the query doesn't mention a business type."],
+                    "vendor_type": ["type": ["string", "null"], "enum": VendorType.allRawValues + [NSNull()], "description": "The kind of business being searched for, mapped onto the closest fit from the enum. Null if the query doesn't mention a business type at all — do not force \"other\" just because the query has no type in it."],
                     "amount_min": ["type": ["number", "null"], "description": "Minimum amount if the query implies a lower bound (e.g. 'over 100', 'at least 50'). Null if none."],
                     "amount_max": ["type": ["number", "null"], "description": "Maximum amount if the query implies an upper bound (e.g. 'under 20', 'below $50'). Null if none."],
                 ],
@@ -614,63 +545,9 @@ enum SemanticSearchService {
             throw SemanticSearchError.parsing("Malformed response")
         }
         return QueryParseResult(
-            vendorType: input["vendor_type"] as? String,
+            vendorType: VendorType.from(input["vendor_type"] as? String)?.rawValue,
             amountMin: (input["amount_min"] as? NSNumber)?.doubleValue,
             amountMax: (input["amount_max"] as? NSNumber)?.doubleValue)
-    }
-
-    /// Asks the AI for matching *indices* into a numbered vendor list rather
-    /// than asking it to echo back exact name strings — an LLM reproducing
-    /// text verbatim (whitespace, capitalization, minor rewording) is
-    /// unreliable, and a single mismatched character silently drops a
-    /// genuine match. Indices sidestep that entirely.
-    private static func classifyVendorsViaClaude(_ vendorNames: [String], typeQuery: String) async throws -> Set<String> {
-        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.anthropicAPIKey), !apiKey.isEmpty else {
-            throw SemanticSearchError.missingAPIKey
-        }
-        let tool: [String: Any] = [
-            "name": "classify_vendors",
-            "description": "Return the list numbers of businesses matching the requested type.",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "matching_indices": ["type": "array", "items": ["type": "integer"], "description": "The list numbers (from the numbered list, 1-based) of businesses that are '\(typeQuery)' businesses."],
-                ],
-                "required": ["matching_indices"],
-            ],
-        ]
-        let numbered = vendorNames.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
-        let body: [String: Any] = [
-            "model": AppConstants.claudeModel,
-            "max_tokens": 1024,
-            "tools": [tool],
-            "tool_choice": ["type": "tool", "name": "classify_vendors"],
-            "messages": [["role": "user", "content": Self.classifyPrompt(numbered: numbered, typeQuery: typeQuery)]],
-        ]
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-        request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (respData, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw SemanticSearchError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
-        }
-        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
-              let content = json["content"] as? [[String: Any]],
-              let toolUse = content.first(where: { $0["type"] as? String == "tool_use" }),
-              let input = toolUse["input"] as? [String: Any],
-              let indicesRaw = input["matching_indices"] as? [Any] else {
-            throw SemanticSearchError.parsing("Malformed response")
-        }
-        let indices = Self.parseIndices(indicesRaw)
-        let matched = indices.compactMap { idx -> String? in
-            guard idx >= 1, idx <= vendorNames.count else { return nil }
-            return vendorNames[idx - 1]
-        }
-        return Set(matched.map { $0.lowercased() })
     }
 
     // MARK: OpenAI
@@ -682,7 +559,7 @@ enum SemanticSearchService {
         let schema: [String: Any] = [
             "type": "object",
             "properties": [
-                "vendor_type": ["type": ["string", "null"]],
+                "vendor_type": ["type": ["string", "null"], "enum": VendorType.allRawValues + [NSNull()]],
                 "amount_min": ["type": ["number", "null"]],
                 "amount_max": ["type": ["number", "null"]],
             ],
@@ -691,7 +568,7 @@ enum SemanticSearchService {
         ]
         let body: [String: Any] = [
             "model": AppConstants.openAIModel,
-            "messages": [["role": "user", "content": "Parse this receipt search query into a structured filter: \"\(text)\""]],
+            "messages": [["role": "user", "content": "Parse this receipt search query into a structured filter. Map any mentioned business type onto the closest enum value; use null (not a forced guess) if no business type is mentioned: \"\(text)\""]],
             "response_format": ["type": "json_schema", "json_schema": ["name": "parse_search_query", "strict": true, "schema": schema]],
         ]
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
@@ -713,54 +590,9 @@ enum SemanticSearchService {
             throw SemanticSearchError.parsing("Malformed response")
         }
         return QueryParseResult(
-            vendorType: fields["vendor_type"] as? String,
+            vendorType: VendorType.from(fields["vendor_type"] as? String)?.rawValue,
             amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
             amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue)
-    }
-
-    /// See classifyVendorsViaClaude's doc comment: indices instead of exact
-    /// name echoes, since text-reproduction fidelity isn't reliable enough.
-    private static func classifyVendorsViaOpenAI(_ vendorNames: [String], typeQuery: String) async throws -> Set<String> {
-        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.openAIAPIKey), !apiKey.isEmpty else {
-            throw SemanticSearchError.missingAPIKey
-        }
-        let schema: [String: Any] = [
-            "type": "object",
-            "properties": ["matching_indices": ["type": "array", "items": ["type": "integer"]]],
-            "required": ["matching_indices"],
-            "additionalProperties": false,
-        ]
-        let numbered = vendorNames.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
-        let body: [String: Any] = [
-            "model": AppConstants.openAIModel,
-            "messages": [["role": "user", "content": Self.classifyPrompt(numbered: numbered, typeQuery: typeQuery)]],
-            "response_format": ["type": "json_schema", "json_schema": ["name": "classify_vendors", "strict": true, "schema": schema]],
-        ]
-        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (respData, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw SemanticSearchError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
-        }
-        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
-              let choices = json["choices"] as? [[String: Any]],
-              let message = choices.first?["message"] as? [String: Any],
-              let contentString = message["content"] as? String,
-              let fieldsData = contentString.data(using: .utf8),
-              let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any],
-              let indicesRaw = fields["matching_indices"] as? [Any] else {
-            throw SemanticSearchError.parsing("Malformed response")
-        }
-        let indices = Self.parseIndices(indicesRaw)
-        let matched = indices.compactMap { idx -> String? in
-            guard idx >= 1, idx <= vendorNames.count else { return nil }
-            return vendorNames[idx - 1]
-        }
-        return Set(matched.map { $0.lowercased() })
     }
 
     // MARK: Gemini
@@ -769,16 +601,22 @@ enum SemanticSearchService {
         guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.geminiAPIKey), !apiKey.isEmpty else {
             throw SemanticSearchError.missingAPIKey
         }
+        // nullable alongside enum is supported by Gemini's schema (same
+        // OpenAPI-style subset used elsewhere in this file) — genuine null
+        // for "no business type mentioned" matters here: without it, the
+        // model would be forced to pick some value even for pure amount
+        // queries like ">80", which would corrupt the "other" bucket into
+        // meaning two different things.
         let schema: [String: Any] = [
             "type": "OBJECT",
             "properties": [
-                "vendor_type": ["type": "STRING", "nullable": true],
+                "vendor_type": ["type": "STRING", "enum": VendorType.allRawValues, "nullable": true],
                 "amount_min": ["type": "NUMBER", "nullable": true],
                 "amount_max": ["type": "NUMBER", "nullable": true],
             ],
         ]
         let body: [String: Any] = [
-            "contents": [["parts": [["text": "Parse this receipt search query into a structured filter: \"\(text)\""]]]],
+            "contents": [["parts": [["text": "Parse this receipt search query into a structured filter. Map any mentioned business type onto the closest enum value; use null if the query doesn't mention a business type — do not force \"other\" onto a query with no type in it: \"\(text)\""]]]],
             "generationConfig": ["responseMimeType": "application/json", "responseSchema": schema],
         ]
         let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(AppConstants.geminiModel):generateContent?key=\(apiKey)")!
@@ -801,25 +639,172 @@ enum SemanticSearchService {
             throw SemanticSearchError.parsing("Malformed response")
         }
         return QueryParseResult(
-            vendorType: fields["vendor_type"] as? String,
+            vendorType: VendorType.from(fields["vendor_type"] as? String)?.rawValue,
             amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
             amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue)
     }
+}
 
-    /// See classifyVendorsViaClaude's doc comment: indices instead of exact
-    /// name echoes, since text-reproduction fidelity isn't reliable enough.
-    private static func classifyVendorsViaGemini(_ vendorNames: [String], typeQuery: String) async throws -> Set<String> {
+// MARK: - Vendor type backfill
+
+enum VendorTypeClassificationError: LocalizedError {
+    case missingAPIKey
+    case api(String)
+    case parsing(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingAPIKey:
+            return "No API key configured for the selected AI Provider — add one in Settings to classify vendor types."
+        case .api(let detail):
+            return "AI classification error: \(detail)"
+        case .parsing(let detail):
+            return "Couldn't read the classification response: \(detail)"
+        }
+    }
+}
+
+/// One-time (re-runnable) classification of vendor names into `VendorType`,
+/// used to backfill receipts that never got a type at extraction time —
+/// manual entries (no AI ever touched them) and anything saved before this
+/// field existed. Classifies from vendor name only, never re-sending the
+/// photo — the name alone is enough and re-extracting images for a whole
+/// history would be needlessly slow and expensive.
+///
+/// Asks for one type per vendor as a positional array aligned with the
+/// input list, rather than per-vendor round trips — one call classifies
+/// every unclassified vendor name at once. Defensively re-zips only up to
+/// however many entries the model actually returned, in case of a
+/// length mismatch, leaving any leftover vendors unclassified for the next run
+/// rather than misaligning names to the wrong types.
+enum VendorTypeClassificationService {
+    static func classify(vendorNames: [String]) async throws -> [String: VendorType] {
+        guard !vendorNames.isEmpty else { return [:] }
+        switch ExtractionSettings.provider {
+        case .claude: return try await classifyViaClaude(vendorNames)
+        case .openAI: return try await classifyViaOpenAI(vendorNames)
+        case .gemini, .appleOnDevice: return try await classifyViaGemini(vendorNames)
+        }
+    }
+
+    private static func prompt(for vendorNames: [String]) -> String {
+        let numbered = vendorNames.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+        return """
+        Numbered list of vendor/business names from receipts:
+
+        \(numbered)
+
+        Classify each one's business type. Return exactly \(vendorNames.count) values, in the same order as the list, one per vendor. Judge based on what the name itself suggests — for example, "Thai Favorite Cuisine" or "Joe's Grill" should be classified as restaurant based on the name alone. Use "other" only if truly nothing fits.
+        """
+    }
+
+    private static func zip(_ vendorNames: [String], with types: [String]) -> [String: VendorType] {
+        var result: [String: VendorType] = [:]
+        for (name, rawType) in Swift.zip(vendorNames, types) {
+            if let type = VendorType.from(rawType) {
+                result[name] = type
+            }
+        }
+        return result
+    }
+
+    // MARK: Claude
+
+    private static func classifyViaClaude(_ vendorNames: [String]) async throws -> [String: VendorType] {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.anthropicAPIKey), !apiKey.isEmpty else {
+            throw VendorTypeClassificationError.missingAPIKey
+        }
+        let tool: [String: Any] = [
+            "name": "classify_vendor_types",
+            "description": "Classify each vendor's business type, in order.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "vendor_types": ["type": "array", "items": ["type": "string", "enum": VendorType.allRawValues], "description": "One type per vendor, same order as the input list."],
+                ],
+                "required": ["vendor_types"],
+            ],
+        ]
+        let body: [String: Any] = [
+            "model": AppConstants.claudeModel,
+            "max_tokens": 1024,
+            "tools": [tool],
+            "tool_choice": ["type": "tool", "name": "classify_vendor_types"],
+            "messages": [["role": "user", "content": prompt(for: vendorNames)]],
+        ]
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw VendorTypeClassificationError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let content = json["content"] as? [[String: Any]],
+              let toolUse = content.first(where: { $0["type"] as? String == "tool_use" }),
+              let input = toolUse["input"] as? [String: Any],
+              let types = input["vendor_types"] as? [String] else {
+            throw VendorTypeClassificationError.parsing("Malformed response")
+        }
+        return zip(vendorNames, with: types)
+    }
+
+    // MARK: OpenAI
+
+    private static func classifyViaOpenAI(_ vendorNames: [String]) async throws -> [String: VendorType] {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.openAIAPIKey), !apiKey.isEmpty else {
+            throw VendorTypeClassificationError.missingAPIKey
+        }
+        let schema: [String: Any] = [
+            "type": "object",
+            "properties": ["vendor_types": ["type": "array", "items": ["type": "string", "enum": VendorType.allRawValues]]],
+            "required": ["vendor_types"],
+            "additionalProperties": false,
+        ]
+        let body: [String: Any] = [
+            "model": AppConstants.openAIModel,
+            "messages": [["role": "user", "content": prompt(for: vendorNames)]],
+            "response_format": ["type": "json_schema", "json_schema": ["name": "classify_vendor_types", "strict": true, "schema": schema]],
+        ]
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw VendorTypeClassificationError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let contentString = message["content"] as? String,
+              let fieldsData = contentString.data(using: .utf8),
+              let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any],
+              let types = fields["vendor_types"] as? [String] else {
+            throw VendorTypeClassificationError.parsing("Malformed response")
+        }
+        return zip(vendorNames, with: types)
+    }
+
+    // MARK: Gemini
+
+    private static func classifyViaGemini(_ vendorNames: [String]) async throws -> [String: VendorType] {
         guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.geminiAPIKey), !apiKey.isEmpty else {
-            throw SemanticSearchError.missingAPIKey
+            throw VendorTypeClassificationError.missingAPIKey
         }
         let schema: [String: Any] = [
             "type": "OBJECT",
-            "properties": ["matching_indices": ["type": "ARRAY", "items": ["type": "INTEGER"]]],
-            "required": ["matching_indices"],
+            "properties": ["vendor_types": ["type": "ARRAY", "items": ["type": "STRING", "enum": VendorType.allRawValues]]],
+            "required": ["vendor_types"],
         ]
-        let numbered = vendorNames.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
         let body: [String: Any] = [
-            "contents": [["parts": [["text": Self.classifyPrompt(numbered: numbered, typeQuery: typeQuery)]]]],
+            "contents": [["parts": [["text": prompt(for: vendorNames)]]]],
             "generationConfig": ["responseMimeType": "application/json", "responseSchema": schema],
         ]
         let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(AppConstants.geminiModel):generateContent?key=\(apiKey)")!
@@ -830,7 +815,7 @@ enum SemanticSearchService {
 
         let (respData, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw SemanticSearchError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
+            throw VendorTypeClassificationError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
         }
         guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
               let candidates = json["candidates"] as? [[String: Any]],
@@ -839,14 +824,9 @@ enum SemanticSearchService {
               let text = parts.first?["text"] as? String,
               let fieldsData = text.data(using: .utf8),
               let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any],
-              let indicesRaw = fields["matching_indices"] as? [Any] else {
-            throw SemanticSearchError.parsing("Malformed response")
+              let types = fields["vendor_types"] as? [String] else {
+            throw VendorTypeClassificationError.parsing("Malformed response")
         }
-        let indices = Self.parseIndices(indicesRaw)
-        let matched = indices.compactMap { idx -> String? in
-            guard idx >= 1, idx <= vendorNames.count else { return nil }
-            return vendorNames[idx - 1]
-        }
-        return Set(matched.map { $0.lowercased() })
+        return zip(vendorNames, with: types)
     }
 }

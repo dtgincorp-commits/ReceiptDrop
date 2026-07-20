@@ -4,6 +4,9 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @State private var selectedProvider: ExtractionProvider = ExtractionSettings.provider
     @State private var selectedMode: ExtractionMode = ExtractionSettings.mode
+    @State private var isClassifying = false
+    @State private var classifyMessage: String?
+    @State private var classifyError: String?
 
     var body: some View {
         NavigationStack {
@@ -71,8 +74,53 @@ struct SettingsView: View {
                 } footer: {
                     Text("Categories: add or remove categories, open their CSV logs, and run maintenance. Archive & Backup: export receipts by period, or back up everything.")
                 }
+
+                Section {
+                    Button {
+                        classifyUnclassified()
+                    } label: {
+                        HStack {
+                            Text("Classify Untyped Receipts")
+                            Spacer()
+                            if isClassifying { ProgressView() }
+                        }
+                    }
+                    .disabled(isClassifying)
+                    if let classifyMessage {
+                        Text(classifyMessage).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let classifyError {
+                        Text(classifyError).font(.caption).foregroundStyle(.red)
+                    }
+                } header: {
+                    Text("Vendor Types")
+                } footer: {
+                    Text("Receipts get a business type (restaurant, hardware store, etc.) automatically when scanned. Manually-entered receipts and anything saved before this feature don't have one yet — this classifies all of them at once, from vendor name only (no photos re-sent). Safe to run anytime; only untyped receipts are affected.")
+                }
             }
             .navigationTitle("Settings")
+        }
+    }
+
+    private func classifyUnclassified() {
+        classifyMessage = nil
+        classifyError = nil
+        isClassifying = true
+        Task {
+            do {
+                let count = try await VendorTypeBackfillService.classifyUnclassified()
+                await MainActor.run {
+                    isClassifying = false
+                    classifyMessage = count == 0
+                        ? "Nothing to classify — every receipt already has a type."
+                        : "Classified \(count) receipt\(count == 1 ? "" : "s")."
+                }
+            } catch {
+                await MainActor.run {
+                    isClassifying = false
+                    classifyError = error.localizedDescription
+                }
+            }
         }
     }
 }

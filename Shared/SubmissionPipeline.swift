@@ -86,7 +86,8 @@ struct SubmissionPipeline {
             receiptLink: filename,
             timestamp: Date(),
             verificationStatus: extracted.needsReview ? .needsReview : .none,
-            reviewReason: extracted.reviewReason)
+            reviewReason: extracted.reviewReason,
+            vendorType: extracted.vendorType)
         SubmissionStore.appendHistory(entry)
         return entry
     }
@@ -163,7 +164,7 @@ struct SubmissionPipeline {
             category: category, vendor: extracted.vendor, workDate: extracted.workDate,
             amount: extracted.amount, receiptLink: Self.scannedTextLabel, timestamp: Date(),
             verificationStatus: extracted.needsReview ? .needsReview : .none,
-            reviewReason: extracted.reviewReason)
+            reviewReason: extracted.reviewReason, vendorType: extracted.vendorType)
         SubmissionStore.appendHistory(entry)
         return entry
     }
@@ -177,6 +178,7 @@ struct SubmissionPipeline {
     static func updateEntry(old: HistoryEntry,
                            newCategory: String, newVendor: String, newWorkDate: String,
                            newAmount: String, newComments: String,
+                           newVendorType: String? = nil,
                            newPhoto: (data: Data, kind: ReceiptKind)? = nil,
                            newExtraPhotos: [(data: Data, kind: ReceiptKind)] = [],
                            removedExtraFiles: [String] = []) throws -> HistoryEntry {
@@ -220,13 +222,26 @@ struct SubmissionPipeline {
             receiptFilename: finalFilename, category: newCategory,
             scannedDate: LocalReceiptStore.dateString(old.timestamp))
 
+        // If the vendor name changed and the caller didn't explicitly pick a
+        // new type (i.e. the Type picker was left showing the old value),
+        // the stored type is now stale — clear it so it gets picked up by
+        // the next "Classify Untyped Receipts" run rather than silently
+        // keeping a type that belonged to the old vendor name.
+        let vendorChanged = newVendor != old.vendor
+        let resolvedVendorType: String
+        if let newVendorType {
+            resolvedVendorType = (vendorChanged && newVendorType == old.vendorType) ? "" : newVendorType
+        } else {
+            resolvedVendorType = vendorChanged ? "" : old.vendorType
+        }
+
         // A human just reviewed and saved this entry through Edit — clears
         // any HITL flag and marks it permanently verified, regardless of
         // whether it was flagged going in.
         let updated = HistoryEntry(
             id: old.id, category: newCategory, vendor: newVendor, workDate: newWorkDate,
             amount: newAmount, receiptLink: finalFilename, timestamp: old.timestamp,
-            verificationStatus: .verified, extraFiles: remainingExtras)
+            verificationStatus: .verified, extraFiles: remainingExtras, vendorType: resolvedVendorType)
         SubmissionStore.updateHistory(updated)
         return updated
     }
