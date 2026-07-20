@@ -108,6 +108,15 @@ enum CustomVendorTypeStore {
         customTypes = updated
         return trimmed
     }
+
+    /// Removes a custom type from the pickable list. Any receipt already
+    /// tagged with it keeps that string as-is (same behavior as deleting a
+    /// Category) — it just stops being offered for future receipts.
+    static func remove(at offsets: IndexSet) {
+        var updated = customTypes
+        updated.remove(atOffsets: offsets)
+        customTypes = updated
+    }
 }
 
 /// Resolves a vendor-type token against *everything* currently valid — the

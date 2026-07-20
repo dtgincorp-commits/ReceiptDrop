@@ -92,6 +92,11 @@ struct SettingsView: View {
                     if let classifyError {
                         Text(classifyError).font(.caption).foregroundStyle(.red)
                     }
+                    NavigationLink {
+                        CustomVendorTypesView()
+                    } label: {
+                        Label("Manage Custom Types", systemImage: "tag")
+                    }
                 } header: {
                     Text("Vendor Types")
                 } footer: {
@@ -532,4 +537,39 @@ private struct ActivityShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - Custom Vendor Types
+
+/// Lists user-added custom vendor types (e.g. "Tiki Bar") with swipe-to-
+/// delete. Removing one only stops it being offered on future receipts —
+/// any receipt already tagged with it keeps that string as-is, same as
+/// deleting a Category.
+struct CustomVendorTypesView: View {
+    @State private var customTypes: [String] = CustomVendorTypeStore.customTypes
+
+    var body: some View {
+        Form {
+            Section {
+                if customTypes.isEmpty {
+                    Text("No custom types yet — add one from a receipt's Edit screen (Type → Add Custom Type…).")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(customTypes, id: \.self) { type in
+                        Text(type)
+                    }
+                    .onDelete(perform: delete)
+                }
+            } footer: {
+                Text("Swipe left to delete. Receipts already using a removed type keep it as-is — it just won't be offered for future receipts.")
+            }
+        }
+        .navigationTitle("Custom Types")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func delete(at offsets: IndexSet) {
+        CustomVendorTypeStore.remove(at: offsets)
+        customTypes = CustomVendorTypeStore.customTypes
+    }
 }
