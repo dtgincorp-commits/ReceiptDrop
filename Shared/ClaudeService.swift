@@ -136,7 +136,7 @@ struct ClaudeService: ReceiptExtractor {
                     ],
                     "vendor_type": [
                         "type": "string",
-                        "enum": VendorType.allRawValues,
+                        "enum": VendorTypeToken.allValidValues,
                         "description": "The kind of business this vendor is, judged from its name/context. Pick the closest fit from the list; use \"other\" if none fit well.",
                     ],
                 ],
@@ -302,7 +302,7 @@ struct OpenAIService: ReceiptExtractor {
                 "comments": ["type": "string", "description": "A short (max ~12 word) description of what was purchased."],
                 "confidence": ["type": "string", "enum": ["high", "low"], "description": "\"low\" if the receipt is handwritten, blurry, damaged, or any field was hard to read or guessed. \"high\" only if every field is confidently accurate."],
                 "confidence_reason": ["type": "string", "description": "If confidence is \"low\", a short phrase explaining why. Empty string if confidence is \"high\"."],
-                "vendor_type": ["type": "string", "enum": VendorType.allRawValues, "description": "The kind of business this vendor is, judged from its name/context. Pick the closest fit; use \"other\" if none fit well."],
+                "vendor_type": ["type": "string", "enum": VendorTypeToken.allValidValues, "description": "The kind of business this vendor is, judged from its name/context. Pick the closest fit; use \"other\" if none fit well."],
             ],
             "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason", "vendor_type"],
             "additionalProperties": false,
@@ -405,7 +405,7 @@ struct GeminiService: ReceiptExtractor {
                 "comments": ["type": "STRING"],
                 "confidence": ["type": "STRING", "enum": ["high", "low"]],
                 "confidence_reason": ["type": "STRING"],
-                "vendor_type": ["type": "STRING", "enum": VendorType.allRawValues],
+                "vendor_type": ["type": "STRING", "enum": VendorTypeToken.allValidValues],
             ],
             "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason", "vendor_type"],
         ]
@@ -513,7 +513,7 @@ enum SemanticSearchService {
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "vendor_type": ["type": ["string", "null"], "enum": VendorType.allRawValues + [NSNull()], "description": "The kind of business being searched for, mapped onto the closest fit from the enum. Null if the query doesn't mention a business type at all — do not force \"other\" just because the query has no type in it."],
+                    "vendor_type": ["type": ["string", "null"], "enum": VendorTypeToken.allValidValues + [NSNull()], "description": "The kind of business being searched for, mapped onto the closest fit from the enum. Null if the query doesn't mention a business type at all — do not force \"other\" just because the query has no type in it."],
                     "amount_min": ["type": ["number", "null"], "description": "Minimum amount if the query implies a lower bound (e.g. 'over 100', 'at least 50'). Null if none."],
                     "amount_max": ["type": ["number", "null"], "description": "Maximum amount if the query implies an upper bound (e.g. 'under 20', 'below $50'). Null if none."],
                 ],
@@ -545,7 +545,7 @@ enum SemanticSearchService {
             throw SemanticSearchError.parsing("Malformed response")
         }
         return QueryParseResult(
-            vendorType: VendorType.from(input["vendor_type"] as? String)?.rawValue,
+            vendorType: VendorTypeToken.resolve(input["vendor_type"] as? String),
             amountMin: (input["amount_min"] as? NSNumber)?.doubleValue,
             amountMax: (input["amount_max"] as? NSNumber)?.doubleValue)
     }
@@ -559,7 +559,7 @@ enum SemanticSearchService {
         let schema: [String: Any] = [
             "type": "object",
             "properties": [
-                "vendor_type": ["type": ["string", "null"], "enum": VendorType.allRawValues + [NSNull()]],
+                "vendor_type": ["type": ["string", "null"], "enum": VendorTypeToken.allValidValues + [NSNull()]],
                 "amount_min": ["type": ["number", "null"]],
                 "amount_max": ["type": ["number", "null"]],
             ],
@@ -590,7 +590,7 @@ enum SemanticSearchService {
             throw SemanticSearchError.parsing("Malformed response")
         }
         return QueryParseResult(
-            vendorType: VendorType.from(fields["vendor_type"] as? String)?.rawValue,
+            vendorType: VendorTypeToken.resolve(fields["vendor_type"] as? String),
             amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
             amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue)
     }
@@ -610,7 +610,7 @@ enum SemanticSearchService {
         let schema: [String: Any] = [
             "type": "OBJECT",
             "properties": [
-                "vendor_type": ["type": "STRING", "enum": VendorType.allRawValues, "nullable": true],
+                "vendor_type": ["type": "STRING", "enum": VendorTypeToken.allValidValues, "nullable": true],
                 "amount_min": ["type": "NUMBER", "nullable": true],
                 "amount_max": ["type": "NUMBER", "nullable": true],
             ],
@@ -639,7 +639,7 @@ enum SemanticSearchService {
             throw SemanticSearchError.parsing("Malformed response")
         }
         return QueryParseResult(
-            vendorType: VendorType.from(fields["vendor_type"] as? String)?.rawValue,
+            vendorType: VendorTypeToken.resolve(fields["vendor_type"] as? String),
             amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
             amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue)
     }
@@ -678,7 +678,7 @@ enum VendorTypeClassificationError: LocalizedError {
 /// length mismatch, leaving any leftover vendors unclassified for the next run
 /// rather than misaligning names to the wrong types.
 enum VendorTypeClassificationService {
-    static func classify(vendorNames: [String]) async throws -> [String: VendorType] {
+    static func classify(vendorNames: [String]) async throws -> [String: String] {
         guard !vendorNames.isEmpty else { return [:] }
         switch ExtractionSettings.provider {
         case .claude: return try await classifyViaClaude(vendorNames)
@@ -698,11 +698,11 @@ enum VendorTypeClassificationService {
         """
     }
 
-    private static func zip(_ vendorNames: [String], with types: [String]) -> [String: VendorType] {
-        var result: [String: VendorType] = [:]
+    private static func zip(_ vendorNames: [String], with types: [String]) -> [String: String] {
+        var result: [String: String] = [:]
         for (name, rawType) in Swift.zip(vendorNames, types) {
-            if let type = VendorType.from(rawType) {
-                result[name] = type
+            if let resolved = VendorTypeToken.resolve(rawType) {
+                result[name] = resolved
             }
         }
         return result
@@ -710,7 +710,7 @@ enum VendorTypeClassificationService {
 
     // MARK: Claude
 
-    private static func classifyViaClaude(_ vendorNames: [String]) async throws -> [String: VendorType] {
+    private static func classifyViaClaude(_ vendorNames: [String]) async throws -> [String: String] {
         guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.anthropicAPIKey), !apiKey.isEmpty else {
             throw VendorTypeClassificationError.missingAPIKey
         }
@@ -720,7 +720,7 @@ enum VendorTypeClassificationService {
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "vendor_types": ["type": "array", "items": ["type": "string", "enum": VendorType.allRawValues], "description": "One type per vendor, same order as the input list."],
+                    "vendor_types": ["type": "array", "items": ["type": "string", "enum": VendorTypeToken.allValidValues], "description": "One type per vendor, same order as the input list."],
                 ],
                 "required": ["vendor_types"],
             ],
@@ -755,13 +755,13 @@ enum VendorTypeClassificationService {
 
     // MARK: OpenAI
 
-    private static func classifyViaOpenAI(_ vendorNames: [String]) async throws -> [String: VendorType] {
+    private static func classifyViaOpenAI(_ vendorNames: [String]) async throws -> [String: String] {
         guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.openAIAPIKey), !apiKey.isEmpty else {
             throw VendorTypeClassificationError.missingAPIKey
         }
         let schema: [String: Any] = [
             "type": "object",
-            "properties": ["vendor_types": ["type": "array", "items": ["type": "string", "enum": VendorType.allRawValues]]],
+            "properties": ["vendor_types": ["type": "array", "items": ["type": "string", "enum": VendorTypeToken.allValidValues]]],
             "required": ["vendor_types"],
             "additionalProperties": false,
         ]
@@ -794,13 +794,13 @@ enum VendorTypeClassificationService {
 
     // MARK: Gemini
 
-    private static func classifyViaGemini(_ vendorNames: [String]) async throws -> [String: VendorType] {
+    private static func classifyViaGemini(_ vendorNames: [String]) async throws -> [String: String] {
         guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.geminiAPIKey), !apiKey.isEmpty else {
             throw VendorTypeClassificationError.missingAPIKey
         }
         let schema: [String: Any] = [
             "type": "OBJECT",
-            "properties": ["vendor_types": ["type": "ARRAY", "items": ["type": "STRING", "enum": VendorType.allRawValues]]],
+            "properties": ["vendor_types": ["type": "ARRAY", "items": ["type": "STRING", "enum": VendorTypeToken.allValidValues]]],
             "required": ["vendor_types"],
         ]
         let body: [String: Any] = [

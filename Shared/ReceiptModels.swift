@@ -72,6 +72,71 @@ enum VendorType: String, CaseIterable, Codable {
     }
 }
 
+/// User-added vendor types beyond the fixed built-in vocabulary (e.g. "Tiki
+/// Bar") — deliberately human-curated, not AI-invented: the user types it
+/// once via Edit Receipt's "Add Custom Type…", it's saved here, and every
+/// future receipt (and search) can reuse that exact same token. This is the
+/// same reasoning that makes user-added Categories safe (CategoryStore) —
+/// a small, deliberately-grown list stays consistent, whereas letting the
+/// model freely invent new labels per receipt was the exact problem the
+/// fixed VendorType vocabulary was built to avoid.
+enum CustomVendorTypeStore {
+    private static let defaults = UserDefaults(suiteName: AppConstants.appGroupID)!
+    private static let key = "customVendorTypes"
+
+    static var customTypes: [String] {
+        get { defaults.stringArray(forKey: key) ?? [] }
+        set { defaults.set(newValue, forKey: key) }
+    }
+
+    /// Adds a new custom type if it's non-empty and doesn't collide
+    /// (case-insensitively) with a built-in type or an existing custom one.
+    /// Returns the canonical stored string to select immediately — either
+    /// the newly-added one, or the existing match if it already existed.
+    @discardableResult
+    static func add(_ name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if VendorType.allRawValues.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return nil
+        }
+        if let existing = customTypes.first(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return existing
+        }
+        var updated = customTypes
+        updated.append(trimmed)
+        customTypes = updated
+        return trimmed
+    }
+}
+
+/// Resolves a vendor-type token against *everything* currently valid — the
+/// fixed `VendorType` vocabulary plus whatever custom types the user has
+/// added — used everywhere a model's output (extraction, search-query
+/// parsing, backfill classification) needs validating against the full set,
+/// not just the built-in enum. Kept separate from `VendorType` itself since
+/// custom types have no corresponding enum case (Swift enums are static).
+enum VendorTypeToken {
+    /// Every string an AI schema `enum` should currently allow.
+    static var allValidValues: [String] { VendorType.allRawValues + CustomVendorTypeStore.customTypes }
+
+    /// The canonical stored form of `raw` if it matches a built-in or custom
+    /// type (case-insensitive), or nil if it matches neither.
+    static func resolve(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        if let builtin = VendorType(rawValue: trimmed.lowercased()) { return builtin.rawValue }
+        return CustomVendorTypeStore.customTypes.first { $0.caseInsensitiveCompare(trimmed) == .orderedSame }
+    }
+
+    /// Display label for any valid vendor-type token, built-in or custom.
+    static func displayName(for raw: String) -> String {
+        if let builtin = VendorType(rawValue: raw) { return builtin.displayName }
+        return raw
+    }
+}
+
 /// Structured data Claude reads off a receipt. All fields are strings so they
 /// round-trip cleanly into a spreadsheet row.
 struct ExtractedReceipt {
@@ -128,9 +193,10 @@ struct ExtractedReceipt {
                 if reason.isEmpty { reason = "Date is over a year old — please confirm" }
             }
         }
-        // Only ever store a recognized token or empty — never let a model's
-        // free-text deviation into the vocabulary silently corrupt it.
-        let resolvedVendorType = VendorType.from(rawVendorType)?.rawValue ?? ""
+        // Only ever store a recognized token (built-in or custom) or empty —
+        // never let a model's free-text deviation into the vocabulary
+        // silently corrupt it.
+        let resolvedVendorType = VendorTypeToken.resolve(rawVendorType) ?? ""
         return ExtractedReceipt(
             vendor: vendor,
             workDate: ClaudeService.normalizeDate(rawWorkDate),
@@ -661,7 +727,7 @@ enum VendorTypeBackfillService {
         for entry in history where entry.vendorType.isEmpty {
             guard let type = classifications[entry.vendor] else { continue }
             var updated = entry
-            updated.vendorType = type.rawValue
+            updated.vendorType = type
             updates.append(updated)
         }
         return SubmissionStore.updateHistoryEntries(updates)

@@ -16,8 +16,15 @@ struct EditReceiptView: View {
     @State private var workDate: Date
     @State private var comments = ""
     @State private var selectedVendorType: String
+    @State private var customTypes: [String] = CustomVendorTypeStore.customTypes
+    @State private var showAddCustomType = false
+    @State private var newCustomTypeName = ""
     @State private var message: String?
     @State private var isSaving = false
+
+    /// Sentinel tag for the "Add Custom Type…" picker row — never a real
+    /// stored value, just a trigger to open the text-entry prompt.
+    private static let addCustomTypeTag = "__add_custom_type__"
 
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var newPhotoData: Data?
@@ -78,8 +85,19 @@ struct EditReceiptView: View {
                         ForEach(VendorType.allCases, id: \.rawValue) { type in
                             Text(type.displayName).tag(type.rawValue)
                         }
+                        ForEach(customTypes, id: \.self) { custom in
+                            Text(custom).tag(custom)
+                        }
+                        Text("Add Custom Type…").tag(Self.addCustomTypeTag)
                     }
                     .disabled(isSaving)
+                    .onChange(of: selectedVendorType) { newValue in
+                        guard newValue == Self.addCustomTypeTag else { return }
+                        // Revert the picker until the user actually submits a
+                        // name — this tag is a trigger, never a real value.
+                        selectedVendorType = entry.vendorType
+                        showAddCustomType = true
+                    }
                 }
 
                 if let message {
@@ -141,6 +159,19 @@ struct EditReceiptView: View {
                 }
                 extraPickerItems = []
             }
+        }
+        .alert("Add Custom Type", isPresented: $showAddCustomType) {
+            TextField("e.g. Tiki Bar", text: $newCustomTypeName)
+            Button("Cancel", role: .cancel) { newCustomTypeName = "" }
+            Button("Add") {
+                if let added = CustomVendorTypeStore.add(newCustomTypeName) {
+                    customTypes = CustomVendorTypeStore.customTypes
+                    selectedVendorType = added
+                }
+                newCustomTypeName = ""
+            }
+        } message: {
+            Text("Saved for future receipts too — reusable from this same picker.")
         }
     }
 

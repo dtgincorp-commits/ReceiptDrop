@@ -163,7 +163,7 @@ struct ReceiptsView: View {
     private func semanticChipsRow(for filter: QueryParseResult) -> some View {
         HStack(spacing: 8) {
             if let vendorType = filter.vendorType, !vendorType.isEmpty {
-                filterChip(label: VendorType(rawValue: vendorType)?.displayName ?? vendorType.capitalized) {
+                filterChip(label: VendorTypeToken.displayName(for: vendorType)) {
                     semanticFilter = QueryParseResult(vendorType: nil, amountMin: filter.amountMin, amountMax: filter.amountMax)
                 }
             }
