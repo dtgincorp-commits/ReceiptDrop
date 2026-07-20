@@ -765,8 +765,8 @@ private struct ReceiptRow: View {
                     // sleeker, Oura-like tag rather than a soft badge.
                     Text(entry.category)
                         .font(.caption2.weight(.heavy))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
                         .background(Theme.skyBlueBright)
                         .foregroundStyle(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
