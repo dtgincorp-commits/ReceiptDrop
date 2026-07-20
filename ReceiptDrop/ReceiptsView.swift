@@ -760,17 +760,16 @@ private struct ReceiptRow: View {
                 Button {
                     openCategoryCSV()
                 } label: {
-                    // Neutral rather than accent-colored: color is reserved
-                    // for things that mean something (orange = needs review,
-                    // green = verified, red = delete) — a category tag on
-                    // every single row doesn't need to compete for that.
+                    // Back to the accent color per user preference — sharper
+                    // corners and tighter padding than the original for a
+                    // sleeker, Oura-like tag rather than a soft badge.
                     Text(entry.category)
                         .font(.caption2.weight(.heavy))
-                        .padding(.horizontal, 0.5)
-                        .padding(.vertical, 0.25)
-                        .background(Color.gray.opacity(0.15))
-                        .foregroundStyle(.secondary)
-                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Theme.skyBlueBright)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .fixedSize()
