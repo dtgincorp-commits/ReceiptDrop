@@ -636,7 +636,7 @@ private struct HeaderRow: View {
     /// Year stays the colored anchor of the hierarchy; Month/Day go quieter
     /// and uppercase-tracked (Oura-style micro-labels) so they read as
     /// structure rather than competing with the year for attention.
-    private var color: Color { level == 0 ? Theme.skyBlue : .secondary }
+    private var color: Color { level <= 1 ? Theme.skyBlue : .secondary }
 
     var body: some View {
         HStack {
