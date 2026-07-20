@@ -105,50 +105,55 @@ struct ReceiptsView: View {
                         title: "No Receipts Yet",
                         message: "Receipts you submit will appear here."
                     )
-                } else {
-                    VStack(spacing: 0) {
-                        categoryFilterRow
-                        if isSearching {
-                            if searchResults.isEmpty {
-                                Spacer()
-                                ContentUnavailableCompatView(
-                                    title: "No Matches",
-                                    message: "No receipts match \"\(searchText)\"."
-                                )
-                                Spacer()
-                            } else {
-                                List {
-                                    ForEach(searchResults) { entry in
-                                        ReceiptRow(entry: entry, onReview: { editingEntry = entry })
-                                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                                Button(role: .destructive) {
-                                                    delete(entry)
-                                                } label: {
-                                                    Label("Delete", systemImage: "trash")
-                                                }
-                                            }
-                                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                                Button {
-                                                    editingEntry = entry
-                                                } label: {
-                                                    Label("Edit", systemImage: "pencil")
-                                                }
-                                                .tint(Theme.skyBlue)
-                                            }
-                                    }
-                                }
-                                .listStyle(.plain)
-                            }
-                        } else if filteredEntries.isEmpty {
-                            Spacer()
+                } else if isSearching {
+                    if searchResults.isEmpty {
+                        List {
+                            categoryPillRow
                             ContentUnavailableCompatView(
-                                title: "No Receipts",
-                                message: "No receipts in \(filterCategory ?? "this category") yet."
+                                title: "No Matches",
+                                message: "No receipts match \"\(searchText)\"."
                             )
-                            Spacer()
-                        } else {
+                            .listRowSeparator(.hidden)
+                        }
+                        .listStyle(.plain)
+                    } else {
+                        List {
+                            categoryPillRow
+                            ForEach(searchResults) { entry in
+                                ReceiptRow(entry: entry, onReview: { editingEntry = entry })
+                                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                        Button(role: .destructive) {
+                                            delete(entry)
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
+                                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                        Button {
+                                            editingEntry = entry
+                                        } label: {
+                                            Label("Edit", systemImage: "pencil")
+                                        }
+                                        .tint(Theme.skyBlue)
+                                    }
+                            }
+                        }
+                        .listStyle(.plain)
+                    }
+                } else if filteredEntries.isEmpty {
                     List {
+                        categoryPillRow
+                        ContentUnavailableCompatView(
+                            title: "No Receipts",
+                            message: "No receipts in \(filterCategory ?? "this category") yet."
+                        )
+                        .listRowSeparator(.hidden)
+                    }
+                    .listStyle(.plain)
+                } else {
+                    List {
+                        categoryPillRow
                         ForEach(flatRows(from: YearGroup.build(from: filteredEntries, groupByWorkDate: groupByWorkDate))) { row in
                             rowView(for: row)
                                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
@@ -174,8 +179,6 @@ struct ReceiptsView: View {
                         }
                     }
                     .listStyle(.plain)
-                        }
-                    }
                 }
             }
             .navigationTitle("Receipts")
@@ -279,6 +282,18 @@ struct ReceiptsView: View {
 
     private func reload() {
         entries = SubmissionStore.loadHistory()
+    }
+
+    /// `categoryFilterRow` wrapped for use as the List's own first row
+    /// (rather than a sibling VStack element) — the List needs to be the
+    /// single scrollable view directly under the navigation title for
+    /// .searchable's pull-down-to-reveal / scroll-to-hide behavior to work;
+    /// splitting the pills into a separate VStack sibling broke that.
+    private var categoryPillRow: some View {
+        categoryFilterRow
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 
     /// Horizontal row of tappable category pills — tap one to filter the
