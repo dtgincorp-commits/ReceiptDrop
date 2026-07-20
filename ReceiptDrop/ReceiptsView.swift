@@ -613,16 +613,23 @@ private struct HeaderRow: View {
     let level: Int
     @Binding var isExpanded: Bool
 
+    /// Year stays the colored anchor of the hierarchy; Month/Day go quieter
+    /// and uppercase-tracked (Oura-style micro-labels) so they read as
+    /// structure rather than competing with the year for attention.
+    private var color: Color { level == 0 ? Theme.skyBlue : .secondary }
+
     var body: some View {
         HStack {
             Text(label)
                 .font(font)
-                .foregroundStyle(Theme.skyBlue)
+                .foregroundStyle(color)
+                .textCase(level == 0 ? nil : .uppercase)
+                .tracking(level == 0 ? 0 : 0.6)
                 .padding(.leading, CGFloat(level) * 14)
             Spacer()
             Image(systemName: "chevron.down")
                 .font(.caption.weight(.bold))
-                .foregroundStyle(Theme.skyBlue)
+                .foregroundStyle(color)
                 .rotationEffect(.degrees(isExpanded ? 0 : -90))
         }
         .contentShape(Rectangle())
