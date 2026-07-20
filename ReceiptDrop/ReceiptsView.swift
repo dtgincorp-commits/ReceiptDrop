@@ -786,7 +786,7 @@ private struct ReceiptRow: View {
     private var hasFile: Bool { hasPrimaryFile || !entry.extraFiles.isEmpty }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Button {
                     openCategoryCSV()
@@ -841,6 +841,9 @@ private struct ReceiptRow: View {
                 }
             }
             if isManualEntry {
+                // Icon-only rather than a text label — the icon already
+                // carries the meaning once you know the app; quieter, less
+                // visual noise competing with the vendor/amount line above.
                 HStack {
                     Spacer()
                     if !entry.extraFiles.isEmpty {
@@ -848,7 +851,7 @@ private struct ReceiptRow: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    Label("Entered manually", systemImage: "pencil")
+                    Image(systemName: "pencil")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -860,7 +863,7 @@ private struct ReceiptRow: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    Label("Scanned text", systemImage: "text.viewfinder")
+                    Image(systemName: "text.viewfinder")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -877,7 +880,7 @@ private struct ReceiptRow: View {
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .onTapGesture {
             guard hasFile else { return }
