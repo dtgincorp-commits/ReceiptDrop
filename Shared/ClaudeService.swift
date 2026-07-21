@@ -494,10 +494,18 @@ enum SemanticSearchError: LocalizedError {
 /// entries get that field backfilled).
 enum SemanticSearchService {
     static func parseQuery(_ text: String) async throws -> QueryParseResult {
+        try ExtractionSettings.assertProviderAllowed()
         switch ExtractionSettings.provider {
         case .claude: return try await parseQueryViaClaude(text)
         case .openAI: return try await parseQueryViaOpenAI(text)
-        case .gemini, .appleOnDevice: return try await parseQueryViaGemini(text)
+        case .gemini: return try await parseQueryViaGemini(text)
+        case .appleOnDevice:
+            #if canImport(FoundationModels)
+            if #available(iOS 26.0, *) { return try await parseQueryOnDevice(text) }
+            #endif
+            // Older OS / toolchain without Foundation Models: fall back to
+            // Gemini (still needs a Gemini key on those builds).
+            return try await parseQueryViaGemini(text)
         }
     }
 

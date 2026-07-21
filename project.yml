@@ -1,6 +1,6 @@
 name: ReceiptDrop
 options:
-  bundleIdPrefix: com.dtgincorp
+  bundleIdPrefix: com.nicknagpal
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
@@ -20,7 +20,9 @@ targets:
   ReceiptDrop:
     type: application
     platform: iOS
-    scheme: {}
+    scheme:
+      testTargets:
+        - ReceiptDropTests
     sources:
       - ReceiptDrop
       - Shared
@@ -28,14 +30,14 @@ targets:
       - target: ShareExtension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.dtgincorp.receiptdrop
+        PRODUCT_BUNDLE_IDENTIFIER: com.nicknagpal.receiptdrop
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     entitlements:
       path: ReceiptDrop/ReceiptDrop.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.dtgincorp.receiptdrop
+          - group.com.nicknagpal.receiptdrop
     info:
       path: ReceiptDrop/Info.plist
       properties:
@@ -57,12 +59,12 @@ targets:
       - Shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.dtgincorp.receiptdrop.share
+        PRODUCT_BUNDLE_IDENTIFIER: com.nicknagpal.receiptdrop.share
     entitlements:
       path: ShareExtension/ShareExtension.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.dtgincorp.receiptdrop
+          - group.com.nicknagpal.receiptdrop
     info:
       path: ShareExtension/Info.plist
       properties:
@@ -74,3 +76,19 @@ targets:
             NSExtensionActivationRule:
               NSExtensionActivationSupportsImageWithMaxCount: 1
               NSExtensionActivationSupportsFileWithMaxCount: 1
+
+  ReceiptDropTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - ReceiptDropTests
+    # Depending on the app target makes XcodeGen auto-wire TEST_HOST +
+    # BUNDLE_LOADER, so `@testable import ReceiptDrop` can reach the Shared
+    # types (ExtractedReceipt, VendorTypeToken, ClaudeService) compiled into
+    # the app module.
+    dependencies:
+      - target: ReceiptDrop
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nicknagpal.receiptdrop.tests
+        GENERATE_INFOPLIST_FILE: YES

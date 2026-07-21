@@ -272,10 +272,15 @@ enum ExtractionProvider: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// Apple On-Device requires iOS 26 + the Foundation Models framework —
-    /// not available on this toolchain yet. Listed so the option is visible
-    /// (and the future path obvious) without being selectable.
-    var isAvailable: Bool { self != .appleOnDevice }
+    /// Apple On-Device requires iOS 26 + the Foundation Models framework.
+    /// Selectable on iOS 26+; whether the model is actually ready on this
+    /// specific device (eligible hardware + Apple Intelligence enabled) is
+    /// checked at extraction time, surfacing a clear error if not.
+    var isAvailable: Bool {
+        guard self == .appleOnDevice else { return true }
+        if #available(iOS 26.0, *) { return true }
+        return false
+    }
 }
 
 /// Whether extraction sends the full image/PDF, or on-device OCR text only
@@ -291,6 +296,18 @@ enum ExtractionMode: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .fullImage: return "Full Image"
         case .onDeviceOCR: return "On-Device OCR Text"
+        }
+    }
+}
+
+/// Raised when Offline mode is on but a network-dependent provider is chosen.
+enum OfflineModeError: LocalizedError {
+    case cloudProviderBlocked(ExtractionProvider)
+
+    var errorDescription: String? {
+        switch self {
+        case .cloudProviderBlocked(let provider):
+            return "Offline mode is on, so \(provider.displayName) (which needs the internet) is blocked. Switch the AI Provider to Apple On-Device in Settings, or turn off Offline mode."
         }
     }
 }
@@ -321,15 +338,34 @@ enum ExtractionSettings {
         set { defaults.set(newValue.rawValue, forKey: AppConstants.DefaultsKeys.extractionMode) }
     }
 
-    /// The extractor instance for the currently selected provider. Apple
-    /// On-Device isn't implemented yet (`isAvailable == false`), so it's
-    /// unreachable here — the Settings picker prevents selecting it.
+    /// When true, the app refuses the cloud providers (Claude/OpenAI/Gemini)
+    /// and works only with Apple's on-device model — nothing leaves the phone.
+    /// Stored in the App Group so the share extension honors it too.
+    static var offlineOnly: Bool {
+        get { defaults.bool(forKey: AppConstants.DefaultsKeys.offlineOnly) }
+        set { defaults.set(newValue, forKey: AppConstants.DefaultsKeys.offlineOnly) }
+    }
+
+    /// Throws if Offline mode is on but a cloud provider is selected. Call at
+    /// the start of any extraction or search so the block is enforced
+    /// everywhere (main app *and* share extension), not just hidden in the UI.
+    static func assertProviderAllowed() throws {
+        if offlineOnly && provider != .appleOnDevice {
+            throw OfflineModeError.cloudProviderBlocked(provider)
+        }
+    }
+
+    /// The extractor instance for the currently selected provider.
     static func currentExtractor() -> ReceiptExtractor {
         switch provider {
         case .claude: return ClaudeService()
         case .openAI: return OpenAIService()
         case .gemini: return GeminiService()
-        case .appleOnDevice: return ClaudeService() // unreachable; picker disables this option
+        case .appleOnDevice:
+            #if canImport(FoundationModels)
+            if #available(iOS 26.0, *) { return FoundationModelsService() }
+            #endif
+            return GeminiService() // fallback on older OS / toolchains
         }
     }
 }

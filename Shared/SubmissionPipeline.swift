@@ -101,6 +101,7 @@ struct SubmissionPipeline {
     /// result that retry produces. PDFs and "Full Image" mode always send the
     /// full file, unaffected by this fallback.
     private static func extractWithFallback(data: Data, kind: ReceiptKind, categoryContext: String) async throws -> ExtractedReceipt {
+        try ExtractionSettings.assertProviderAllowed()
         let extractor = ExtractionSettings.currentExtractor()
         guard kind == .image, ExtractionSettings.mode == .onDeviceOCR else {
             return try await extractor.extract(data: data, kind: kind, categoryContext: categoryContext)
@@ -147,6 +148,7 @@ struct SubmissionPipeline {
     func runTextOnly(ocrText: String, category: String,
                      onStage: @MainActor (Stage) -> Void = { _ in }) async throws -> HistoryEntry {
         await onStage(.reading)
+        try ExtractionSettings.assertProviderAllowed()
         let categoryContext = CategoryStore.shared.description(for: category)
         let extracted = try await ExtractionSettings.currentExtractor().extract(ocrText: ocrText, categoryContext: categoryContext)
 

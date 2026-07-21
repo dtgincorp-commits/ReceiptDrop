@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @State private var selectedProvider: ExtractionProvider = ExtractionSettings.provider
     @State private var selectedMode: ExtractionMode = ExtractionSettings.mode
+    @State private var offlineOnly: Bool = ExtractionSettings.offlineOnly
     @State private var isClassifying = false
     @State private var classifyMessage: String?
     @State private var classifyError: String?
@@ -31,10 +32,35 @@ struct SettingsView: View {
                         }
                     }
                     .onChange(of: selectedMode) { ExtractionSettings.mode = $0 }
+
+                    Toggle("Offline Mode (on-device only)", isOn: $offlineOnly)
+                        .onChange(of: offlineOnly) { newValue in
+                            ExtractionSettings.offlineOnly = newValue
+                            // Turning offline on with a cloud provider selected
+                            // would make everything error — auto-switch to the
+                            // on-device provider when it's available.
+                            if newValue, selectedProvider != .appleOnDevice,
+                               ExtractionProvider.appleOnDevice.isAvailable {
+                                selectedProvider = .appleOnDevice
+                                ExtractionSettings.provider = .appleOnDevice
+                            }
+                        }
                 } header: {
                     Text("Receipt Extraction")
                 } footer: {
-                    Text("\"On-Device OCR Text\" reads the receipt on your phone for free and sends only the text — faster and cheaper. Hard-to-read receipts automatically retry with the full image. Apple On-Device requires iOS 26 + Apple Intelligence, not available on this device/toolchain yet.")
+                    Text("\"On-Device OCR Text\" reads the receipt on your phone for free and sends only the text — faster and cheaper. Hard-to-read receipts automatically retry with the full image. \"Apple On-Device\" reads receipts entirely on your phone with Apple Intelligence — no API key, nothing leaves the device — and requires iOS 26+ on an Apple Intelligence–capable iPhone with the feature enabled.\n\nOffline Mode blocks the cloud providers (Claude, OpenAI, Gemini) so nothing is ever sent off the device — reading and search then require the Apple On-Device provider. Turn it on to verify the app works fully in Airplane Mode.")
+                }
+
+                Section {
+                    Label {
+                        Text("Keep receipt images on this iPhone only")
+                            .font(.subheadline.weight(.semibold))
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                } footer: {
+                    Text("Receipt images stay local to this iPhone. The app automatically excludes its receipt storage from iCloud and device backups, so they're never uploaded by a system backup. They live under On My iPhone → ReceiptDrop in the Files app (local storage). To keep them solely on-device, don't manually copy them into iCloud Drive, Photos (with iCloud Photos on), or any other cloud folder.")
                 }
 
                 // Only the currently selected provider's key field is shown —
@@ -57,7 +83,14 @@ struct SettingsView: View {
                         account: AppConstants.KeychainKeys.geminiAPIKey,
                         footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Gemini API.")
                 case .appleOnDevice:
-                    EmptyView()
+                    Section {
+                        Label("No API key needed — reading happens on-device.",
+                              systemImage: "checkmark.seal")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } footer: {
+                        Text("Both receipt reading and natural-language search run on-device. If Apple Intelligence isn't enabled or your device isn't eligible, you'll see an error asking you to enable it or pick another provider.")
+                    }
                 }
 
                 Section {
