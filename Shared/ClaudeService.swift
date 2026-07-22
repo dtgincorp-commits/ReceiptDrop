@@ -187,16 +187,40 @@ struct ClaudeService: ReceiptExtractor {
             modelReason: string("confidence_reason"))
     }
 
-    /// Best-effort normalization to yyyy-MM-dd. If Claude already returned that
-    /// format we keep it; anything unparseable falls back to today's date so a
-    /// row is never written with a garbage date.
+    /// Parses a raw date string in any of the formats receipts commonly use —
+    /// not just yyyy-MM-dd. Returns nil if none match. Two-digit years (e.g.
+    /// "3/20/24") are read via the `yy` pattern, which maps to the 2000s.
+    /// Shared by `normalizeDate` and `ExtractedReceipt.build` so the "is this a
+    /// real date?" decision and the stored value never disagree.
+    static func flexibleDate(_ raw: String) -> Date? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let formats = [
+            "yyyy-MM-dd",
+            "M/d/yyyy", "MM/dd/yyyy",
+            "M/d/yy", "MM/dd/yy",
+            "M-d-yyyy", "MM-dd-yyyy", "M-d-yy", "MM-dd-yy",
+            "yyyy/MM/dd",
+            "MMM d, yyyy", "MMMM d, yyyy", "d MMM yyyy",
+        ]
+        for format in formats {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: trimmed) { return date }
+        }
+        return nil
+    }
+
+    /// Best-effort normalization to yyyy-MM-dd. Accepts any format
+    /// `flexibleDate` understands; anything unparseable falls back to today's
+    /// date so a row is never written with a garbage date.
     static func normalizeDate(_ raw: String) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = AppConstants.sheetDateFormat
-
-        if !raw.isEmpty, formatter.date(from: raw) != nil {
-            return raw
+        if let date = flexibleDate(raw) {
+            return formatter.string(from: date)
         }
         return formatter.string(from: Date())
     }

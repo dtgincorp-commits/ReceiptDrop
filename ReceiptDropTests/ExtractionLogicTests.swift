@@ -127,10 +127,30 @@ final class ExtractionLogicTests: XCTestCase {
         XCTAssertEqual(ClaudeService.normalizeDate("2026-03-14"), "2026-03-14")
     }
 
+    func testNormalizeDateParsesReceiptFormats() {
+        // The Holiday Market receipt case: "3/20/24" must become 2024-03-20,
+        // not today's date.
+        XCTAssertEqual(ClaudeService.normalizeDate("3/20/24"), "2024-03-20")
+        XCTAssertEqual(ClaudeService.normalizeDate("03/20/2024"), "2024-03-20")
+        XCTAssertEqual(ClaudeService.normalizeDate("3-20-24"), "2024-03-20")
+        XCTAssertEqual(ClaudeService.normalizeDate("Mar 20, 2024"), "2024-03-20")
+    }
+
     func testNormalizeDateFallsBackToTodayForGarbage() {
         let today = DateFormatter.posixDay.string(from: Date())
-        XCTAssertEqual(ClaudeService.normalizeDate("14/03/2026"), today)
+        XCTAssertEqual(ClaudeService.normalizeDate("not a date"), today)
         XCTAssertEqual(ClaudeService.normalizeDate(""), today)
+    }
+
+    func testReceiptFormatDateNotFlaggedUnreadable() {
+        // A valid receipt-format date should be stored correctly and NOT
+        // flagged as "unreadable" (it may still be flagged "old" — that's fine).
+        let r = ExtractedReceipt.build(
+            vendor: "Holiday Market", rawWorkDate: "3/20/24", amount: "27.71",
+            comments: "", rawVendorType: "grocery",
+            modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertEqual(r.workDate, "2024-03-20")
+        XCTAssertNotEqual(r.reviewReason, "Date unreadable, defaulted to today")
     }
 }
 
