@@ -33,6 +33,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.nicknagpal.receiptdrop
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # iPhone-only (1). This is a personal iPhone app; being iPhone-only
+        # exempts it from iPad's "must support all orientations" rule, so
+        # portrait-only is allowed (fixes App Store delivery error ITMS-90474).
+        TARGETED_DEVICE_FAMILY: "1"
     entitlements:
       path: ReceiptDrop/ReceiptDrop.entitlements
       properties:
