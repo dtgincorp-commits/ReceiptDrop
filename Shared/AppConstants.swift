@@ -4,7 +4,7 @@ import Foundation
 enum AppConstants {
     /// App Group — shares UserDefaults, files, and Keychain items
     /// between the main app and the share extension.
-    static let appGroupID = "group.com.dtgincorp.receiptdrop"
+    static let appGroupID = "group.com.nicknagpal.receiptdrop"
 
     /// Claude model used for receipt extraction. Haiku-class is fast and
     /// cheap and is sufficient for reading receipts. Change here if needed.
@@ -33,6 +33,7 @@ enum AppConstants {
         static let retryQueue = "retryQueue"               // failed submissions awaiting retry
         static let extractionProvider = "extractionProvider"
         static let extractionMode = "extractionMode"
+        static let offlineOnly = "offlineOnly"                 // block cloud providers; on-device only
         static let lastBackupDate = "lastBackupDate"
         static let backupReminderFrequency = "backupReminderFrequency"
     }

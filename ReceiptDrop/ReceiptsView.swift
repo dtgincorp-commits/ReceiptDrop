@@ -861,7 +861,7 @@ private struct ReceiptRow: View {
         .sheet(isPresented: $showPreview) {
             let urls = previewURLs()
             if !urls.isEmpty {
-                ReceiptPreviewView(urls: urls)
+                ReceiptPreviewSheet(entry: entry, urls: urls)
             }
         }
         .alert("File not found", isPresented: $missingFileAlert) {

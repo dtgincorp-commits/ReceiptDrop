@@ -25,12 +25,24 @@ struct ReceiptSubmitView: View {
     @State private var statusText: String = ""
     @State private var message: String?
 
+    /// The just-saved entry whose date couldn't be read — held so the
+    /// `.needsDate` nudge can update it once the user sets a date.
+    @State private var pendingDateEntry: HistoryEntry?
+    @State private var pickedDate = Date()
+
+    /// The exact review reason `ExtractedReceipt.build` writes when no date was
+    /// found. Matching it lets us prompt for a date instead of silently keeping
+    /// today's — matters for library images, where retaking a photo isn't an
+    /// option.
+    private static let unreadableDateReason = "Date unreadable, defaulted to today"
+
     /// Drives the Submit section's UI while the pipeline runs.
     private enum SubmitState: Equatable {
         case idle
         case running
         case success
         case queued
+        case needsDate
     }
 
     private var controlsDisabled: Bool {
@@ -120,6 +132,27 @@ struct ReceiptSubmitView: View {
                     .foregroundStyle(.green)
                 Spacer()
             }
+        case .needsDate:
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Couldn't read the date on this receipt", systemImage: "calendar.badge.exclamationmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text("Please set the correct date — it hasn't been guessed. Everything else was saved.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                DatePicker("Receipt Date", selection: $pickedDate, displayedComponents: .date)
+                Button {
+                    saveDateAndFinish()
+                } label: {
+                    HStack { Spacer(); Text("Save Date").bold(); Spacer() }
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Skip for now — it stays flagged for review") {
+                    onComplete()
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         case .queued:
             Button {
                 onComplete()
@@ -131,6 +164,26 @@ struct ReceiptSubmitView: View {
                 }
             }
         }
+    }
+
+    /// Applies the user-picked date to the just-saved entry (updates the CSV
+    /// log + history in place), then finishes. If the in-place update fails,
+    /// the entry is already saved and flagged for review, so the app's Edit
+    /// screen can still correct it — we don't block the user here.
+    private func saveDateAndFinish() {
+        guard let entry = pendingDateEntry else { onComplete(); return }
+        // Comments live in the CSV, not on HistoryEntry — read them back so the
+        // date-only update doesn't wipe them.
+        let existingComments = LocalReceiptStore.comments(
+            category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
+            amount: entry.amount, receiptFilename: entry.receiptLink)
+        _ = try? SubmissionPipeline.updateEntry(
+            old: entry,
+            newCategory: entry.category, newVendor: entry.vendor,
+            newWorkDate: LocalReceiptStore.dateString(pickedDate),
+            newAmount: entry.amount, newComments: existingComments,
+            newVendorType: entry.vendorType)
+        onComplete()
     }
 
     private func submit() {
@@ -151,12 +204,22 @@ struct ReceiptSubmitView: View {
 
         Task {
             do {
-                _ = try await SubmissionPipeline().run(data: data, kind: kind, category: category) { stage in
+                let entry = try await SubmissionPipeline().run(data: data, kind: kind, category: category) { stage in
                     statusText = stage.statusText
                 }
-                submitState = .success
-                try? await Task.sleep(nanoseconds: 800_000_000)
-                onComplete()
+                // If the date couldn't be read, don't quietly keep today's date
+                // — stop and ask the user to set it (works for library images
+                // too, where retaking a photo isn't possible).
+                if entry.verificationStatus == .needsReview,
+                   entry.reviewReason == Self.unreadableDateReason {
+                    pendingDateEntry = entry
+                    pickedDate = Date()
+                    submitState = .needsDate
+                } else {
+                    submitState = .success
+                    try? await Task.sleep(nanoseconds: 800_000_000)
+                    onComplete()
+                }
             } catch let duplicate as SubmissionError {
                 // Already recorded — nothing to save, nothing to retry.
                 message = duplicate.localizedDescription

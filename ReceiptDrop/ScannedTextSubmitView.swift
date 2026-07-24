@@ -14,10 +14,18 @@ struct ScannedTextSubmitView: View {
     @State private var statusText: String = ""
     @State private var message: String?
 
+    @State private var pendingDateEntry: HistoryEntry?
+    @State private var pickedDate = Date()
+
+    /// The exact review reason `ExtractedReceipt.build` writes when no date was
+    /// found — matching it lets us prompt for a date instead of keeping today's.
+    private static let unreadableDateReason = "Date unreadable, defaulted to today"
+
     private enum SubmitState: Equatable {
         case idle
         case running
         case success
+        case needsDate
     }
 
     private var controlsDisabled: Bool {
@@ -96,7 +104,45 @@ struct ScannedTextSubmitView: View {
                     .foregroundStyle(.green)
                 Spacer()
             }
+        case .needsDate:
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Couldn't read the date on this receipt", systemImage: "calendar.badge.exclamationmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text("Please set the correct date — it hasn't been guessed. Everything else was saved.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                DatePicker("Receipt Date", selection: $pickedDate, displayedComponents: .date)
+                Button {
+                    saveDateAndFinish()
+                } label: {
+                    HStack { Spacer(); Text("Save Date").bold(); Spacer() }
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Skip for now — it stays flagged for review") {
+                    onComplete()
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
+    }
+
+    /// Applies the user-picked date to the just-saved entry, then finishes.
+    private func saveDateAndFinish() {
+        guard let entry = pendingDateEntry else { onComplete(); return }
+        // Comments live in the CSV, not on HistoryEntry — read them back so the
+        // date-only update doesn't wipe them.
+        let existingComments = LocalReceiptStore.comments(
+            category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
+            amount: entry.amount, receiptFilename: entry.receiptLink)
+        _ = try? SubmissionPipeline.updateEntry(
+            old: entry,
+            newCategory: entry.category, newVendor: entry.vendor,
+            newWorkDate: LocalReceiptStore.dateString(pickedDate),
+            newAmount: entry.amount, newComments: existingComments,
+            newVendorType: entry.vendorType)
+        onComplete()
     }
 
     private func submit() {
@@ -111,14 +157,23 @@ struct ScannedTextSubmitView: View {
 
         Task {
             do {
-                _ = try await SubmissionPipeline().runTextOnly(
+                let entry = try await SubmissionPipeline().runTextOnly(
                     ocrText: recognizedText, category: selectedCategory
                 ) { stage in
                     statusText = stage.statusText
                 }
-                submitState = .success
-                try? await Task.sleep(nanoseconds: 800_000_000)
-                onComplete()
+                // Ask for the date rather than keeping today's if it couldn't
+                // be read — consistent with the photo/PDF submit flow.
+                if entry.verificationStatus == .needsReview,
+                   entry.reviewReason == Self.unreadableDateReason {
+                    pendingDateEntry = entry
+                    pickedDate = Date()
+                    submitState = .needsDate
+                } else {
+                    submitState = .success
+                    try? await Task.sleep(nanoseconds: 800_000_000)
+                    onComplete()
+                }
             } catch let duplicate as SubmissionError {
                 message = duplicate.localizedDescription
                 submitState = .success

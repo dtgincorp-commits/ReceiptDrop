@@ -141,6 +141,27 @@ enum LocalReceiptStore {
         return docs.appendingPathComponent(receiptsDirName, isDirectory: true)
     }
 
+    /// Marks the receipt storage roots (the app's Documents/Receipts folder and
+    /// the App Group spool) as excluded from iCloud/iTunes device backups, so
+    /// receipt images never leave the phone via a system backup. Excluding a
+    /// directory covers everything inside it, including future files. Safe to
+    /// call repeatedly — call it on every launch so the flag survives folders
+    /// being recreated. Returns true if at least one root was flagged.
+    @discardableResult
+    static func excludeReceiptsFromBackup() -> Bool {
+        let roots = [documentsRootURL(), spoolRootURL()].compactMap { $0 }
+        var anyFlagged = false
+        for var root in roots {
+            try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            if (try? root.setResourceValues(values)) != nil {
+                anyFlagged = true
+            }
+        }
+        return anyFlagged
+    }
+
     /// Locates a saved receipt file for preview. Checks Documents (where
     /// drained files live, visible in Files) first, then falls back to the
     /// App Group spool in case a share-extension submission hasn't been

@@ -182,13 +182,10 @@ struct ExtractedReceipt {
             needsReview = true
             if reason.isEmpty { reason = "Amount missing or unreadable" }
         }
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-        dateFormatter.dateFormat = AppConstants.sheetDateFormat
-        if rawWorkDate.isEmpty || dateFormatter.date(from: rawWorkDate) == nil {
-            needsReview = true
-            if reason.isEmpty { reason = "Date unreadable, defaulted to today" }
-        } else if let parsed = dateFormatter.date(from: rawWorkDate) {
+        // Accept any format receipts actually use (M/d/yy, MM/dd/yyyy, …), not
+        // just yyyy-MM-dd — otherwise a correctly-read date in the receipt's
+        // own format would be treated as "unreadable" and dropped for today.
+        if let parsed = ClaudeService.flexibleDate(rawWorkDate) {
             // Well-formed but implausible: a model working from noisy OCR
             // text (no visual layout to anchor on) can hallucinate a
             // plausible-looking date rather than admitting none was found —
@@ -201,6 +198,9 @@ struct ExtractedReceipt {
                 needsReview = true
                 if reason.isEmpty { reason = "Date is over a year old — please confirm" }
             }
+        } else {
+            needsReview = true
+            if reason.isEmpty { reason = "Date unreadable, defaulted to today" }
         }
         // Only ever store a recognized token (built-in or custom) or empty —
         // never let a model's free-text deviation into the vocabulary
@@ -229,7 +229,7 @@ enum ExtractionPrompt {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = AppConstants.sheetDateFormat
-        var lines = ["Today's date is \(formatter.string(from: Date())). Receipts are usually recent — if you can't find a clear date on the receipt, return an empty string; never guess or invent one."]
+        var lines = ["Today's date is \(formatter.string(from: Date())). The transaction date is often NOT at the top — check the payment / card-approval block near the bottom too (e.g. a line like \"Date: 3/20/24\"). Output it as yyyy-MM-dd, expanding a 2-digit year to 20YY (so 3/20/24 becomes 2024-03-20). Only if there is genuinely no date anywhere, return an empty string — never guess or invent one."]
         if !categoryContext.isEmpty {
             lines.append("This receipt is being filed under a category described by the user as: \"\(categoryContext)\". Use this to write more specific Comments, and lower your confidence if the receipt looks unrelated to this description.")
         }
@@ -272,10 +272,15 @@ enum ExtractionProvider: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// Apple On-Device requires iOS 26 + the Foundation Models framework —
-    /// not available on this toolchain yet. Listed so the option is visible
-    /// (and the future path obvious) without being selectable.
-    var isAvailable: Bool { self != .appleOnDevice }
+    /// Apple On-Device requires iOS 26 + the Foundation Models framework.
+    /// Selectable on iOS 26+; whether the model is actually ready on this
+    /// specific device (eligible hardware + Apple Intelligence enabled) is
+    /// checked at extraction time, surfacing a clear error if not.
+    var isAvailable: Bool {
+        guard self == .appleOnDevice else { return true }
+        if #available(iOS 26.0, *) { return true }
+        return false
+    }
 }
 
 /// Whether extraction sends the full image/PDF, or on-device OCR text only
@@ -291,6 +296,18 @@ enum ExtractionMode: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .fullImage: return "Full Image"
         case .onDeviceOCR: return "On-Device OCR Text"
+        }
+    }
+}
+
+/// Raised when Offline mode is on but a network-dependent provider is chosen.
+enum OfflineModeError: LocalizedError {
+    case cloudProviderBlocked(ExtractionProvider)
+
+    var errorDescription: String? {
+        switch self {
+        case .cloudProviderBlocked(let provider):
+            return "Offline mode is on, so \(provider.displayName) (which needs the internet) is blocked. Switch the AI Provider to Apple On-Device in Settings, or turn off Offline mode."
         }
     }
 }
@@ -321,15 +338,34 @@ enum ExtractionSettings {
         set { defaults.set(newValue.rawValue, forKey: AppConstants.DefaultsKeys.extractionMode) }
     }
 
-    /// The extractor instance for the currently selected provider. Apple
-    /// On-Device isn't implemented yet (`isAvailable == false`), so it's
-    /// unreachable here — the Settings picker prevents selecting it.
+    /// When true, the app refuses the cloud providers (Claude/OpenAI/Gemini)
+    /// and works only with Apple's on-device model — nothing leaves the phone.
+    /// Stored in the App Group so the share extension honors it too.
+    static var offlineOnly: Bool {
+        get { defaults.bool(forKey: AppConstants.DefaultsKeys.offlineOnly) }
+        set { defaults.set(newValue, forKey: AppConstants.DefaultsKeys.offlineOnly) }
+    }
+
+    /// Throws if Offline mode is on but a cloud provider is selected. Call at
+    /// the start of any extraction or search so the block is enforced
+    /// everywhere (main app *and* share extension), not just hidden in the UI.
+    static func assertProviderAllowed() throws {
+        if offlineOnly && provider != .appleOnDevice {
+            throw OfflineModeError.cloudProviderBlocked(provider)
+        }
+    }
+
+    /// The extractor instance for the currently selected provider.
     static func currentExtractor() -> ReceiptExtractor {
         switch provider {
         case .claude: return ClaudeService()
         case .openAI: return OpenAIService()
         case .gemini: return GeminiService()
-        case .appleOnDevice: return ClaudeService() // unreachable; picker disables this option
+        case .appleOnDevice:
+            #if canImport(FoundationModels)
+            if #available(iOS 26.0, *) { return FoundationModelsService() }
+            #endif
+            return GeminiService() // fallback on older OS / toolchains
         }
     }
 }
