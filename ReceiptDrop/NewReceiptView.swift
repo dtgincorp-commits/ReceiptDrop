@@ -30,13 +30,22 @@ struct NewReceiptView: View {
     @State private var showPhotoPicker = false
     @State private var showFileImporter = false
     @State private var showManualEntry = false
-    @State private var photoPickerItem: PhotosPickerItem?
+    @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var attachment: SharedAttachment?
+    @State private var batchAttachments: [SharedAttachment]?
     @State private var scannedText: String?
 
     var body: some View {
         Group {
-            if let attachment {
+            if let batchAttachments {
+                BatchReceiptSubmitView(
+                    attachments: batchAttachments,
+                    onCancel: { dismiss() },
+                    onComplete: {
+                        dismiss()
+                        onComplete()
+                    })
+            } else if let attachment {
                 ReceiptSubmitView(
                     attachment: attachment,
                     onCancel: { dismiss() },
@@ -90,15 +99,26 @@ struct NewReceiptView: View {
             }
             .ignoresSafeArea()
         }
-        .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
-        .onChange(of: photoPickerItem) { item in
-            guard let item else { return }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItems,
+                      maxSelectionCount: 0, matching: .images)
+        .onChange(of: photoPickerItems) { items in
+            guard !items.isEmpty else { return }
             Task {
-                if let data = try? await item.loadTransferable(type: Data.self),
-                   let image = UIImage(data: data) {
-                    attachment = SharedAttachment(kind: .image, data: data, thumbnail: image)
-                } else {
+                var loaded: [SharedAttachment] = []
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        loaded.append(SharedAttachment(kind: .image, data: data, thumbnail: image))
+                    }
+                }
+                guard !loaded.isEmpty else {
                     dismiss()
+                    return
+                }
+                if loaded.count == 1 {
+                    attachment = loaded[0]
+                } else {
+                    batchAttachments = loaded
                 }
             }
         }
