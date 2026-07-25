@@ -18,6 +18,9 @@ struct ReceiptsView: View {
     @AppStorage("receiptsGroupByWorkDate") private var groupByWorkDate = false
     @State private var editingEntry: HistoryEntry?
     @State private var showCategories = false
+    @State private var showBillCapture = false
+    @State private var showBillReview = false
+    @State private var billPhotoData: Data = Data()
     /// nil shows every category; otherwise the tree only shows this one.
     @State private var filterCategory: String?
     @State private var searchText = ""
@@ -455,6 +458,13 @@ struct ReceiptsView: View {
                                 }
                             }
                         }
+                        Divider()
+                        Button {
+                            showBillCapture = true
+                        } label: {
+                            Label("Check a Bill", systemImage: "doc.text.magnifyingglass")
+                        }
+                        Divider()
                         Button {
                             newReceiptSource = .library
                         } label: {
@@ -479,6 +489,25 @@ struct ReceiptsView: View {
         }
         .sheet(item: $newReceiptSource) { source in
             NewReceiptView(source: source, onComplete: reload)
+        }
+        .fullScreenCover(isPresented: $showBillCapture, onDismiss: {
+            if !billPhotoData.isEmpty {
+                showBillReview = true
+            }
+        }) {
+            BillCaptureView(
+                onCancel: { showBillCapture = false },
+                onCaptured: { data in
+                    billPhotoData = data
+                    showBillCapture = false
+                })
+        }
+        .sheet(isPresented: $showBillReview) {
+            BillReviewView(photoData: billPhotoData, onDone: {
+                showBillReview = false
+                billPhotoData = Data()
+                reload()
+            })
         }
         .sheet(item: $editingEntry) { entry in
             EditReceiptView(
