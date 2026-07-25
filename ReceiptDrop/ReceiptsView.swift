@@ -496,6 +496,9 @@ struct ReceiptsView: View {
         }
         .onAppear(perform: reload)
         .onChange(of: scenePhase) { if $0 == .active { reload() } }
+        .onReceive(NotificationCenter.default.publisher(for: .receiptDropDidUpdateHistory)) { _ in
+            reload()
+        }
     }
 
     private func reload() {

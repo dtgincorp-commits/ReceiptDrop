@@ -41,8 +41,9 @@ enum AppConstants {
     /// Date format written to the Work_Date column.
     static let sheetDateFormat = "yyyy-MM-dd"
 
-    /// Default categories on first launch.
-    static let defaultCategories = ["DTG", "MONTERAS", "HEATHERWOOD"]
+    /// Default categories on first launch — a placeholder for a brand-new
+    /// user to rename/replace via Manage Categories, not real business names.
+    static let defaultCategories = ["Sample Category"]
 
     /// CSV header row, written when a category's local log file is first created.
     static let sheetHeader = [

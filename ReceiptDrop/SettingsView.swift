@@ -71,17 +71,20 @@ struct SettingsView: View {
                     APIKeySection(
                         title: "Anthropic API Key", placeholder: "sk-ant-…",
                         account: AppConstants.KeychainKeys.anthropicAPIKey,
-                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Anthropic API.")
+                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Anthropic API.",
+                        testKey: APIKeyTester.testClaudeKey)
                 case .openAI:
                     APIKeySection(
                         title: "OpenAI API Key", placeholder: "sk-…",
                         account: AppConstants.KeychainKeys.openAIAPIKey,
-                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the OpenAI API.")
+                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the OpenAI API.",
+                        testKey: APIKeyTester.testOpenAIKey)
                 case .gemini:
                     APIKeySection(
                         title: "Google Gemini API Key", placeholder: "AIza…",
                         account: AppConstants.KeychainKeys.geminiAPIKey,
-                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Gemini API.")
+                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Gemini API.",
+                        testKey: APIKeyTester.testGeminiKey)
                 case .appleOnDevice:
                     Section {
                         Label("No API key needed — reading happens on-device.",
@@ -165,15 +168,30 @@ private struct APIKeySection: View {
     let placeholder: String
     let account: String
     let footer: String
+    /// Fires the provider's cheapest real endpoint to confirm the key works.
+    let testKey: (String) async throws -> Void
 
     @State private var input = ""
     @State private var saved: Bool
+    @State private var revealInput = false
+    @State private var revealSaved = false
+    @State private var testState: TestState = .idle
+    @State private var saveError: String?
 
-    init(title: String, placeholder: String, account: String, footer: String) {
+    private enum TestState: Equatable {
+        case idle
+        case testing
+        case success
+        case failure(String)
+    }
+
+    init(title: String, placeholder: String, account: String, footer: String,
+         testKey: @escaping (String) async throws -> Void) {
         self.title = title
         self.placeholder = placeholder
         self.account = account
         self.footer = footer
+        self.testKey = testKey
         _saved = State(initialValue: KeychainHelper.get(account) != nil)
     }
 
@@ -187,26 +205,106 @@ private struct APIKeySection: View {
                     Button("Remove", role: .destructive) {
                         KeychainHelper.delete(account)
                         saved = false
+                        revealSaved = false
+                        testState = .idle
                     }
                 }
+                // Lets the user re-check the exact saved key (whitespace,
+                // truncation, wrong key pasted, etc.) while troubleshooting a
+                // provider that isn't working, instead of only seeing "saved".
+                Button(revealSaved ? "Hide Saved Key" : "Show Saved Key") {
+                    revealSaved.toggle()
+                }
+                if revealSaved, let key = KeychainHelper.get(account) {
+                    Text(key)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                testControl
             } else {
-                SecureField(placeholder, text: $input)
+                HStack {
+                    Group {
+                        if revealInput {
+                            TextField(placeholder, text: $input)
+                        } else {
+                            SecureField(placeholder, text: $input)
+                        }
+                    }
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    Button {
+                        revealInput.toggle()
+                    } label: {
+                        Image(systemName: revealInput ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(.borderless)
+                }
                 Button("Save to Keychain") {
                     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty else { return }
-                    if KeychainHelper.set(trimmed, for: account) {
+                    do {
+                        try KeychainHelper.setDetailed(trimmed, for: account)
                         input = ""
                         saved = true
+                        saveError = nil
+                    } catch {
+                        saveError = error.localizedDescription
                     }
                 }
                 .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if let saveError {
+                    Text(saveError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
         } header: {
             Text(title)
         } footer: {
             Text(footer)
+        }
+    }
+
+    @ViewBuilder
+    private var testControl: some View {
+        switch testState {
+        case .idle:
+            Button("Test Key") { runTest() }
+        case .testing:
+            HStack {
+                ProgressView()
+                Text("Testing…").foregroundStyle(.secondary)
+            }
+        case .success:
+            HStack {
+                Label("Key works", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Spacer()
+                Button("Test Again") { runTest() }
+            }
+        case .failure(let message):
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Key didn't work", systemImage: "xmark.circle.fill")
+                    .foregroundStyle(.red)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Test Again") { runTest() }
+            }
+        }
+    }
+
+    private func runTest() {
+        guard let key = KeychainHelper.get(account) else { return }
+        testState = .testing
+        Task {
+            do {
+                try await testKey(key)
+                testState = .success
+            } catch {
+                testState = .failure(error.localizedDescription)
+            }
         }
     }
 }

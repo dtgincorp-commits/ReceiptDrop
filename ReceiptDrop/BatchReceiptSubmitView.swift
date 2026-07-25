@@ -14,15 +14,10 @@ struct BatchReceiptSubmitView: View {
     @StateObject private var categoryStore = CategoryStore.shared
     @State private var selectedCategory: String = ""
     @State private var phase: Phase = .idle
-    @State private var currentIndex = 0
-    @State private var submitted = 0
-    @State private var duplicates = 0
-    @State private var queued = 0
 
     private enum Phase: Equatable {
         case idle
-        case running
-        case done
+        case confirmed
     }
 
     var body: some View {
@@ -54,7 +49,7 @@ struct BatchReceiptSubmitView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onCancel).disabled(phase == .running)
+                    Button("Cancel", action: onCancel).disabled(phase != .idle)
                 }
             }
         }
@@ -75,65 +70,26 @@ struct BatchReceiptSubmitView: View {
                 HStack { Spacer(); Text("Submit All").bold(); Spacer() }
             }
             .disabled(selectedCategory.isEmpty)
-        case .running:
-            VStack(alignment: .leading, spacing: 8) {
-                ProgressView(value: Double(currentIndex), total: Double(attachments.count))
-                Text("Submitting \(currentIndex + 1) of \(attachments.count)…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        case .done:
-            VStack(alignment: .leading, spacing: 8) {
-                Label("\(submitted) submitted", systemImage: "checkmark.circle.fill")
+        case .confirmed:
+            HStack {
+                Spacer()
+                Label("\(attachments.count) receipts submitted", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                if duplicates > 0 {
-                    Label("\(duplicates) already recorded, skipped", systemImage: "doc.on.doc")
-                        .foregroundStyle(.secondary)
-                }
-                if queued > 0 {
-                    Label("\(queued) couldn't submit — saved to the retry queue", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                }
-                Button {
-                    onComplete()
-                } label: {
-                    HStack { Spacer(); Text("Done").bold(); Spacer() }
-                }
-                .buttonStyle(.borderedProminent)
-                .padding(.top, 4)
+                Spacer()
             }
         }
     }
 
+    /// Kicks off the batch on a detached task (survives this view being
+    /// dismissed) and shows a brief confirmation before closing — no "N of M"
+    /// progress screen. Any receipt that fails or needs review still surfaces
+    /// afterward via the existing needs-review banner / Retry Queue tab.
     private func submitAll() {
-        let category = selectedCategory
-        phase = .running
-        currentIndex = 0
-
+        BatchSubmissionRunner.submit(attachments: attachments, category: selectedCategory)
+        phase = .confirmed
         Task {
-            for (index, attachment) in attachments.enumerated() {
-                currentIndex = index
-                let kind: ReceiptKind = attachment.kind == .image ? .image : .pdf
-                let data: Data
-                if attachment.kind == .image, let jpeg = UIImage(data: attachment.data)?.jpegData(compressionQuality: 0.85) {
-                    data = jpeg
-                } else {
-                    data = attachment.data
-                }
-
-                do {
-                    _ = try await SubmissionPipeline().run(data: data, kind: kind, category: category) { _ in }
-                    submitted += 1
-                } catch is SubmissionError {
-                    duplicates += 1
-                } catch {
-                    SubmissionStore.enqueue(data: data, category: category, kind: kind,
-                                            error: error.localizedDescription)
-                    queued += 1
-                }
-            }
-            LocalReceiptStore.drainSpoolIntoDocuments()
-            phase = .done
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            onComplete()
         }
     }
 }
