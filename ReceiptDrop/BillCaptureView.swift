@@ -96,8 +96,14 @@ struct BillCaptureView: View {
         .onChange(of: photoPickerItem) { item in
             guard let item else { return }
             Task {
-                if let data = try? await item.loadTransferable(type: Data.self) {
-                    onCaptured(data)
+                // Re-encode to real JPEG bytes — a library photo can be HEIC/PNG,
+                // and the itemization request always labels the upload as
+                // image/jpeg, so passing the original bytes through unconverted
+                // breaks decoding server-side for anything that isn't already JPEG.
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data),
+                   let jpeg = image.jpegData(compressionQuality: 0.9) {
+                    onCaptured(jpeg)
                 } else {
                     photoPickerItem = nil
                 }

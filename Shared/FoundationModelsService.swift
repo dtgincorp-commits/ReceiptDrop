@@ -56,7 +56,7 @@ struct ReceiptDraft {
     @Guide(description: "The contractor or vendor / business name on the receipt. Empty string if not present.")
     var vendor: String
 
-    @Guide(description: "The primary date on the receipt, normalized to yyyy-MM-dd. Empty string if none is clearly shown — never guess or invent one.")
+    @Guide(description: "The primary date on the receipt, copied exactly as printed (e.g. \"07/24/26\", \"March 3, 2026\" — whatever format is shown, do not convert or reformat it yourself). Empty string if none is clearly shown — never guess or invent one.")
     var workDate: String
 
     @Guide(description: "The receipt total as a plain number with no currency symbol or thousands separators, e.g. 42.10. Empty string if unreadable.")
