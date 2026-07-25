@@ -124,8 +124,11 @@ struct BillReviewView: View {
                                 .font(.system(size: 20 * textScale, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.secondary)
                                 .frame(width: 32, alignment: .leading)
-                            Text(item.quantity > 1 ? "\(item.name) ×\(item.quantity)" : item.name)
+                            Text(item.name)
                                 .font(.system(size: 20 * textScale, weight: .semibold))
+                            if item.quantity > 1 {
+                                quantityBadge(item.quantity)
+                            }
                             Spacer()
                             Text(currency(item.price))
                                 .font(.system(size: 20 * textScale, weight: .semibold, design: .rounded))
@@ -143,6 +146,18 @@ struct BillReviewView: View {
             }
             .padding()
         }
+    }
+
+    /// Flags a doubled (or more) item at a glance — "was this really ordered
+    /// twice?" is exactly the kind of thing worth a second look at the table,
+    /// so it needs to stand out from a plain "×2" in the same font as the name.
+    private func quantityBadge(_ quantity: Int) -> some View {
+        Text("×\(quantity)")
+            .font(.system(size: 16 * textScale, weight: .heavy, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.orange, in: Capsule())
     }
 
     @ViewBuilder
@@ -312,8 +327,16 @@ private struct BillShareImageContent: View {
                 HStack(alignment: .top) {
                     Text("\(index + 1).").font(.system(size: 20, weight: .semibold)).foregroundStyle(.secondary)
                         .frame(width: 32, alignment: .leading)
-                    Text(item.quantity > 1 ? "\(item.name) ×\(item.quantity)" : item.name)
+                    Text(item.name)
                         .font(.system(size: 20, weight: .semibold))
+                    if item.quantity > 1 {
+                        Text("×\(item.quantity)")
+                            .font(.system(size: 16, weight: .heavy, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.orange, in: Capsule())
+                    }
                     Spacer(minLength: 20)
                     Text(String(format: "$%.2f", item.price)).font(.system(size: 20, weight: .semibold, design: .rounded))
                 }

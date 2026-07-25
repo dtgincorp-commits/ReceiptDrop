@@ -438,6 +438,15 @@ struct ReceiptsView: View {
                     .tint(.white)
                 }
                 ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showBillCapture = true
+                    } label: {
+                        Image(systemName: "doc.text.magnifyingglass")
+                    }
+                    .tint(.white)
+                    .accessibilityLabel("Check a Bill")
+                }
+                ToolbarItem(placement: .primaryAction) {
                     Menu {
                         if UIImagePickerController.isSourceTypeAvailable(.camera) {
                             Button {
@@ -457,12 +466,6 @@ struct ReceiptsView: View {
                                     Label("Scan Text", systemImage: "text.viewfinder")
                                 }
                             }
-                        }
-                        Divider()
-                        Button {
-                            showBillCapture = true
-                        } label: {
-                            Label("Check a Bill", systemImage: "doc.text.magnifyingglass")
                         }
                         Divider()
                         Button {
