@@ -451,7 +451,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.nicknagpal.receiptdrop.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dtgincorp.receiptdrop.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ReceiptDrop.app/ReceiptDrop";
@@ -468,7 +468,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.nicknagpal.receiptdrop.share;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dtgincorp.receiptdrop.share;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -484,7 +484,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.nicknagpal.receiptdrop.share;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dtgincorp.receiptdrop.share;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -566,7 +566,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.nicknagpal.receiptdrop;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dtgincorp.receiptdrop;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -584,7 +584,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.nicknagpal.receiptdrop;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dtgincorp.receiptdrop;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -657,7 +657,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.nicknagpal.receiptdrop.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dtgincorp.receiptdrop.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ReceiptDrop.app/ReceiptDrop";
