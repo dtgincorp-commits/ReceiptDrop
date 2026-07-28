@@ -20,11 +20,6 @@ struct BillReviewView: View {
     @State private var messageRecipients: [String]?
     @State private var messageAttachments: [(data: Data, filename: String)] = []
     @State private var showSaveToReceipts = false
-    /// Items the user has tapped to mark as comped (e.g. "the restaurant said
-    /// this was free") — purely a local, ephemeral display/math adjustment;
-    /// never sent to the AI, never persisted. Resets each time a bill is
-    /// freshly captured, same as everything else on this screen.
-    @State private var compedItemIDs: Set<UUID> = []
     @State private var showPhotoViewer = false
     /// Tips only make sense for a fraction of what Check a Bill scans
     /// (restaurant bills, not medical/travel/retail receipts) — showing the
@@ -137,8 +132,10 @@ struct BillReviewView: View {
                     receiptThumbnail
                 }
 
-                if compedAdjustedMismatch(bill) {
+                if bill.hasArithmeticMismatch {
                     mismatchBanner(bill)
+                } else if bill.totalsUnverifiable {
+                    unverifiableBanner
                 }
                 if bill.unreadableLineCount > 0 {
                     unreadableBanner(bill)
@@ -149,7 +146,6 @@ struct BillReviewView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 14) {
                         ForEach(Array(bill.items.enumerated()), id: \.element.id) { index, item in
-                            let isComped = compedItemIDs.contains(item.id)
                             HStack(alignment: .top) {
                                 Text("\(index + 1).")
                                     .font(.system(size: 20 * textScale, weight: .semibold, design: .rounded))
@@ -157,39 +153,18 @@ struct BillReviewView: View {
                                     .frame(width: 32, alignment: .leading)
                                 Text(item.name)
                                     .font(.system(size: 20 * textScale, weight: .semibold))
-                                    .strikethrough(isComped)
-                                    .foregroundStyle(isComped ? .secondary : .primary)
                                 if item.quantity > 1 {
                                     quantityBadge(item.quantity)
-                                }
-                                if isComped {
-                                    compedBadge
                                 }
                                 Spacer()
                                 Text(currency(item.price))
                                     .font(.system(size: 20 * textScale, weight: .semibold, design: .rounded))
-                                    .strikethrough(isComped)
-                                    .foregroundStyle(isComped ? .secondary : .primary)
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                if isComped {
-                                    compedItemIDs.remove(item.id)
-                                } else {
-                                    compedItemIDs.insert(item.id)
-                                }
                             }
                         }
                     }
-                    Text("Tap an item to mark it comped/free")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
-                if !compedItemIDs.isEmpty {
-                    compedComparisonBanner(bill)
-                }
-                if let service = bill.serviceCharge, service > 0 {
+                if let service = bill.serviceCharge, service > 0, isPlausibleGratuity(service, bill: bill) {
                     gratuityBanner(service)
                 }
 
@@ -228,42 +203,31 @@ struct BillReviewView: View {
             .background(Color.orange, in: Capsule())
     }
 
-    /// Printed subtotal is the right baseline to check items against — it's
-    /// pre-tax, same as the item list. Falls back to the grand total only
-    /// when no subtotal was printed at all.
-    private func printedBaseline(_ bill: ExtractedBill) -> Double {
-        bill.subtotal ?? bill.total ?? bill.itemsSum
-    }
-
-    /// Sum of items, excluding anything marked comped — the number that
-    /// should match the printed subtotal if a comp was actually honored.
-    private func compedAdjustedItemsSum(_ bill: ExtractedBill) -> Double {
-        bill.items.reduce(0) { sum, item in
-            compedItemIDs.contains(item.id) ? sum : sum + item.price
-        }
-    }
-
-    /// Same arithmetic check as `ExtractedBill.hasArithmeticMismatch`, but
-    /// aware of comped items — a gap fully explained by a comp isn't an
-    /// error, so it shouldn't also trigger the generic "items don't add up"
-    /// warning (which is confusing next to the comp banner explaining the
-    /// very same gap).
-    private func compedAdjustedMismatch(_ bill: ExtractedBill) -> Bool {
-        guard !bill.items.isEmpty else { return false }
-        return abs(compedAdjustedItemsSum(bill) - printedBaseline(bill)) > 0.05
-    }
-
     @ViewBuilder
     private func mismatchBanner(_ bill: ExtractedBill) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Label("Items don't add up", systemImage: "exclamationmark.triangle.fill")
                 .font(.headline)
                 .foregroundStyle(.red)
-            Text("Items total \(currency(compedAdjustedItemsSum(bill))), but the bill shows \(currency(printedBaseline(bill))).")
+            Text("Items total \(currency(bill.itemsSum)), but the bill shows \(currency(bill.printedTarget ?? 0)).")
                 .font(.subheadline)
         }
         .padding()
         .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Shown when there's no printed subtotal or total to check the items
+    /// against at all — without this, a badly garbled read (missing both
+    /// anchors) looks identical to a bill that cleanly reconciles, since
+    /// `hasArithmeticMismatch` is false in both cases. Say so honestly rather
+    /// than silently appearing to pass.
+    private var unverifiableBanner: some View {
+        Label("Couldn't verify this bill's totals — no subtotal or total was printed/read. Check the numbers against the photo.",
+              systemImage: "questionmark.diamond.fill")
+            .font(.subheadline)
+            .foregroundStyle(.orange)
+            .padding()
+            .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -308,49 +272,23 @@ struct BillReviewView: View {
         }
     }
 
-    private var compedBadge: some View {
-        Text("Comped")
-            .font(.system(size: 14 * textScale, weight: .heavy))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Color.green, in: Capsule())
-    }
-
-    /// Checks whether a comp you were promised actually made it onto the
-    /// bill — not "what you owe" (you may have already signed for the full
-    /// printed amount), but a flag worth raising with the table before you
-    /// sign, if the printed subtotal doesn't reflect the comp. Uses the same
-    /// pre-tax subtotal baseline as the mismatch check above — comparing a
-    /// pre-tax item sum against the tax-inclusive grand total would compare
-    /// the wrong two numbers and give a false "not reflected" reading.
-    @ViewBuilder
-    private func compedComparisonBanner(_ bill: ExtractedBill) -> some View {
-        let expected = compedAdjustedItemsSum(bill)
-        let printed = printedBaseline(bill)
-        let honored = abs(expected - printed) < 0.05
-
-        VStack(alignment: .leading, spacing: 4) {
-            Label(honored ? "Comp reflected on the bill" : "Comp not reflected on the bill",
-                  systemImage: honored ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.headline)
-                .foregroundStyle(honored ? .green : .red)
-            Text("Expected if comped: \(currency(expected)) — printed subtotal: \(currency(printed)).")
-                .font(.subheadline)
-            if !honored {
-                Text("Worth mentioning to your server before you sign.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding()
-        .background((honored ? Color.green : Color.red).opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+    /// A gratuity banner is only trustworthy if the service charge is a
+    /// plausible fraction of the actual bill — real gratuities are typically
+    /// 15–25%, occasionally higher for large parties, but never the entire
+    /// bill. Protects against a garbled read that dumps the grand total into
+    /// this field (observed on a real bill), which would otherwise tell the
+    /// user a gratuity was already included when it wasn't — risking
+    /// under-tipping the server on the app's own bad information.
+    private func isPlausibleGratuity(_ serviceCharge: Double, bill: ExtractedBill) -> Bool {
+        guard let total = bill.total, total > 0 else { return false }
+        let fraction = serviceCharge / total
+        return fraction > 0 && fraction < 0.5
     }
 
     /// A service charge/gratuity already baked into the total is easy to
     /// miss on a blank "Tip" line meant for you to fill in by hand — this is
-    /// a far more common trap than a one-off comp, and costs nothing extra
-    /// to surface since the field is already extracted for every bill.
+    /// a common trap, and costs nothing extra to surface since the field is
+    /// already extracted for every bill.
     @ViewBuilder
     private func gratuityBanner(_ serviceCharge: Double) -> some View {
         Label("A \(currency(serviceCharge)) service charge/gratuity is already included — check before adding another tip.",
@@ -395,10 +333,9 @@ struct BillReviewView: View {
     }
 
     /// Standard tipping etiquette bases the tip on the pre-tax subtotal, not
-    /// the tax-inclusive total. If anything's marked comped, tip on what was
-    /// actually paid for rather than the freebie.
+    /// the tax-inclusive total.
     private func tipBase(_ bill: ExtractedBill) -> Double {
-        compedItemIDs.isEmpty ? (bill.subtotal ?? bill.itemsSum) : compedAdjustedItemsSum(bill)
+        bill.subtotal ?? bill.itemsSum
     }
 
     @ViewBuilder
@@ -620,9 +557,13 @@ private struct BillShareImageContent: View {
                 }
             }
             if bill.hasArithmeticMismatch {
-                Text("⚠ Items total \(String(format: "$%.2f", bill.itemsSum)), bill shows \(String(format: "$%.2f", bill.subtotal ?? bill.total ?? 0))")
+                Text("⚠ Items total \(String(format: "$%.2f", bill.itemsSum)), bill shows \(String(format: "$%.2f", bill.printedTarget ?? 0))")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.red)
+            } else if bill.totalsUnverifiable {
+                Text("⚠ Couldn't verify totals — no subtotal or total was printed/read.")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.orange)
             }
         }
         .padding(24)

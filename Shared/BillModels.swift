@@ -35,15 +35,26 @@ struct ExtractedBill {
 
     /// Prefer comparing against the subtotal (pre-tax/tip) since that's what
     /// line items should equal; falls back to the grand total if no subtotal
-    /// was printed.
-    private var arithmeticTarget: Double? { subtotal ?? total }
+    /// was printed. `nil` means there's nothing printed to check items
+    /// against at all — see `totalsUnverifiable`.
+    var printedTarget: Double? { subtotal ?? total }
 
     /// True if the items don't add up to the printed subtotal/total, beyond a
     /// small rounding tolerance. Only checked when there's something to check
     /// against — an empty item list or missing totals isn't a "mismatch".
     var hasArithmeticMismatch: Bool {
-        guard !items.isEmpty, let target = arithmeticTarget else { return false }
+        guard !items.isEmpty, let target = printedTarget else { return false }
         return abs(itemsSum - target) > 0.05
+    }
+
+    /// True when there's no printed subtotal AND no printed total to check
+    /// items against — the arithmetic check literally cannot run. Without
+    /// this distinct signal, a badly garbled read that loses both anchors
+    /// looks identical to a clean bill that reconciles: `hasArithmeticMismatch`
+    /// is false either way, so a caller must check this too before treating
+    /// "no mismatch shown" as "verified correct."
+    var totalsUnverifiable: Bool {
+        !items.isEmpty && printedTarget == nil
     }
 
     static func build(vendor: String, rawItems: [(name: String, quantity: String, price: String)],
