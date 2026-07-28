@@ -29,12 +29,77 @@ which crashes Xcode 15.2's project editor).
 Note: regenerating resets any signing team you selected in Xcode — re-select
 your personal team under Signing & Capabilities for both targets.
 
-## Key identifiers
+## Key identifiers — two sets, one per branch
 
-- App bundle ID: `com.dtgincorp.receiptdrop`
-- Extension bundle ID: `com.dtgincorp.receiptdrop.share`
-- App Group: `group.com.dtgincorp.receiptdrop`
-- Claude model: `claude-haiku-4-5` (constant in `Shared/AppConstants.swift`)
+There are **two** identifier sets. Which one you get depends on the branch you
+have checked out. Do not mix them.
+
+| | `main` — the shipping identity | `local-dev-dtgincorp` — local wired builds only |
+|---|---|---|
+| App bundle ID | `com.nicknagpal.receiptdrop` | `com.dtgincorp.receiptdrop` |
+| Extension bundle ID | `com.nicknagpal.receiptdrop.share` | `com.dtgincorp.receiptdrop.share` |
+| Tests bundle ID | `com.nicknagpal.receiptdrop.tests` | `com.dtgincorp.receiptdrop.tests` |
+| **App Group** | `group.com.nicknagpal.receiptdrop` | `group.com.dtgincorp.receiptdrop` |
+| Signed by | Nickhil's paid Apple Developer Program team (Xcode Cloud, cloud-managed signing) | `Neeraj Nagpal (Personal Team)`, free |
+| Goes to | TestFlight → testers | Wired device over USB, nowhere else |
+| On GitHub? | Yes — this is what ships | **Never pushed. Never merged into `main`.** |
+
+Claude model: `claude-haiku-4-5` (constant in `Shared/AppConstants.swift`).
+
+### Why the split exists
+
+The App Group is the reason. `group.com.nicknagpal.receiptdrop` is registered
+under Nickhil's paid team and is what every existing TestFlight tester's data
+lives in — renaming it on `main` would orphan their receipts. But a **free
+Personal Team cannot create or use App Groups at all**, so local wired builds
+can't sign against the `nicknagpal` group either. Hence a second identifier set
+that exists only on the local branch.
+
+The identifiers live in **four** places, all flipped by the single commit at the
+tip of `local-dev-dtgincorp` (`LOCAL DEV ONLY: switch identifiers to dtgincorp`):
+
+- `project.yml` (three `PRODUCT_BUNDLE_IDENTIFIER`, two `group.` entries)
+- `ReceiptDrop/ReceiptDrop.entitlements`
+- `ShareExtension/ShareExtension.entitlements`
+- `Shared/AppConstants.swift` (`appGroupID`)
+
+### Rules
+
+1. **Feature work is committed to `main`**, with `nicknagpal` identifiers. That
+   is what Xcode Cloud builds and what testers install.
+2. To test locally, rebase rather than merge:
+   `git checkout local-dev-dtgincorp && git rebase main`. The branch is just
+   "main + one identifier-flip commit", so this stays clean.
+3. **Never merge `local-dev-dtgincorp` into `main`**, and never cherry-pick the
+   identifier-flip commit.
+4. **Never commit a `DEVELOPMENT_TEAM` value.** Picking a team in Xcode rewrites
+   `ReceiptDrop.xcodeproj/project.pbxproj`. Pushing a Personal Team ID there
+   breaks Xcode Cloud's signing and the App Group entitlement. Before every push:
+   ```sh
+   git diff -- '*.pbxproj' | grep DEVELOPMENT_TEAM   # must print nothing
+   ```
+5. Switching branches or running `./generate.sh` resets the signing team in
+   Xcode — re-pick your Personal Team under Signing & Capabilities on both
+   targets. This is expected and must not be committed.
+6. On a Personal Team build the App Group entitlement is silently stripped.
+   `UserDefaults(suiteName:)` and the file container degrade gracefully;
+   `KeychainHelper` falls back to the app's private keychain when the shared
+   write is rejected (`errSecMissingEntitlement`, OSStatus `-34018`). Properly
+   signed TestFlight builds never hit the fallback.
+7. The two builds install as **two separate apps** with separate sandboxes
+   ("Receipt Drop" and "ReceiptDrop" on the home screen). Their data is not
+   shared. That is correct, not a bug.
+
+### Retiring the split
+
+The branch exists only because of the free Personal Team. Once Neeraj is a
+member of Nickhil's **Apple Developer Program team** (distinct from being an App
+Store Connect user — see `HANDOFF.md`) and can select that team in Xcode:
+
+1. Re-pick the DTG team in Signing & Capabilities on both targets.
+2. Build `main` directly against `com.nicknagpal.*`.
+3. Delete `local-dev-dtgincorp` and this whole section — one identifier set,
+   one branch, local and TestFlight builds finally consistent.
 
 ## Implementation status
 

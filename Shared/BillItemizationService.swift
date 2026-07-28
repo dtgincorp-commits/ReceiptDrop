@@ -3,6 +3,7 @@ import Foundation
 enum BillItemizationError: LocalizedError {
     case unsupportedProvider
     case missingAPIKey(String)
+    case rateLimited(String)
     case api(String)
     case parsing(String)
 
@@ -12,12 +13,32 @@ enum BillItemizationError: LocalizedError {
             return "Bill itemization needs Claude, OpenAI, or Gemini. Switch the AI Provider in Settings, then try again."
         case .missingAPIKey(let provider):
             return "No \(provider) API key. Add one in Settings."
+        case .rateLimited(let detail):
+            return "Rate limit reached: \(detail)"
         case .api(let detail):
             return "Couldn't read this bill: \(detail)"
         case .parsing(let detail):
             return "Couldn't read the response: \(detail)"
         }
     }
+}
+
+/// Pulls just the human-readable `message` out of a provider's error body —
+/// each shapes its error envelope slightly differently, but all three put a
+/// plain-English `message` somewhere reachable, so the UI shows a real
+/// sentence instead of a raw JSON dump.
+private func shortAPIMessage(from body: String, fallback: String) -> String {
+    guard let data = body.data(using: .utf8),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return body.isEmpty ? fallback : body
+    }
+    if let error = json["error"] as? [String: Any], let message = error["message"] as? String {
+        return message
+    }
+    if let message = json["message"] as? String {
+        return message
+    }
+    return fallback
 }
 
 /// Reads an itemized breakdown from a bill photo for "Check a Bill" — a
@@ -31,6 +52,33 @@ enum BillItemizationError: LocalizedError {
 enum BillItemizationService {
     static func itemize(data: Data) async throws -> ExtractedBill {
         try ExtractionSettings.assertProviderAllowed()
+
+        // Providers occasionally return a transient "couldn't process this
+        // image, please retry" error with no code-side cause — the exact
+        // same bytes succeed a moment later. Retry once automatically before
+        // surfacing anything to the user, since manually tapping "Try Again"
+        // for a server-side hiccup is pure friction.
+        //
+        // Rate limiting is a different kind of failure and must NOT be
+        // retried immediately — that just burns another request against an
+        // already-exhausted quota. Config errors (missing key, unsupported
+        // provider) are deterministic; retrying just repeats the same
+        // failure after a pointless delay.
+        do {
+            return try await attemptItemize(data)
+        } catch BillItemizationError.missingAPIKey(let provider) {
+            throw BillItemizationError.missingAPIKey(provider)
+        } catch BillItemizationError.unsupportedProvider {
+            throw BillItemizationError.unsupportedProvider
+        } catch BillItemizationError.rateLimited(let detail) {
+            throw BillItemizationError.rateLimited(detail)
+        } catch {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            return try await attemptItemize(data)
+        }
+    }
+
+    private static func attemptItemize(_ data: Data) async throws -> ExtractedBill {
         switch ExtractionSettings.provider {
         case .claude: return try await itemizeViaClaude(data)
         case .openAI: return try await itemizeViaOpenAI(data)
@@ -118,7 +166,12 @@ enum BillItemizationService {
         let (respData, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw BillItemizationError.api("No HTTP response") }
         guard (200..<300).contains(http.statusCode) else {
-            throw BillItemizationError.api(String(data: respData, encoding: .utf8) ?? "HTTP \(http.statusCode)")
+            let body = String(data: respData, encoding: .utf8) ?? ""
+            let message = shortAPIMessage(from: body, fallback: "HTTP \(http.statusCode)")
+            if http.statusCode == 429 {
+                throw BillItemizationError.rateLimited(message)
+            }
+            throw BillItemizationError.api(message)
         }
         guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
               let content = json["content"] as? [[String: Any]],
@@ -187,7 +240,12 @@ enum BillItemizationService {
         let (respData, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw BillItemizationError.api("No HTTP response") }
         guard (200..<300).contains(http.statusCode) else {
-            throw BillItemizationError.api(String(data: respData, encoding: .utf8) ?? "HTTP \(http.statusCode)")
+            let body = String(data: respData, encoding: .utf8) ?? ""
+            let message = shortAPIMessage(from: body, fallback: "HTTP \(http.statusCode)")
+            if http.statusCode == 429 {
+                throw BillItemizationError.rateLimited(message)
+            }
+            throw BillItemizationError.api(message)
         }
         guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
               let choices = json["choices"] as? [[String: Any]],
@@ -255,7 +313,12 @@ enum BillItemizationService {
         let (respData, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw BillItemizationError.api("No HTTP response") }
         guard (200..<300).contains(http.statusCode) else {
-            throw BillItemizationError.api(String(data: respData, encoding: .utf8) ?? "HTTP \(http.statusCode)")
+            let body = String(data: respData, encoding: .utf8) ?? ""
+            let message = shortAPIMessage(from: body, fallback: "HTTP \(http.statusCode)")
+            if http.statusCode == 429 {
+                throw BillItemizationError.rateLimited(message)
+            }
+            throw BillItemizationError.api(message)
         }
         guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
               let candidates = json["candidates"] as? [[String: Any]],

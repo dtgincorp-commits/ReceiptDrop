@@ -12,13 +12,25 @@ import SwiftUI
 struct BillReviewView: View {
     let photoData: Data
     let onDone: () -> Void
+    let onScanNew: () -> Void
 
     @State private var state: LoadState = .loading
     @State private var textScale: CGFloat = 1
     @State private var showContactPicker = false
     @State private var messageRecipients: [String]?
-    @State private var messageAttachment: (data: Data, filename: String)?
+    @State private var messageAttachments: [(data: Data, filename: String)] = []
     @State private var showSaveToReceipts = false
+    /// Items the user has tapped to mark as comped (e.g. "the restaurant said
+    /// this was free") — purely a local, ephemeral display/math adjustment;
+    /// never sent to the AI, never persisted. Resets each time a bill is
+    /// freshly captured, same as everything else on this screen.
+    @State private var compedItemIDs: Set<UUID> = []
+    @State private var showPhotoViewer = false
+    /// Tips only make sense for a fraction of what Check a Bill scans
+    /// (restaurant bills, not medical/travel/retail receipts) — showing the
+    /// calculation only when asked avoids irrelevant noise on every other
+    /// kind of bill.
+    @State private var showTipSuggestions = false
 
     private enum LoadState {
         case loading
@@ -68,10 +80,10 @@ struct BillReviewView: View {
             get: { messageRecipients != nil },
             set: { if !$0 { messageRecipients = nil } }
         )) {
-            if let recipients = messageRecipients, let attachment = messageAttachment {
-                MessageComposeView(recipients: recipients, imageData: attachment.data, filename: attachment.filename) {
+            if let recipients = messageRecipients, !messageAttachments.isEmpty {
+                MessageComposeView(recipients: recipients, attachments: messageAttachments) {
                     messageRecipients = nil
-                    messageAttachment = nil
+                    messageAttachments = []
                 }
             }
         }
@@ -87,9 +99,20 @@ struct BillReviewView: View {
                     })
             }
         }
+        .fullScreenCover(isPresented: $showPhotoViewer) {
+            BillPhotoViewerView(photoData: photoData, onDone: { showPhotoViewer = false })
+        }
     }
 
     private func load() {
+        // Defensive check before ever calling an AI provider — if the photo
+        // is empty or doesn't decode as a real image, say so honestly
+        // instead of sending garbage bytes and surfacing a cryptic
+        // provider-side error (e.g. Claude's "image cannot be empty").
+        guard !photoData.isEmpty, UIImage(data: photoData) != nil else {
+            state = .failed("No photo came through — please retake it.")
+            return
+        }
         state = .loading
         Task {
             do {
@@ -105,40 +128,85 @@ struct BillReviewView: View {
     private func breakdown(for bill: ExtractedBill) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if !bill.vendor.isEmpty {
-                    Text(bill.vendor)
-                        .font(.title2.bold())
+                HStack {
+                    if !bill.vendor.isEmpty {
+                        Text(bill.vendor)
+                            .font(.title2.bold())
+                    }
+                    Spacer()
+                    receiptThumbnail
                 }
 
-                if bill.hasArithmeticMismatch {
+                if compedAdjustedMismatch(bill) {
                     mismatchBanner(bill)
                 }
                 if bill.unreadableLineCount > 0 {
                     unreadableBanner(bill)
                 }
 
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(Array(bill.items.enumerated()), id: \.element.id) { index, item in
-                        HStack(alignment: .top) {
-                            Text("\(index + 1).")
-                                .font(.system(size: 20 * textScale, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 32, alignment: .leading)
-                            Text(item.name)
-                                .font(.system(size: 20 * textScale, weight: .semibold))
-                            if item.quantity > 1 {
-                                quantityBadge(item.quantity)
+                if bill.items.isEmpty {
+                    noItemsNotice
+                } else {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(Array(bill.items.enumerated()), id: \.element.id) { index, item in
+                            let isComped = compedItemIDs.contains(item.id)
+                            HStack(alignment: .top) {
+                                Text("\(index + 1).")
+                                    .font(.system(size: 20 * textScale, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 32, alignment: .leading)
+                                Text(item.name)
+                                    .font(.system(size: 20 * textScale, weight: .semibold))
+                                    .strikethrough(isComped)
+                                    .foregroundStyle(isComped ? .secondary : .primary)
+                                if item.quantity > 1 {
+                                    quantityBadge(item.quantity)
+                                }
+                                if isComped {
+                                    compedBadge
+                                }
+                                Spacer()
+                                Text(currency(item.price))
+                                    .font(.system(size: 20 * textScale, weight: .semibold, design: .rounded))
+                                    .strikethrough(isComped)
+                                    .foregroundStyle(isComped ? .secondary : .primary)
                             }
-                            Spacer()
-                            Text(currency(item.price))
-                                .font(.system(size: 20 * textScale, weight: .semibold, design: .rounded))
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if isComped {
+                                    compedItemIDs.remove(item.id)
+                                } else {
+                                    compedItemIDs.insert(item.id)
+                                }
+                            }
                         }
                     }
+                    Text("Tap an item to mark it comped/free")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if !compedItemIDs.isEmpty {
+                    compedComparisonBanner(bill)
+                }
+                if let service = bill.serviceCharge, service > 0 {
+                    gratuityBanner(service)
                 }
 
                 Divider()
 
                 totalsBlock(bill)
+
+                if bill.serviceCharge == nil || bill.serviceCharge == 0 {
+                    if showTipSuggestions {
+                        tipSuggestions(bill)
+                    } else {
+                        Button("Show Suggested Tip") {
+                            withAnimation { showTipSuggestions = true }
+                        }
+                        .font(.subheadline)
+                    }
+                }
 
                 textSizeControl
 
@@ -160,13 +228,38 @@ struct BillReviewView: View {
             .background(Color.orange, in: Capsule())
     }
 
+    /// Printed subtotal is the right baseline to check items against — it's
+    /// pre-tax, same as the item list. Falls back to the grand total only
+    /// when no subtotal was printed at all.
+    private func printedBaseline(_ bill: ExtractedBill) -> Double {
+        bill.subtotal ?? bill.total ?? bill.itemsSum
+    }
+
+    /// Sum of items, excluding anything marked comped — the number that
+    /// should match the printed subtotal if a comp was actually honored.
+    private func compedAdjustedItemsSum(_ bill: ExtractedBill) -> Double {
+        bill.items.reduce(0) { sum, item in
+            compedItemIDs.contains(item.id) ? sum : sum + item.price
+        }
+    }
+
+    /// Same arithmetic check as `ExtractedBill.hasArithmeticMismatch`, but
+    /// aware of comped items — a gap fully explained by a comp isn't an
+    /// error, so it shouldn't also trigger the generic "items don't add up"
+    /// warning (which is confusing next to the comp banner explaining the
+    /// very same gap).
+    private func compedAdjustedMismatch(_ bill: ExtractedBill) -> Bool {
+        guard !bill.items.isEmpty else { return false }
+        return abs(compedAdjustedItemsSum(bill) - printedBaseline(bill)) > 0.05
+    }
+
     @ViewBuilder
     private func mismatchBanner(_ bill: ExtractedBill) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Label("Items don't add up", systemImage: "exclamationmark.triangle.fill")
                 .font(.headline)
                 .foregroundStyle(.red)
-            Text("Items total \(currency(bill.itemsSum)), but the bill shows \(currency(bill.subtotal ?? bill.total ?? 0)).")
+            Text("Items total \(currency(compedAdjustedItemsSum(bill))), but the bill shows \(currency(printedBaseline(bill))).")
                 .font(.subheadline)
         }
         .padding()
@@ -181,6 +274,91 @@ struct BillReviewView: View {
             .foregroundStyle(.orange)
             .padding()
             .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Shown instead of a silent empty gap when the photographed page has no
+    /// printed line items — e.g. a signed merchant copy with only
+    /// Subtotal/Tip/Total, rather than the itemized guest check. Without
+    /// this, an empty item list looks like the app lost the items rather
+    /// than the page genuinely not having any.
+    private var noItemsNotice: some View {
+        Text("No itemized lines found on this page — just the totals below. If you have the itemized receipt, try capturing that one instead.")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+    }
+
+    /// Lets the user check the AI-read breakdown against the actual paper —
+    /// tap to open a full-screen zoomable viewer of the same photo.
+    @ViewBuilder
+    private var receiptThumbnail: some View {
+        Button {
+            showPhotoViewer = true
+        } label: {
+            if let image = UIImage(data: photoData) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                    )
+            }
+        }
+    }
+
+    private var compedBadge: some View {
+        Text("Comped")
+            .font(.system(size: 14 * textScale, weight: .heavy))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.green, in: Capsule())
+    }
+
+    /// Checks whether a comp you were promised actually made it onto the
+    /// bill — not "what you owe" (you may have already signed for the full
+    /// printed amount), but a flag worth raising with the table before you
+    /// sign, if the printed subtotal doesn't reflect the comp. Uses the same
+    /// pre-tax subtotal baseline as the mismatch check above — comparing a
+    /// pre-tax item sum against the tax-inclusive grand total would compare
+    /// the wrong two numbers and give a false "not reflected" reading.
+    @ViewBuilder
+    private func compedComparisonBanner(_ bill: ExtractedBill) -> some View {
+        let expected = compedAdjustedItemsSum(bill)
+        let printed = printedBaseline(bill)
+        let honored = abs(expected - printed) < 0.05
+
+        VStack(alignment: .leading, spacing: 4) {
+            Label(honored ? "Comp reflected on the bill" : "Comp not reflected on the bill",
+                  systemImage: honored ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.headline)
+                .foregroundStyle(honored ? .green : .red)
+            Text("Expected if comped: \(currency(expected)) — printed subtotal: \(currency(printed)).")
+                .font(.subheadline)
+            if !honored {
+                Text("Worth mentioning to your server before you sign.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .background((honored ? Color.green : Color.red).opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// A service charge/gratuity already baked into the total is easy to
+    /// miss on a blank "Tip" line meant for you to fill in by hand — this is
+    /// a far more common trap than a one-off comp, and costs nothing extra
+    /// to surface since the field is already extracted for every bill.
+    @ViewBuilder
+    private func gratuityBanner(_ serviceCharge: Double) -> some View {
+        Label("A \(currency(serviceCharge)) service charge/gratuity is already included — check before adding another tip.",
+              systemImage: "exclamationmark.circle.fill")
+            .font(.subheadline)
+            .foregroundStyle(.blue)
+            .padding()
+            .background(Color.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -216,22 +394,66 @@ struct BillReviewView: View {
         .foregroundStyle(.secondary)
     }
 
+    /// Standard tipping etiquette bases the tip on the pre-tax subtotal, not
+    /// the tax-inclusive total. If anything's marked comped, tip on what was
+    /// actually paid for rather than the freebie.
+    private func tipBase(_ bill: ExtractedBill) -> Double {
+        compedItemIDs.isEmpty ? (bill.subtotal ?? bill.itemsSum) : compedAdjustedItemsSum(bill)
+    }
+
+    @ViewBuilder
+    private func tipSuggestions(_ bill: ExtractedBill) -> some View {
+        let base = tipBase(bill)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Suggested Tip (on \(currency(base)))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                ForEach([15, 18, 20], id: \.self) { percent in
+                    VStack(spacing: 2) {
+                        Text("\(percent)%")
+                            .font(.system(size: 14 * textScale, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text(currency(base * Double(percent) / 100))
+                            .font(.system(size: 17 * textScale, weight: .bold, design: .rounded))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+            (Text("For restaurant bills").foregroundColor(.red)
+                + Text(" — Check a Bill also works for medical, travel, retail, and other receipts, but tipping obviously doesn't apply there.")
+                .foregroundColor(.secondary))
+                .font(.caption2)
+        }
+    }
+
     @ViewBuilder
     private var textSizeControl: some View {
         HStack {
-            Text("Text Size").font(.caption).foregroundStyle(.secondary)
+            Label("Text Size", systemImage: "textformat.size")
+                .font(.subheadline.weight(.semibold))
             Spacer()
             Button {
                 textScale = max(0.8, textScale - 0.15)
             } label: {
                 Image(systemName: "textformat.size.smaller")
+                    .font(.title2)
+                    .frame(width: 44, height: 44)
             }
+            .buttonStyle(.bordered)
             Button {
                 textScale = min(2.0, textScale + 0.15)
             } label: {
                 Image(systemName: "textformat.size.larger")
+                    .font(.title2)
+                    .frame(width: 44, height: 44)
             }
+            .buttonStyle(.bordered)
         }
+        .padding()
+        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -255,7 +477,9 @@ struct BillReviewView: View {
                 .buttonStyle(.borderedProminent)
             }
 
-            ShareLink(item: renderImage(for: bill), preview: SharePreview("Bill Breakdown")) {
+            ShareLink(items: shareImages(for: bill)) { image in
+                SharePreview("Bill Breakdown", image: image)
+            } label: {
                 HStack {
                     Spacer()
                     Label("Share…", systemImage: "square.and.arrow.up")
@@ -274,6 +498,17 @@ struct BillReviewView: View {
                 }
             }
             .buttonStyle(.bordered)
+
+            Button {
+                onScanNew()
+            } label: {
+                HStack {
+                    Spacer()
+                    Label("Scan a New Bill", systemImage: "camera")
+                    Spacer()
+                }
+            }
+            .buttonStyle(.bordered)
         }
         .padding(.top, 8)
     }
@@ -285,11 +520,21 @@ struct BillReviewView: View {
         return "Send to…"
     }
 
+    /// Attaches both the rendered breakdown and the receipt photo to the
+    /// same message — lets the recipient tap through both images in the
+    /// thread rather than only seeing a flattened summary. The photo is
+    /// cropped to just the receipt when detection is confident, so a
+    /// friend/spouse isn't looking at the table/hand/background around it.
     private func startMessage(to phoneNumber: String) {
         guard case .loaded(let bill) = state else { return }
-        let image = renderUIImage(for: bill)
-        guard let data = image.jpegData(compressionQuality: 0.9) else { return }
-        messageAttachment = (data, "Bill – \(bill.vendor.isEmpty ? "Receipt" : bill.vendor).jpg")
+        let vendorLabel = bill.vendor.isEmpty ? "Receipt" : bill.vendor
+        var attachments: [(data: Data, filename: String)] = []
+        if let breakdownData = renderUIImage(for: bill).jpegData(compressionQuality: 0.9) {
+            attachments.append((breakdownData, "Bill – \(vendorLabel).jpg"))
+        }
+        attachments.append((receiptDataForSharing(), "Original Receipt – \(vendorLabel).jpg"))
+        guard !attachments.isEmpty else { return }
+        messageAttachments = attachments
         messageRecipients = [phoneNumber]
     }
 
@@ -298,6 +543,31 @@ struct BillReviewView: View {
     /// own text-size settings.
     private func renderImage(for bill: ExtractedBill) -> Image {
         Image(uiImage: renderUIImage(for: bill))
+    }
+
+    /// Both images for the general share sheet (AirDrop, Mail, etc.) — same
+    /// pairing (breakdown + cropped-if-confident receipt photo) as the
+    /// quick-send Messages path, so the recipient can flip between them
+    /// regardless of which share method was used.
+    private func shareImages(for bill: ExtractedBill) -> [Image] {
+        var images = [renderImage(for: bill)]
+        if let receipt = UIImage(data: receiptDataForSharing()) {
+            images.append(Image(uiImage: receipt))
+        }
+        return images
+    }
+
+    /// Crops the receipt out of its background when `ReceiptCropService` is
+    /// confident it found the real edges; falls back to the original,
+    /// uncropped photo otherwise — never guesses at a crop that might clip
+    /// real content (e.g. a long receipt's total near the bottom edge).
+    private func receiptDataForSharing() -> Data {
+        guard let original = UIImage(data: photoData),
+              let cropped = ReceiptCropService.crop(original),
+              let jpeg = cropped.jpegData(compressionQuality: 0.9) else {
+            return photoData
+        }
+        return jpeg
     }
 
     private func renderUIImage(for bill: ExtractedBill) -> UIImage {
@@ -391,18 +661,21 @@ private struct ContactPickerView: UIViewControllerRepresentable {
 }
 
 /// Wraps `MFMessageComposeViewController` — pre-addressed to the quick-send
-/// contact with the bill image already attached. The user still taps Send
-/// themselves; iOS doesn't allow an app to send a message silently.
+/// contact with both the rendered breakdown and the original receipt photo
+/// already attached, so the recipient can tap through both in the thread.
+/// The user still taps Send themselves; iOS doesn't allow an app to send a
+/// message silently.
 private struct MessageComposeView: UIViewControllerRepresentable {
     let recipients: [String]
-    let imageData: Data
-    let filename: String
+    let attachments: [(data: Data, filename: String)]
     let onFinish: () -> Void
 
     func makeUIViewController(context: Context) -> MFMessageComposeViewController {
         let controller = MFMessageComposeViewController()
         controller.recipients = recipients
-        controller.addAttachmentData(imageData, typeIdentifier: "public.jpeg", filename: filename)
+        for attachment in attachments {
+            controller.addAttachmentData(attachment.data, typeIdentifier: "public.jpeg", filename: attachment.filename)
+        }
         controller.messageComposeDelegate = context.coordinator
         return controller
     }

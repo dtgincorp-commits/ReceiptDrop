@@ -2,6 +2,17 @@ import SwiftUI
 import UIKit
 import VisionKit
 
+/// Wraps a just-captured bill photo for `.sheet(item:)` presentation —
+/// guarantees the review sheet always builds from the exact bytes that
+/// triggered it. A plain `Data` + separate `Bool` (`.sheet(isPresented:)`)
+/// let the sheet's content closure evaluate against a stale/empty snapshot
+/// of the data during the rapid capture → dismiss → present chain, which
+/// intermittently sent an empty image to the AI provider.
+private struct CapturedBill: Identifiable {
+    let id = UUID()
+    let data: Data
+}
+
 /// Submissions, read from App Group storage and grouped into a Year > Month >
 /// Day tree so recent activity is easy to scan. The share extension writes
 /// entries while the app is backgrounded, so we refresh whenever it foregrounds.
@@ -19,8 +30,7 @@ struct ReceiptsView: View {
     @State private var editingEntry: HistoryEntry?
     @State private var showCategories = false
     @State private var showBillCapture = false
-    @State private var showBillReview = false
-    @State private var billPhotoData: Data = Data()
+    @State private var capturedBill: CapturedBill?
     /// nil shows every category; otherwise the tree only shows this one.
     @State private var filterCategory: String?
     @State private var searchText = ""
@@ -493,24 +503,29 @@ struct ReceiptsView: View {
         .sheet(item: $newReceiptSource) { source in
             NewReceiptView(source: source, onComplete: reload)
         }
-        .fullScreenCover(isPresented: $showBillCapture, onDismiss: {
-            if !billPhotoData.isEmpty {
-                showBillReview = true
-            }
-        }) {
+        .fullScreenCover(isPresented: $showBillCapture) {
             BillCaptureView(
                 onCancel: { showBillCapture = false },
                 onCaptured: { data in
-                    billPhotoData = data
                     showBillCapture = false
+                    capturedBill = CapturedBill(data: data)
                 })
         }
-        .sheet(isPresented: $showBillReview) {
-            BillReviewView(photoData: billPhotoData, onDone: {
-                showBillReview = false
-                billPhotoData = Data()
-                reload()
-            })
+        .sheet(item: $capturedBill) { bill in
+            BillReviewView(
+                photoData: bill.data,
+                onDone: {
+                    capturedBill = nil
+                    reload()
+                },
+                onScanNew: {
+                    capturedBill = nil
+                    showBillCapture = true
+                })
+                // Only "Done" or "Scan a New Bill" should close this — an
+                // accidental swipe-down was closing it before the user had
+                // finished reading.
+                .interactiveDismissDisabled(true)
         }
         .sheet(item: $editingEntry) { entry in
             EditReceiptView(
