@@ -90,6 +90,52 @@ tip of `local-dev-dtgincorp` (`LOCAL DEV ONLY: switch identifiers to dtgincorp`)
    ("Receipt Drop" and "ReceiptDrop" on the home screen). Their data is not
    shared. That is correct, not a bug.
 
+## Getting a push to `main` into TestFlight
+
+**A push to this repo's `main` does not, by itself, produce a new TestFlight
+build.** Xcode Cloud's Primary Repository (App Store Connect → `ReceiptDrop4545`
+→ Xcode Cloud → Settings → Repositories) is set to
+**`nickhilnagpal23-dev/ReceiptDrop`** — Nickhil's fork — not this repo
+(`dtgincorp-commits/ReceiptDrop`) directly. Forks do not auto-sync with the
+repo they were forked from. So the real pipeline is:
+
+```
+this repo's main  --(Neeraj pushes)-->  (sits here until synced)
+        |
+        | fork sync (manual step, below)
+        v
+nickhilnagpal23-dev/ReceiptDrop main  --(Xcode Cloud watches this)-->  build  -->  TestFlight
+```
+
+Every time Neeraj pushes new commits to `main` here, **Nickhil must sync his
+fork before Xcode Cloud will see the new commits.** Two ways, either works:
+
+- **GitHub web UI (no terminal):** on `github.com/nickhilnagpal23-dev/ReceiptDrop`,
+  click **"Sync fork" → "Update branch"**.
+- **Git, from Nickhil's local clone** (`origin` = his fork; add the shared repo
+  once as a second remote called `upstream`):
+  ```sh
+  git remote add upstream https://github.com/dtgincorp-commits/ReceiptDrop.git   # one-time
+  git fetch upstream
+  git merge upstream/main
+  git push origin main
+  ```
+
+After syncing, confirm before assuming the new commit is live:
+
+```sh
+git log -1 origin/main   # from Nickhil's clone, after `git fetch origin` — must match the shared repo's latest commit hash
+```
+
+Then in App Store Connect: **Start Build** (select one specific workflow, not
+"All Workflows" — the button is greyed out otherwise), and once it succeeds,
+**manually add the build to the TestFlight testers group** — this step does not
+happen automatically even with "Enable automatic distribution" checked on the
+group, per Apple's documented behavior.
+
+If a build ever looks like it shipped an old commit, the fork being out of sync
+is the first thing to check — not a signing or repo problem.
+
 ### Retiring the split
 
 The branch exists only because of the free Personal Team. Once Neeraj is a
