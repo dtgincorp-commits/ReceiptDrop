@@ -1,8 +1,13 @@
 # ReceiptDrop
 
-Personal iPhone app: share a receipt photo (or PDF) from any app, or capture
-one from within the app → pick a category → the receipt is read by Claude and
-saved locally, organized by category, with a CSV log of every submission.
+Personal iPhone app for logging receipts (primarily for tax records): share a
+receipt photo (or PDF) from any app, or capture one from within the app → pick a
+category → the receipt is read by the selected AI provider and saved locally,
+organized by category, with a CSV log of every submission. Extraction runs
+through **Claude, OpenAI, Gemini, or Apple On-Device (Apple Intelligence)** —
+selectable in Settings, with an Offline Mode that keeps everything on-device.
+Also includes **Check a Bill**, an at-the-table itemized-bill verification flow
+(catch wrong/doubled charges, gratuity already included, suggested tip).
 
 ## Project layout
 
@@ -156,11 +161,29 @@ Everything is implemented end-to-end:
   same shared submit UI (`Shared/ReceiptSubmitView.swift`): pick a category,
   Submit, live progress ("Reading receipt…", "Saving…"). On failure the bytes
   + a queue entry are parked in the App Group for later retry.
-- **Submission pipeline** (`Shared/SubmissionPipeline.swift`) — Claude
-  extraction → local save → history entry. Reused by the main app for retries.
-- **Claude extraction** (`Shared/ClaudeService.swift`) — Anthropic Messages API
-  with a base64 image or PDF document block and a forced `record_receipt` tool
-  call for structured JSON.
+- **Submission pipeline** (`Shared/SubmissionPipeline.swift`) — AI extraction →
+  local save → history entry. Reused by the main app for retries.
+- **Multi-provider extraction** — a `ReceiptExtractor` protocol implemented by
+  `ClaudeService`, `OpenAIService`, `GeminiService` (`Shared/ClaudeService.swift`)
+  and `FoundationModelsService` (`Shared/FoundationModelsService.swift`, Apple
+  On-Device / Apple Intelligence, gated `@available(iOS 26.0)` behind
+  `#if canImport(FoundationModels)`). Provider + Offline Mode selectable in
+  Settings. On-device extraction is OCR-first (Vision) → on-device model via
+  guided generation (`@Generable`). Cloud providers get a base64 image/PDF and a
+  forced structured-output call. NOTE: on-device paths compile out on toolchains
+  without the iOS 26 SDK — this Mac (iOS 17.2 SDK) cannot type-check them; only
+  Xcode Cloud / an iOS 26+ device build verifies them.
+- **Check a Bill** (`ReceiptDrop/BillCaptureView.swift`, `BillReviewView.swift`,
+  `BillPhotoViewerView.swift`, `ReceiptCropService.swift`,
+  `Shared/BillItemizationService.swift`, `BillModels.swift`) — separate itemized
+  extraction (a different schema from the archival receipt extraction) for
+  at-the-table bill verification: custom torch camera with auto-capture, item
+  list with doubled-item/mismatch/gratuity checks, cropped/enhanced photo viewer,
+  send/share, and an optional "Save to Receipts" bridge into the archival flow.
+- **Vendor-type classification + semantic search** — receipts are classified into
+  a fixed vendor-type vocabulary at extraction time (backfillable via "Classify
+  Untyped Receipts"); search parses a natural-language query into a structured
+  filter. Both have per-provider paths including Apple On-Device.
 - **Local storage** (`Shared/LocalReceiptStore.swift`) — no external accounts
   needed. Each category gets its own folder plus a CSV log
   (`<CATEGORY>_log.csv`) with a header row and one line per submission
@@ -171,16 +194,19 @@ Everything is implemented end-to-end:
     (different sandbox), so it spools into the App Group container; the main
     app drains that spool into Documents whenever it's opened or a
     submission/retry completes in-app.
-- **Settings / History / Retry Queue** (`ReceiptDrop/`) — Anthropic API key
-  entry, category management, submission history, and a retry queue with
-  per-row + "Retry All" retries and swipe-to-delete. Both refresh on
-  foreground.
+- **Settings / History / Retry Queue** (`ReceiptDrop/`) — AI provider + Offline
+  Mode selection, per-provider API key entry (with a "Test Key" check), category
+  management, submission history, and a retry queue with per-row + "Retry All"
+  retries and swipe-to-delete. Both refresh on foreground.
 
-## Anthropic API key
+## API keys
 
-Open **Settings → Anthropic API Key** and paste a key (`sk-ant-…`). It is
-stored in the shared Keychain and read by the share extension when reading
-receipts.
+Open **Settings**, pick the AI Provider, and paste that provider's key —
+Anthropic (`sk-ant-…`), OpenAI (`sk-…`), or Google Gemini (`AIza…`). Keys are
+stored in the shared Keychain and read by the share extension. **Apple On-Device
+needs no key** (iOS 26+, Apple-Intelligence-capable iPhone, feature enabled).
+On a free Personal Team build the App Group is stripped, so `KeychainHelper`
+falls back to the app's private keychain (see the identifiers rules above).
 
 ## Viewing your receipts and logs
 
