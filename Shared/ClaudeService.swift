@@ -715,11 +715,16 @@ enum VendorTypeClassificationService {
         switch ExtractionSettings.provider {
         case .claude: return try await classifyViaClaude(vendorNames)
         case .openAI: return try await classifyViaOpenAI(vendorNames)
-        case .gemini, .appleOnDevice: return try await classifyViaGemini(vendorNames)
+        case .gemini: return try await classifyViaGemini(vendorNames)
+        case .appleOnDevice:
+            #if canImport(FoundationModels)
+            if #available(iOS 26.0, *) { return try await classifyOnDevice(vendorNames) }
+            #endif
+            throw VendorTypeClassificationError.api("Apple On-Device needs iOS 26 or later.")
         }
     }
 
-    private static func prompt(for vendorNames: [String]) -> String {
+    static func prompt(for vendorNames: [String]) -> String {
         let numbered = vendorNames.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
         return """
         Numbered list of vendor/business names from receipts:
@@ -730,7 +735,7 @@ enum VendorTypeClassificationService {
         """
     }
 
-    private static func zip(_ vendorNames: [String], with types: [String]) -> [String: String] {
+    static func zip(_ vendorNames: [String], with types: [String]) -> [String: String] {
         var result: [String: String] = [:]
         for (name, rawType) in Swift.zip(vendorNames, types) {
             if let resolved = VendorTypeToken.resolve(rawType) {

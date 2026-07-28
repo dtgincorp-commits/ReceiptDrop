@@ -10,7 +10,7 @@ enum BillItemizationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedProvider:
-            return "Bill itemization needs Claude, OpenAI, or Gemini. Switch the AI Provider in Settings, then try again."
+            return "Apple On-Device bill itemization needs iOS 26 or later. Switch the AI Provider in Settings, then try again."
         case .missingAPIKey(let provider):
             return "No \(provider) API key. Add one in Settings."
         case .rateLimited(let detail):
@@ -83,7 +83,11 @@ enum BillItemizationService {
         case .claude: return try await itemizeViaClaude(data)
         case .openAI: return try await itemizeViaOpenAI(data)
         case .gemini: return try await itemizeViaGemini(data)
-        case .appleOnDevice: throw BillItemizationError.unsupportedProvider
+        case .appleOnDevice:
+            #if canImport(FoundationModels)
+            if #available(iOS 26.0, *) { return try await FoundationModelsService.itemizeBill(data: data) }
+            #endif
+            throw BillItemizationError.unsupportedProvider
         }
     }
 

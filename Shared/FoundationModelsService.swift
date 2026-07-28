@@ -75,6 +75,50 @@ struct ReceiptDraft {
     var reviewReason: String
 }
 
+/// One line item for on-device bill itemization ("Check a Bill"). Mirrors
+/// the item schema the cloud providers use in `BillItemizationService`.
+@available(iOS 26.0, *)
+@Generable
+struct BillItemDraft {
+    @Guide(description: "The item name as printed.")
+    var name: String
+
+    @Guide(description: "Whole-number quantity as a string, e.g. \"1\", \"2\". Use \"1\" if none shown.")
+    var quantity: String
+
+    @Guide(description: "This line's printed total price, plain number string, no currency symbol — the price for the whole line, already reflecting quantity, not a per-unit price.")
+    var price: String
+}
+
+/// The structured result for on-device bill itemization. Mirrors the
+/// `record_bill` schema used by the cloud providers in
+/// `BillItemizationService`, kept all-strings so it maps 1:1 onto
+/// `ExtractedBill.build`.
+@available(iOS 26.0, *)
+@Generable
+struct BillDraft {
+    @Guide(description: "Vendor/business name. Empty string if not present.")
+    var vendor: String
+
+    @Guide(description: "Every line item printed on the bill, in printed order.")
+    var items: [BillItemDraft]
+
+    @Guide(description: "Printed subtotal, empty string if not shown.")
+    var subtotal: String
+
+    @Guide(description: "Printed tax amount, empty string if not shown.")
+    var tax: String
+
+    @Guide(description: "Printed service charge/tip, empty string if not shown.")
+    var serviceCharge: String
+
+    @Guide(description: "Printed grand total, empty string if not shown.")
+    var total: String
+
+    @Guide(description: "Count of lines that were present but genuinely illegible and omitted from items, as a string. \"0\" if none.")
+    var unreadableLineCount: String
+}
+
 /// On-device receipt extractor backed by Apple's Foundation Models framework.
 @available(iOS 26.0, *)
 struct FoundationModelsService: ReceiptExtractor {
@@ -144,6 +188,63 @@ struct FoundationModelsService: ReceiptExtractor {
             rawVendorType: draft.vendorType,
             modelReportedLowConfidence: draft.lowConfidence,
             modelReason: draft.reviewReason)
+    }
+
+    // MARK: - Bill itemization ("Check a Bill")
+
+    /// On-device counterpart to `BillItemizationService`'s cloud-provider
+    /// paths — same OCR-first architecture as `extract(data:kind:)` above,
+    /// but asking for an itemized breakdown instead of just vendor/date/
+    /// total. Kept in this file (not `BillItemizationService`) since it
+    /// needs the same `@available`/`canImport(FoundationModels)` gating as
+    /// the rest of the on-device backend.
+    static func itemizeBill(data: Data) async throws -> ExtractedBill {
+        try ensureModelAvailable()
+
+        let ocrText = (try? await VisionOCRService.recognizeText(in: data)) ?? ""
+
+        let instructions = """
+        You extract an itemized breakdown from noisy, on-device-OCR text of a \
+        restaurant or store bill. Return only what the text supports; never \
+        invent values or line items.
+        """
+
+        let prompt = """
+        Here is text recognized from a photo of a bill via on-device OCR. It may \
+        contain recognition noise (misread characters, garbled spacing). List \
+        every line item printed on it — one entry per item, in the order \
+        printed. For each: the item name as printed, the quantity (a whole \
+        number; use 1 if none is shown), and the line's printed total price as a \
+        plain number string with no currency symbol (the price for that whole \
+        line, already reflecting the quantity — not a per-unit price). If a \
+        line is present but genuinely illegible, do not guess its name or \
+        price — omit it from the items list and count it in \
+        unreadable_line_count instead. Also read the subtotal, tax, service \
+        charge/tip (if separately printed), and grand total as plain number \
+        strings; use an empty string for any of these that aren't printed. \
+        Never invent a value that isn't actually shown.
+
+        ---
+        \(ocrText)
+        ---
+        """
+
+        let session = LanguageModelSession(instructions: instructions)
+        let draft: BillDraft
+        do {
+            let response = try await session.respond(to: prompt, generating: BillDraft.self)
+            draft = response.content
+        } catch {
+            throw FoundationModelsError.modelUnavailable(error.localizedDescription)
+        }
+
+        let rawItems = draft.items.map { (name: $0.name, quantity: $0.quantity, price: $0.price) }
+        return ExtractedBill.build(
+            vendor: draft.vendor.trimmingCharacters(in: .whitespacesAndNewlines),
+            rawItems: rawItems,
+            subtotal: draft.subtotal, tax: draft.tax,
+            serviceCharge: draft.serviceCharge, total: draft.total,
+            unreadableLineCount: draft.unreadableLineCount)
     }
 
     // MARK: - Availability
@@ -247,6 +348,53 @@ extension SemanticSearchService {
             vendorType: VendorTypeToken.resolve(draft.vendorType),
             amountMin: draft.amountMin < 0 ? nil : draft.amountMin,
             amountMax: draft.amountMax < 0 ? nil : draft.amountMax)
+    }
+}
+
+// MARK: - On-device vendor-type classification ("Classify Untyped Receipts")
+
+/// One type per vendor, same order as the input list — mirrors the cloud
+/// providers' `vendor_types` array in `VendorTypeClassificationService`.
+@available(iOS 26.0, *)
+@Generable
+struct VendorClassificationDraft {
+    @Guide(description: "One vendor-type token per vendor, in the same order as the numbered list, from the allowed list given in the instructions.")
+    var vendorTypes: [String]
+}
+
+@available(iOS 26.0, *)
+extension VendorTypeClassificationService {
+    /// On-device counterpart to `classify(vendorNames:)`'s cloud paths — used
+    /// instead of silently sending vendor names to a cloud provider when
+    /// Apple On-Device is selected (or Offline Mode requires it).
+    static func classifyOnDevice(_ vendorNames: [String]) async throws -> [String: String] {
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            break
+        case .unavailable(let reason):
+            throw FoundationModelsError.modelUnavailable(String(describing: reason))
+        @unknown default:
+            throw FoundationModelsError.modelUnavailable("unknown status")
+        }
+
+        let vocabulary = VendorTypeToken.allValidValues.joined(separator: ", ")
+        let instructions = """
+        You classify business names by type. Allowed vendor-type tokens: \
+        \(vocabulary). Map each name onto the closest token based on what the \
+        name itself suggests; use "other" only if truly nothing fits. Never \
+        invent new tokens. Return exactly one token per name, in the same order \
+        as the numbered list.
+        """
+
+        let session = LanguageModelSession(instructions: instructions)
+        let draft: VendorClassificationDraft
+        do {
+            draft = try await session.respond(to: prompt(for: vendorNames), generating: VendorClassificationDraft.self).content
+        } catch {
+            throw VendorTypeClassificationError.api(error.localizedDescription)
+        }
+
+        return zip(vendorNames, with: draft.vendorTypes)
     }
 }
 
