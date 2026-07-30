@@ -20,6 +20,7 @@ struct ReceiptsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var categoryStore = CategoryStore.shared
     @State private var entries: [HistoryEntry] = []
+    @State private var commentsMap: [String: String] = [:]
     @State private var newReceiptSource: NewReceiptSource?
     /// IDs (year/month/day) the user has manually collapsed. Everything else
     /// starts expanded.
