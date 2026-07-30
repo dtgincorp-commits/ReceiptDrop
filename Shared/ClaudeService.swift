@@ -207,7 +207,18 @@ struct ClaudeService: ReceiptExtractor {
         ]
         for format in formats {
             formatter.dateFormat = format
-            if let date = formatter.date(from: trimmed) { return date }
+            if let date = formatter.date(from: trimmed) {
+                // The lenient `yyyy` patterns match two-digit years too,
+                // parsing "3/20/24" as literal year 0024 before the `yy`
+                // patterns ever run — promote any sub-100 year to the 2000s
+                // so the "maps to the 2000s" contract above actually holds.
+                var components = Calendar.current.dateComponents([.year, .month, .day], from: date)
+                if let year = components.year, year < 100 {
+                    components.year = 2000 + year
+                    return Calendar.current.date(from: components) ?? date
+                }
+                return date
+            }
         }
         return nil
     }

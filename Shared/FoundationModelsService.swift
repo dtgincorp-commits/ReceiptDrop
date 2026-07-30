@@ -20,12 +20,12 @@ import FoundationModels
 // on-device language model, which returns structured fields via *guided
 // generation* (@Generable) — Apple's equivalent of Claude's forced tool call.
 //
-// NOTE (iOS 27 multimodal): the Foundation Models framework in iOS 27 also
-// accepts images directly in a prompt, so the OCR step could be dropped in
-// favor of passing the receipt image straight to the model. The OCR-first path
-// here is deliberately conservative: it works on iOS 26 too and reuses code the
-// app already trusts. See `extract(data:kind:)` for where to swap in the
-// image-attachment API once you've confirmed its exact signature on your SDK.
+// iOS 27 multimodal: on iOS 27+ (when the on-device model reports the
+// `.vision` capability) the receipt image is attached directly to the prompt
+// via `Attachment`, skipping OCR entirely — the model sees the real two-column
+// layout instead of flattened text, which fixes merged line items and
+// misfiled totals. The OCR-text path below remains as the iOS 26 fallback
+// (and the safety net if the image read fails for any reason).
 //
 // This file compiles behind `canImport(FoundationModels)` so the project still
 // builds on toolchains without the framework; on those, selecting the provider
@@ -123,14 +123,16 @@ struct BillDraft {
 @available(iOS 26.0, *)
 struct FoundationModelsService: ReceiptExtractor {
 
-    /// Image/PDF entry point. OCRs on-device, then reasons over the text.
+    /// Image/PDF entry point. On iOS 27+ with a vision-capable model, hands
+    /// the model the actual image; otherwise OCRs on-device and reasons over
+    /// the text (iOS 26 path).
     func extract(data: Data, kind: ReceiptKind, categoryContext: String = "") async throws -> ExtractedReceipt {
         let imageData: Data
         switch kind {
         case .image:
             imageData = data
         case .pdf:
-            // Vision OCR wants raster image data; render the first PDF page.
+            // Both paths want raster image data; render the first PDF page.
             guard let rendered = Self.renderPDFPageToPNG(data) else {
                 // Fall back to an empty read → HITL flags it for manual review
                 // rather than throwing the submission away.
@@ -139,8 +141,69 @@ struct FoundationModelsService: ReceiptExtractor {
             imageData = rendered
         }
 
+        #if canImport(UIKit)
+        // iOS 27 multimodal: the model reads the real image, preserving the
+        // two-column layout that OCR flattening destroys. `try?` so any
+        // image-path failure falls through to the OCR path rather than
+        // losing the submission.
+        if #available(iOS 27.0, *), Self.supportsImageInput, let image = UIImage(data: imageData),
+           let extracted = try? await extractFromImage(image, categoryContext: categoryContext) {
+            return extracted
+        }
+        #endif
+
         let ocrText = (try? await VisionOCRService.recognizeText(in: imageData)) ?? ""
         return try await extract(ocrText: ocrText, categoryContext: categoryContext)
+    }
+
+    #if canImport(UIKit)
+    /// iOS 27 image path: same instructions/output shape as the text path,
+    /// minus the OCR-noise framing — the model is looking at the real photo.
+    @available(iOS 27.0, *)
+    private func extractFromImage(_ image: UIImage, categoryContext: String) async throws -> ExtractedReceipt {
+        try Self.ensureModelAvailable()
+
+        let vocabulary = VendorTypeToken.allValidValues.joined(separator: ", ")
+        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext)
+
+        let instructions = """
+        You extract structured data from a photo of a receipt, invoice, or \
+        bill. Return only what the image supports; never invent values. \
+        Allowed vendor-type tokens: \(vocabulary).
+        """
+
+        let session = LanguageModelSession(instructions: instructions)
+        let draft: ReceiptDraft
+        do {
+            let response = try await session.respond(generating: ReceiptDraft.self) {
+                """
+                \(preamble)
+
+                Here is a photo of a receipt. Extract the receipt's details.
+                """
+                Attachment(image)
+            }
+            draft = response.content
+        } catch {
+            throw FoundationModelsError.modelUnavailable(error.localizedDescription)
+        }
+
+        return ExtractedReceipt.build(
+            vendor: draft.vendor.trimmingCharacters(in: .whitespacesAndNewlines),
+            rawWorkDate: draft.workDate.trimmingCharacters(in: .whitespacesAndNewlines),
+            amount: draft.amount.trimmingCharacters(in: .whitespacesAndNewlines),
+            comments: draft.comments.trimmingCharacters(in: .whitespacesAndNewlines),
+            rawVendorType: draft.vendorType,
+            modelReportedLowConfidence: draft.lowConfidence,
+            modelReason: draft.reviewReason)
+    }
+    #endif
+
+    /// Whether the on-device model accepts image input in prompts (varies by
+    /// device/model generation, so check the capability, not just the OS).
+    @available(iOS 27.0, *)
+    static var supportsImageInput: Bool {
+        SystemLanguageModel.default.capabilities.contains(.vision)
     }
 
     /// Text entry point — used directly by the Live Text "Scan Text" flow, and
@@ -201,6 +264,17 @@ struct FoundationModelsService: ReceiptExtractor {
     static func itemizeBill(data: Data) async throws -> ExtractedBill {
         try ensureModelAvailable()
 
+        #if canImport(UIKit)
+        // iOS 27 multimodal: itemization is where OCR flattening hurt most
+        // (merged line items, footers read as items, totals misfiled) — the
+        // model reading the actual photo keeps each item's name and price
+        // visually paired. Falls through to the OCR path on any failure.
+        if #available(iOS 27.0, *), supportsImageInput, let image = UIImage(data: data),
+           let bill = try? await itemizeBillFromImage(image) {
+            return bill
+        }
+        #endif
+
         let ocrText = (try? await VisionOCRService.recognizeText(in: data)) ?? ""
 
         let instructions = """
@@ -246,6 +320,56 @@ struct FoundationModelsService: ReceiptExtractor {
             serviceCharge: draft.serviceCharge, total: draft.total,
             unreadableLineCount: draft.unreadableLineCount)
     }
+
+    #if canImport(UIKit)
+    /// iOS 27 image path for itemization — same `BillDraft` output shape,
+    /// prompt reframed for a photo instead of noisy OCR text.
+    @available(iOS 27.0, *)
+    private static func itemizeBillFromImage(_ image: UIImage) async throws -> ExtractedBill {
+        let instructions = """
+        You extract an itemized breakdown from a photo of a restaurant or \
+        store bill. Return only what the image supports; never invent values \
+        or line items.
+        """
+
+        let session = LanguageModelSession(instructions: instructions)
+        let draft: BillDraft
+        do {
+            let response = try await session.respond(generating: BillDraft.self) {
+                """
+                Here is a photo of a bill. List every line item printed on \
+                it — one entry per item, in the order printed. For each: the \
+                item name as printed, the quantity (a whole number; use 1 if \
+                none is shown), and the line's printed total price as a plain \
+                number string with no currency symbol (the price for that \
+                whole line, already reflecting the quantity — not a per-unit \
+                price). Item names and prices are visually paired on the same \
+                printed line — never merge two items or attach a price to the \
+                wrong item. Marketing text, slogans, or loyalty-club footers \
+                are not line items. If a line is present but genuinely \
+                illegible, do not guess its name or price — omit it from the \
+                items list and count it in unreadable_line_count instead. \
+                Also read the subtotal, tax, service charge/tip (if \
+                separately printed), and grand total as plain number strings; \
+                use an empty string for any of these that aren't printed. \
+                Never invent a value that isn't actually shown.
+                """
+                Attachment(image)
+            }
+            draft = response.content
+        } catch {
+            throw FoundationModelsError.modelUnavailable(error.localizedDescription)
+        }
+
+        let rawItems = draft.items.map { (name: $0.name, quantity: $0.quantity, price: $0.price) }
+        return ExtractedBill.build(
+            vendor: draft.vendor.trimmingCharacters(in: .whitespacesAndNewlines),
+            rawItems: rawItems,
+            subtotal: draft.subtotal, tax: draft.tax,
+            serviceCharge: draft.serviceCharge, total: draft.total,
+            unreadableLineCount: draft.unreadableLineCount)
+    }
+    #endif
 
     // MARK: - Availability
 
