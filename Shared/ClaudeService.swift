@@ -327,6 +327,117 @@ enum VisionLayoutService {
         return rows
     }
 
+    /// Raw-OCR fallback for thermal-printer receipts where RecognizeDocumentsRequest
+    /// finds no formal table structure. Uses VNRecognizeTextRequest with bounding
+    /// boxes to reconstruct visual rows, then applies a price-suffix regex to pair
+    /// item names with trailing price amounts.
+    ///
+    /// This is the proven industry approach for parsing monospace receipt text:
+    /// group text observations sharing the same vertical band, detect the rightmost
+    /// token that matches a dollar amount, treat everything to the left as the item
+    /// name. Works on thermal printer receipts where RecognizeDocumentsRequest sees
+    /// only paragraphs (not tables).
+    static func recognizeRowsViaRawOCR(in data: Data) async throws -> [LayoutRow] {
+        guard let cgImage = CGImageSourceCreateWithData(data as CFData, nil)
+            .flatMap({ CGImageSourceCreateImageAtIndex($0, 0, nil) }) else {
+            return []
+        }
+
+        typealias OcrObs = (text: String, box: CGRect)
+
+        let observations: [OcrObs] = try await withCheckedThrowingContinuation { continuation in
+            let request = VNRecognizeTextRequest { req, error in
+                if let error { continuation.resume(throwing: error); return }
+                let result = (req.results as? [VNRecognizedTextObservation] ?? []).compactMap { obs -> OcrObs? in
+                    guard let text = obs.topCandidates(1).first?.string else { return nil }
+                    return (text: text, box: obs.boundingBox)
+                }
+                continuation.resume(returning: result)
+            }
+            request.recognitionLevel = .accurate
+            // Language correction can mangle price amounts like "14.00"; disable it.
+            request.usesLanguageCorrection = false
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do { try handler.perform([request]) } catch { continuation.resume(throwing: error) }
+        }
+
+        // Sort top-to-bottom (Vision normalized coords: 0 = bottom, 1 = top)
+        let sorted = observations.sorted { $0.box.maxY > $1.box.maxY }
+
+        // Group observations into visual rows. Two observations belong to the same
+        // row when their Y-centers are within 1.8% of image height — wide enough to
+        // catch the name + price split of a single receipt line, tight enough to
+        // keep adjacent lines separate on a typical receipt photo.
+        var groups: [[OcrObs]] = []
+        var current: [OcrObs] = []
+
+        for obs in sorted {
+            if current.isEmpty {
+                current = [obs]
+            } else {
+                let groupMidY = current.map { $0.box.midY }.reduce(0, +) / CGFloat(current.count)
+                if abs(obs.box.midY - groupMidY) < 0.018 {
+                    current.append(obs)
+                } else {
+                    groups.append(current)
+                    current = [obs]
+                }
+            }
+        }
+        if !current.isEmpty { groups.append(current) }
+
+        // Standalone price token: an observation that is itself just a price number.
+        let priceTokenPattern = #"^\$?(\d{1,6}(?:\.\d{1,2})?)\s*$"#
+        guard let priceTokenRegex = try? NSRegularExpression(pattern: priceTokenPattern) else { return [] }
+
+        // End-of-line price suffix: "Item Name   14.00" or "Item    $14.00"
+        // Requires 2+ spaces between name and price so "Table 4" doesn't match.
+        let priceSuffixPattern = #"^(.*\S)\s{2,}\$?(\d{1,6}(?:\.\d{1,2})?)\s*$"#
+        guard let priceSuffixRegex = try? NSRegularExpression(pattern: priceSuffixPattern) else { return [] }
+
+        var rows: [LayoutRow] = []
+        for group in groups {
+            let lineObs = group.sorted { $0.box.minX < $1.box.minX }
+            let texts = lineObs.map { $0.text.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            guard !texts.isEmpty else { continue }
+
+            var leftText = ""
+            var rightText = ""
+
+            // Strategy 1: rightmost observation is a standalone price token.
+            if texts.count > 1, let last = texts.last {
+                let r = NSRange(last.startIndex..., in: last)
+                if let m = priceTokenRegex.firstMatch(in: last, range: r),
+                   let priceRange = Range(m.range(at: 1), in: last) {
+                    rightText = String(last[priceRange])
+                    leftText = texts.dropLast().joined(separator: " ")
+                }
+            }
+
+            // Strategy 2: price is embedded at the end of the joined line text
+            // (handles "Chicken Wings 14.00" as a single merged observation).
+            if rightText.isEmpty {
+                let fullLine = texts.joined(separator: " ")
+                let r = NSRange(fullLine.startIndex..., in: fullLine)
+                if let m = priceSuffixRegex.firstMatch(in: fullLine, range: r),
+                   let nameRange = Range(m.range(at: 1), in: fullLine),
+                   let priceRange = Range(m.range(at: 2), in: fullLine) {
+                    leftText = String(fullLine[nameRange])
+                    rightText = String(fullLine[priceRange])
+                } else {
+                    leftText = fullLine
+                }
+            }
+
+            rows.append(LayoutRow(
+                leftText: leftText.trimmingCharacters(in: .whitespacesAndNewlines),
+                rightText: rightText.trimmingCharacters(in: .whitespacesAndNewlines)
+            ))
+        }
+
+        return rows
+    }
+
     /// Converts layout rows to a string where each printed line reads
     /// "LeftText    RightText" — preserving the item name / price pairing.
     static func layoutString(from rows: [LayoutRow]) -> String {

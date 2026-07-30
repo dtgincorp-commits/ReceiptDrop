@@ -271,9 +271,35 @@ struct FoundationModelsService: ReceiptExtractor {
     static func itemizeBill(data: Data) async throws -> ExtractedBill {
         try ensureModelAvailable()
 
-        let rows = (try? await VisionLayoutService.recognizeRows(in: data)) ?? []
+        // Raw OCR text — the same path that regular receipt logging uses. This is
+        // the most reliable source for BillTotalsParser because VNRecognizeTextRequest
+        // has been OCRing receipts since iOS 13, and the flat text preserves keyword
+        // prefixes like "Subtotal", "Tax", "Total" that the parser looks for.
+        let rawOCRText = (try? await VisionOCRService.recognizeText(in: data)) ?? ""
+
+        // Tier 1: RecognizeDocumentsRequest — understands formal document tables.
+        // Returns paired (name, price) rows when Vision detects a structured table.
+        let structuredRows = (try? await VisionLayoutService.recognizeRows(in: data)) ?? []
+        let hasStructuredItems = structuredRows.contains { !$0.leftText.isEmpty && !$0.rightText.isEmpty }
+
+        // Tier 2: Raw OCR + bounding-box row reconstruction — the fallback for
+        // thermal-printer receipts (the common case for restaurant/bar tabs) where
+        // Vision finds no formal table structure. Groups text observations by Y
+        // coordinate into visual rows, then pairs item names with trailing prices.
+        let rows: [VisionLayoutService.LayoutRow]
+        if hasStructuredItems {
+            rows = structuredRows
+        } else {
+            rows = (try? await VisionLayoutService.recognizeRowsViaRawOCR(in: data)) ?? []
+        }
+
         let layoutText = VisionLayoutService.layoutString(from: rows)
-        let totals = BillTotalsParser.extractTotals(from: layoutText)
+
+        // Use raw OCR text for totals when available — it reliably contains the
+        // Subtotal/Tax/Total lines that BillTotalsParser looks for, even when the
+        // layout reconstruction misses them. Fall back to layoutText if OCR failed.
+        let totalsSource = rawOCRText.isEmpty ? layoutText : rawOCRText
+        let totals = BillTotalsParser.extractTotals(from: totalsSource)
 
         return try await itemizeBillDeterministically(
             rows: rows, layoutText: layoutText, totals: totals)
