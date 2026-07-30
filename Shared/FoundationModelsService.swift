@@ -253,24 +253,21 @@ struct FoundationModelsService: ReceiptExtractor {
 
     // MARK: - Bill itemization ("Check a Bill")
 
-    /// Bill itemization for "Check a Bill" — three-tier cascade:
+    /// Bill itemization for "Check a Bill" — deterministic extraction:
     ///
-    /// 1. **Private Cloud Compute** (Apple server-side AI) — 32K context,
-    ///    stronger reasoning. Reliably distinguishes items from totals/headers
-    ///    on complex restaurant receipts. Requires network +
-    ///    com.apple.developer.private-cloud-compute entitlement. Falls through
-    ///    gracefully when unavailable.
+    /// Items come directly from RecognizeDocumentsRequest table cells (left = name,
+    /// right = price). Zero hallucination risk because the small on-device model is
+    /// NOT used for item enumeration — it has a 4,096-token context window and no
+    /// receipt-specific training, causing hallucination on complex receipts.
     ///
-    /// 2. **Deterministic row extraction** — items come directly from
-    ///    RecognizeDocumentsRequest table cells (left = name, right = price).
-    ///    Zero hallucination risk because the model is not involved in item
-    ///    enumeration. Vendor name is the only scalar delegated to the small
-    ///    model, which it handles reliably.
+    /// Vendor name is the only scalar delegated to the on-device model, which
+    /// handles single-value extraction reliably.
     ///
-    /// The small on-device model is intentionally NOT used for item enumeration.
-    /// It has a 4,096-token context window and no receipt-specific training —
-    /// asking it to list every line item from a complex receipt causes
-    /// hallucination (items invented from training data, not the actual receipt).
+    /// NOTE: Private Cloud Compute (Apple server-side AI, 32K context, stronger
+    /// reasoning) is wired in as Tier 1 but disabled until the
+    /// com.apple.developer.private-cloud-compute entitlement is provisioned.
+    /// Instantiating PrivateCloudComputeLanguageModel without that entitlement
+    /// crashes the process — it does not throw a catchable Swift error.
     static func itemizeBill(data: Data) async throws -> ExtractedBill {
         try ensureModelAvailable()
 
@@ -278,62 +275,8 @@ struct FoundationModelsService: ReceiptExtractor {
         let layoutText = VisionLayoutService.layoutString(from: rows)
         let totals = BillTotalsParser.extractTotals(from: layoutText)
 
-        // Tier 1: Private Cloud Compute — Apple's server-side Apple Intelligence.
-        // Same privacy guarantees as on-device (stateless, cryptographically verified).
-        // Requires iOS 27 + entitlement; falls through when unavailable.
-        if #available(iOS 27.0, *), !layoutText.isEmpty,
-           let bill = try? await itemizeBillViaPCC(layoutText: layoutText, totals: totals) {
-            return bill
-        }
-
-        // Tier 2: Deterministic extraction from Vision's row structure.
         return try await itemizeBillDeterministically(
             rows: rows, layoutText: layoutText, totals: totals)
-    }
-
-    /// PCC path: route the layout text through Apple's server-side model.
-    /// Drop-in replacement for the on-device session — identical FoundationModels
-    /// API, just `model: PrivateCloudComputeLanguageModel()`.
-    @available(iOS 27.0, *)
-    private static func itemizeBillViaPCC(
-        layoutText: String,
-        totals: BillTotalsParser.Totals
-    ) async throws -> ExtractedBill {
-        let pccModel = PrivateCloudComputeLanguageModel()
-        guard pccModel.isAvailable else {
-            throw FoundationModelsError.modelUnavailable("Private Cloud Compute unavailable")
-        }
-
-        let instructions = """
-        You extract purchased line items from layout-structured OCR text of a \
-        restaurant or store bill. Each line is formatted "ItemName    Price" \
-        where the right column is the price. Return only individual food, drink, \
-        and product lines — NOT subtotal, tax, service charge, tip, or total \
-        rows. Never invent items.
-        """
-
-        let prompt = """
-        Here is layout-structured text from a receipt photo. Each line shows \
-        "ItemName    Price". Extract only the individual purchased line items \
-        (food, drinks, products) in order. For each: the item name, the quantity \
-        (use 1 if not shown), and the price (plain number, no currency symbol). \
-        Skip any subtotal, tax, gratuity, or total rows.
-
-        ---
-        \(layoutText)
-        ---
-        """
-
-        let session = LanguageModelSession(model: pccModel, instructions: instructions)
-        let response = try await session.respond(to: prompt, generating: BillItemsDraft.self)
-        let draft = response.content
-        let rawItems = draft.items.map { (name: $0.name, quantity: $0.quantity, price: $0.price) }
-        return ExtractedBill.build(
-            vendor: draft.vendor.trimmingCharacters(in: .whitespacesAndNewlines),
-            rawItems: rawItems,
-            subtotal: totals.subtotal, tax: totals.tax,
-            serviceCharge: totals.serviceCharge, total: totals.total,
-            unreadableLineCount: draft.unreadableLineCount)
     }
 
     /// Deterministic fallback: items come from RecognizeDocumentsRequest table
