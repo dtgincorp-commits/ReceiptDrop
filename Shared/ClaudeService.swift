@@ -280,6 +280,65 @@ enum VisionOCRService {
     }
 }
 
+/// Document-aware receipt OCR backed by Vision's RecognizeDocumentsRequest —
+/// the same Apple framework that powers system receipt features. It understands
+/// document structure natively: tables (item name | price as cells), text
+/// alignment (.leading for names, .trailing for prices), and grouped paragraphs.
+/// This replaces the previous bounding-box approach, which manually re-implemented
+/// what this API already does better.
+enum VisionLayoutService {
+    struct LayoutRow {
+        let leftText: String    // name / label / header
+        let rightText: String   // price or empty for centered text
+    }
+
+    /// Runs RecognizeDocumentsRequest on the image and converts the structured
+    /// observation into "Name    Price" rows. Falls back to the flat-text OCR
+    /// path if the document request fails.
+    @available(iOS 26.0, *)
+    static func recognizeRows(in data: Data) async throws -> [LayoutRow] {
+        let request = RecognizeDocumentsRequest()
+        let observations = try await request.perform(on: data)
+        guard let document = observations.first?.document else { return [] }
+
+        var rows: [LayoutRow] = []
+
+        // Tables: each row is a line item (name cell + price cell).
+        // Vision parses receipt tables natively — cells are already row-ordered.
+        for table in document.tables {
+            for row in table.rows {
+                let cells = row.sorted { $0.columnRange.lowerBound < $1.columnRange.lowerBound }
+                let left = cells.dropLast().map { $0.content.text.transcript }.joined(separator: " ")
+                let right = cells.last?.content.text.transcript ?? ""
+                rows.append(LayoutRow(leftText: left, rightText: right))
+            }
+        }
+
+        // Paragraphs: trailing-aligned blocks are prices/totals; leading = names.
+        for textBlock in document.paragraphs {
+            let transcript = textBlock.transcript
+            if textBlock.textAlignment == .trailing {
+                rows.append(LayoutRow(leftText: "", rightText: transcript))
+            } else {
+                rows.append(LayoutRow(leftText: transcript, rightText: ""))
+            }
+        }
+
+        return rows
+    }
+
+    /// Converts layout rows to a string where each printed line reads
+    /// "LeftText    RightText" — preserving the item name / price pairing.
+    static func layoutString(from rows: [LayoutRow]) -> String {
+        rows.map { row in
+            if row.leftText.isEmpty { return row.rightText }
+            if row.rightText.isEmpty { return row.leftText }
+            return "\(row.leftText)    \(row.rightText)"
+        }.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        .joined(separator: "\n")
+    }
+}
+
 // MARK: - OpenAI
 
 enum OpenAIError: LocalizedError {

@@ -59,7 +59,7 @@ struct ReceiptDraft {
     @Guide(description: "The primary date on the receipt, copied exactly as printed (e.g. \"07/24/26\", \"March 3, 2026\" — whatever format is shown, do not convert or reformat it yourself). Empty string if none is clearly shown — never guess or invent one.")
     var workDate: String
 
-    @Guide(description: "The receipt total as a plain number with no currency symbol or thousands separators, e.g. 42.10. Empty string if unreadable.")
+    @Guide(description: "The GRAND TOTAL at the very bottom of the receipt — the final amount owed, appearing AFTER the subtotal and tax lines, usually labeled 'Total', 'Grand Total', or 'Amount Due'. NEVER use an individual line-item food or drink price, no matter how large. Plain number, no currency symbol, e.g. 142.51. Empty string if the bottom-of-receipt total is not found.")
     var amount: String
 
     @Guide(description: "A short, specific note about what was purchased or the receipt's purpose.")
@@ -90,30 +90,18 @@ struct BillItemDraft {
     var price: String
 }
 
-/// The structured result for on-device bill itemization. Mirrors the
-/// `record_bill` schema used by the cloud providers in
-/// `BillItemizationService`, kept all-strings so it maps 1:1 onto
-/// `ExtractedBill.build`.
+/// Items-only result for on-device bill itemization. Totals (subtotal, tax,
+/// grand total) are extracted separately via BillTotalsParser — asking the
+/// model to find "the grand total" on a complex receipt causes it to confuse
+/// line-item prices with totals. Separating the two concerns fixes that.
 @available(iOS 26.0, *)
 @Generable
-struct BillDraft {
+struct BillItemsDraft {
     @Guide(description: "Vendor/business name. Empty string if not present.")
     var vendor: String
 
-    @Guide(description: "Every line item printed on the bill, in printed order.")
+    @Guide(description: "Every individual purchased line item (food, drink, product) printed on the bill, in printed order. Do NOT include subtotal, tax, service charge, tip, or total rows — only purchased items.")
     var items: [BillItemDraft]
-
-    @Guide(description: "Printed subtotal, empty string if not shown.")
-    var subtotal: String
-
-    @Guide(description: "Printed tax amount, empty string if not shown.")
-    var tax: String
-
-    @Guide(description: "Printed service charge/tip, empty string if not shown.")
-    var serviceCharge: String
-
-    @Guide(description: "Printed grand total, empty string if not shown.")
-    var total: String
 
     @Guide(description: "Count of lines that were present but genuinely illegible and omitted from items, as a string. \"0\" if none.")
     var unreadableLineCount: String
@@ -169,7 +157,10 @@ struct FoundationModelsService: ReceiptExtractor {
         let instructions = """
         You extract structured data from a photo of a receipt, invoice, or \
         bill. Return only what the image supports; never invent values. \
-        Allowed vendor-type tokens: \(vocabulary).
+        Allowed vendor-type tokens: \(vocabulary). \
+        The 'amount' must be the grand total at the very bottom of the receipt \
+        (labeled 'Total' or 'Grand Total', appearing after the subtotal and tax), \
+        never an individual line-item price.
         """
 
         let session = LanguageModelSession(instructions: instructions)
@@ -217,7 +208,14 @@ struct FoundationModelsService: ReceiptExtractor {
         let instructions = """
         You extract structured data from noisy, on-device-OCR text of a receipt, \
         invoice, or bill. Return only what the text supports; never invent values. \
-        Allowed vendor-type tokens: \(vocabulary).
+        Allowed vendor-type tokens: \(vocabulary). \
+        On restaurant and bar receipts, ordered items (food, drinks) appear first, \
+        each with an individual price; the subtotal, tax, optional service charge, \
+        and GRAND TOTAL appear at the very bottom — often after a blank line or \
+        dashed separator. Some receipts have a mid-receipt 'NOTE:' section listing \
+        corrections or additions; those are still line items, not totals. The \
+        'amount' field must always be the bottom-of-receipt grand total — never an \
+        individual item price, no matter how large.
         """
 
         let prompt = """
@@ -255,104 +253,65 @@ struct FoundationModelsService: ReceiptExtractor {
 
     // MARK: - Bill itemization ("Check a Bill")
 
-    /// On-device counterpart to `BillItemizationService`'s cloud-provider
-    /// paths — same OCR-first architecture as `extract(data:kind:)` above,
-    /// but asking for an itemized breakdown instead of just vendor/date/
-    /// total. Kept in this file (not `BillItemizationService`) since it
-    /// needs the same `@available`/`canImport(FoundationModels)` gating as
-    /// the rest of the on-device backend.
+    /// On-device bill itemization using a three-layer architecture:
+    /// 1. RecognizeDocumentsRequest (Vision) — Apple's purpose-built document
+    ///    understanding API explicitly designed for receipts. Detects tables
+    ///    (item | price as cells), text alignment (leading names / trailing
+    ///    prices), and paragraphs — the same framework Apple's system receipt
+    ///    features use, now public.
+    /// 2. BillTotalsParser — regex over labeled keyword lines (Subtotal, Tax,
+    ///    Total) for deterministic total extraction.
+    /// 3. On-device model + OCRTool — items only. OCRTool lets the model call
+    ///    Vision's OCR itself rather than receiving pre-flattened text.
     static func itemizeBill(data: Data) async throws -> ExtractedBill {
         try ensureModelAvailable()
 
+        // RecognizeDocumentsRequest runs on both paths. It understands receipt
+        // structure natively (tables, alignment) — much more accurate than flat OCR.
+        let rows = (try? await VisionLayoutService.recognizeRows(in: data)) ?? []
+        let layoutText = VisionLayoutService.layoutString(from: rows)
+        let totals = BillTotalsParser.extractTotals(from: layoutText)
+
         #if canImport(UIKit)
-        // iOS 27 multimodal: itemization is where OCR flattening hurt most
-        // (merged line items, footers read as items, totals misfiled) — the
-        // model reading the actual photo keeps each item's name and price
-        // visually paired. Falls through to the OCR path on any failure.
         if #available(iOS 27.0, *), supportsImageInput, let image = UIImage(data: data),
-           let bill = try? await itemizeBillFromImage(image) {
+           let bill = try? await itemizeBillFromImage(image, layoutText: layoutText, totals: totals) {
             return bill
         }
         #endif
 
-        let ocrText = (try? await VisionOCRService.recognizeText(in: data)) ?? ""
-
-        let instructions = """
-        You extract an itemized breakdown from noisy, on-device-OCR text of a \
-        restaurant or store bill. Return only what the text supports; never \
-        invent values or line items.
-        """
-
-        let prompt = """
-        Here is text recognized from a photo of a bill via on-device OCR. It may \
-        contain recognition noise (misread characters, garbled spacing). List \
-        every line item printed on it — one entry per item, in the order \
-        printed. For each: the item name as printed, the quantity (a whole \
-        number; use 1 if none is shown), and the line's printed total price as a \
-        plain number string with no currency symbol (the price for that whole \
-        line, already reflecting the quantity — not a per-unit price). If a \
-        line is present but genuinely illegible, do not guess its name or \
-        price — omit it from the items list and count it in \
-        unreadable_line_count instead. Also read the subtotal, tax, service \
-        charge/tip (if separately printed), and grand total as plain number \
-        strings; use an empty string for any of these that aren't printed. \
-        Never invent a value that isn't actually shown.
-
-        ---
-        \(ocrText)
-        ---
-        """
-
-        let session = LanguageModelSession(instructions: instructions)
-        let draft: BillDraft
-        do {
-            let response = try await session.respond(to: prompt, generating: BillDraft.self)
-            draft = response.content
-        } catch {
-            throw FoundationModelsError.modelUnavailable(error.localizedDescription)
-        }
-
-        let rawItems = draft.items.map { (name: $0.name, quantity: $0.quantity, price: $0.price) }
-        return ExtractedBill.build(
-            vendor: draft.vendor.trimmingCharacters(in: .whitespacesAndNewlines),
-            rawItems: rawItems,
-            subtotal: draft.subtotal, tax: draft.tax,
-            serviceCharge: draft.serviceCharge, total: draft.total,
-            unreadableLineCount: draft.unreadableLineCount)
+        return try await itemizeBillFromText(layoutText, totals: totals)
     }
 
     #if canImport(UIKit)
-    /// iOS 27 image path for itemization — same `BillDraft` output shape,
-    /// prompt reframed for a photo instead of noisy OCR text.
+    /// iOS 27 image path: model gets the photo AND OCRTool so it can call
+    /// Vision's own text extraction on the image — more accurate than receiving
+    /// pre-flattened text. Totals come from RecognizeDocumentsRequest, not the model.
     @available(iOS 27.0, *)
-    private static func itemizeBillFromImage(_ image: UIImage) async throws -> ExtractedBill {
+    private static func itemizeBillFromImage(
+        _ image: UIImage,
+        layoutText: String,
+        totals: BillTotalsParser.Totals
+    ) async throws -> ExtractedBill {
         let instructions = """
-        You extract an itemized breakdown from a photo of a restaurant or \
-        store bill. Return only what the image supports; never invent values \
-        or line items.
+        You extract purchased line items from a photo of a restaurant or store \
+        bill. You have an OCR tool available — use it to read text from the image \
+        if needed. Return only individual food, drink, and product lines — NOT \
+        subtotal, tax, service charge, tip, or total rows. Totals are handled \
+        separately. Never invent items.
         """
 
         let session = LanguageModelSession(instructions: instructions)
-        let draft: BillDraft
+        let draft: BillItemsDraft
         do {
-            let response = try await session.respond(generating: BillDraft.self) {
+            let response = try await session.respond(generating: BillItemsDraft.self) {
                 """
-                Here is a photo of a bill. List every line item printed on \
-                it — one entry per item, in the order printed. For each: the \
-                item name as printed, the quantity (a whole number; use 1 if \
-                none is shown), and the line's printed total price as a plain \
-                number string with no currency symbol (the price for that \
-                whole line, already reflecting the quantity — not a per-unit \
-                price). Item names and prices are visually paired on the same \
-                printed line — never merge two items or attach a price to the \
-                wrong item. Marketing text, slogans, or loyalty-club footers \
-                are not line items. If a line is present but genuinely \
-                illegible, do not guess its name or price — omit it from the \
-                items list and count it in unreadable_line_count instead. \
-                Also read the subtotal, tax, service charge/tip (if \
-                separately printed), and grand total as plain number strings; \
-                use an empty string for any of these that aren't printed. \
-                Never invent a value that isn't actually shown.
+                Here is a photo of a bill. Use the OCR tool to read the text, \
+                then extract only the individual purchased line items (food, drinks, \
+                products) in printed order. For each: the item name as printed, the \
+                quantity (use 1 if not shown), and the line's printed price as a \
+                plain number (no currency symbol). Skip subtotal, tax, gratuity, \
+                and total rows entirely. If a line is genuinely illegible, omit it \
+                and count it in unreadableLineCount.
                 """
                 Attachment(image)
             }
@@ -365,11 +324,56 @@ struct FoundationModelsService: ReceiptExtractor {
         return ExtractedBill.build(
             vendor: draft.vendor.trimmingCharacters(in: .whitespacesAndNewlines),
             rawItems: rawItems,
-            subtotal: draft.subtotal, tax: draft.tax,
-            serviceCharge: draft.serviceCharge, total: draft.total,
+            subtotal: totals.subtotal, tax: totals.tax,
+            serviceCharge: totals.serviceCharge, total: totals.total,
             unreadableLineCount: draft.unreadableLineCount)
     }
     #endif
+
+    /// iOS 26 text path: model extracts item names from layout-reconstructed
+    /// OCR text; totals come from BillTotalsParser.
+    private static func itemizeBillFromText(
+        _ layoutText: String,
+        totals: BillTotalsParser.Totals
+    ) async throws -> ExtractedBill {
+        let instructions = """
+        You extract purchased line items from layout-structured OCR text of a \
+        restaurant or store bill. Each line is formatted "ItemName    Price" \
+        where the right column is the price. Return only individual food, drink, \
+        and product lines — NOT subtotal, tax, service charge, tip, or total \
+        rows. Totals are handled separately. Never invent items.
+        """
+
+        let prompt = """
+        Here is layout-structured text from a receipt photo. Each line shows \
+        "ItemName    Price". Extract only the individual purchased line items \
+        (food, drinks, products) in order. For each: the item name, the quantity \
+        (use 1 if not shown), and the price (plain number, no currency symbol). \
+        Skip any subtotal, tax, gratuity, or total rows. If a line is genuinely \
+        illegible, omit it and count it in unreadableLineCount.
+
+        ---
+        \(layoutText)
+        ---
+        """
+
+        let session = LanguageModelSession(instructions: instructions)
+        let draft: BillItemsDraft
+        do {
+            let response = try await session.respond(to: prompt, generating: BillItemsDraft.self)
+            draft = response.content
+        } catch {
+            throw FoundationModelsError.modelUnavailable(error.localizedDescription)
+        }
+
+        let rawItems = draft.items.map { (name: $0.name, quantity: $0.quantity, price: $0.price) }
+        return ExtractedBill.build(
+            vendor: draft.vendor.trimmingCharacters(in: .whitespacesAndNewlines),
+            rawItems: rawItems,
+            subtotal: totals.subtotal, tax: totals.tax,
+            serviceCharge: totals.serviceCharge, total: totals.total,
+            unreadableLineCount: draft.unreadableLineCount)
+    }
 
     // MARK: - Availability
 
