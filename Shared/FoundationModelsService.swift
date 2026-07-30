@@ -253,95 +253,63 @@ struct FoundationModelsService: ReceiptExtractor {
 
     // MARK: - Bill itemization ("Check a Bill")
 
-    /// On-device bill itemization using a three-layer architecture:
-    /// 1. RecognizeDocumentsRequest (Vision) — Apple's purpose-built document
-    ///    understanding API explicitly designed for receipts. Detects tables
-    ///    (item | price as cells), text alignment (leading names / trailing
-    ///    prices), and paragraphs — the same framework Apple's system receipt
-    ///    features use, now public.
-    /// 2. BillTotalsParser — regex over labeled keyword lines (Subtotal, Tax,
-    ///    Total) for deterministic total extraction.
-    /// 3. On-device model + OCRTool — items only. OCRTool lets the model call
-    ///    Vision's OCR itself rather than receiving pre-flattened text.
+    /// Bill itemization for "Check a Bill" — three-tier cascade:
+    ///
+    /// 1. **Private Cloud Compute** (Apple server-side AI) — 32K context,
+    ///    stronger reasoning. Reliably distinguishes items from totals/headers
+    ///    on complex restaurant receipts. Requires network +
+    ///    com.apple.developer.private-cloud-compute entitlement. Falls through
+    ///    gracefully when unavailable.
+    ///
+    /// 2. **Deterministic row extraction** — items come directly from
+    ///    RecognizeDocumentsRequest table cells (left = name, right = price).
+    ///    Zero hallucination risk because the model is not involved in item
+    ///    enumeration. Vendor name is the only scalar delegated to the small
+    ///    model, which it handles reliably.
+    ///
+    /// The small on-device model is intentionally NOT used for item enumeration.
+    /// It has a 4,096-token context window and no receipt-specific training —
+    /// asking it to list every line item from a complex receipt causes
+    /// hallucination (items invented from training data, not the actual receipt).
     static func itemizeBill(data: Data) async throws -> ExtractedBill {
         try ensureModelAvailable()
 
-        // RecognizeDocumentsRequest runs on both paths. It understands receipt
-        // structure natively (tables, alignment) — much more accurate than flat OCR.
         let rows = (try? await VisionLayoutService.recognizeRows(in: data)) ?? []
         let layoutText = VisionLayoutService.layoutString(from: rows)
         let totals = BillTotalsParser.extractTotals(from: layoutText)
 
-        #if canImport(UIKit)
-        if #available(iOS 27.0, *), supportsImageInput, let image = UIImage(data: data),
-           let bill = try? await itemizeBillFromImage(image, layoutText: layoutText, totals: totals) {
+        // Tier 1: Private Cloud Compute — Apple's server-side Apple Intelligence.
+        // Same privacy guarantees as on-device (stateless, cryptographically verified).
+        // Requires iOS 27 + entitlement; falls through when unavailable.
+        if #available(iOS 27.0, *), !layoutText.isEmpty,
+           let bill = try? await itemizeBillViaPCC(layoutText: layoutText, totals: totals) {
             return bill
         }
-        #endif
 
-        return try await itemizeBillFromText(layoutText, totals: totals)
+        // Tier 2: Deterministic extraction from Vision's row structure.
+        return try await itemizeBillDeterministically(
+            rows: rows, layoutText: layoutText, totals: totals)
     }
 
-    #if canImport(UIKit)
-    /// iOS 27 image path: model gets the photo AND OCRTool so it can call
-    /// Vision's own text extraction on the image — more accurate than receiving
-    /// pre-flattened text. Totals come from RecognizeDocumentsRequest, not the model.
+    /// PCC path: route the layout text through Apple's server-side model.
+    /// Drop-in replacement for the on-device session — identical FoundationModels
+    /// API, just `model: PrivateCloudComputeLanguageModel()`.
     @available(iOS 27.0, *)
-    private static func itemizeBillFromImage(
-        _ image: UIImage,
+    private static func itemizeBillViaPCC(
         layoutText: String,
         totals: BillTotalsParser.Totals
     ) async throws -> ExtractedBill {
-        let instructions = """
-        You extract purchased line items from a photo of a restaurant or store \
-        bill. You have an OCR tool available — use it to read text from the image \
-        if needed. Return only individual food, drink, and product lines — NOT \
-        subtotal, tax, service charge, tip, or total rows. Totals are handled \
-        separately. Never invent items.
-        """
-
-        let session = LanguageModelSession(instructions: instructions)
-        let draft: BillItemsDraft
-        do {
-            let response = try await session.respond(generating: BillItemsDraft.self) {
-                """
-                Here is a photo of a bill. Use the OCR tool to read the text, \
-                then extract only the individual purchased line items (food, drinks, \
-                products) in printed order. For each: the item name as printed, the \
-                quantity (use 1 if not shown), and the line's printed price as a \
-                plain number (no currency symbol). Skip subtotal, tax, gratuity, \
-                and total rows entirely. If a line is genuinely illegible, omit it \
-                and count it in unreadableLineCount.
-                """
-                Attachment(image)
-            }
-            draft = response.content
-        } catch {
-            throw FoundationModelsError.modelUnavailable(error.localizedDescription)
+        let pccModel = PrivateCloudComputeLanguageModel()
+        guard pccModel.isAvailable else {
+            throw FoundationModelsError.modelUnavailable("Private Cloud Compute unavailable")
         }
 
-        let rawItems = draft.items.map { (name: $0.name, quantity: $0.quantity, price: $0.price) }
-        return ExtractedBill.build(
-            vendor: draft.vendor.trimmingCharacters(in: .whitespacesAndNewlines),
-            rawItems: rawItems,
-            subtotal: totals.subtotal, tax: totals.tax,
-            serviceCharge: totals.serviceCharge, total: totals.total,
-            unreadableLineCount: draft.unreadableLineCount)
-    }
-    #endif
-
-    /// iOS 26 text path: model extracts item names from layout-reconstructed
-    /// OCR text; totals come from BillTotalsParser.
-    private static func itemizeBillFromText(
-        _ layoutText: String,
-        totals: BillTotalsParser.Totals
-    ) async throws -> ExtractedBill {
         let instructions = """
         You extract purchased line items from layout-structured OCR text of a \
         restaurant or store bill. Each line is formatted "ItemName    Price" \
         where the right column is the price. Return only individual food, drink, \
         and product lines — NOT subtotal, tax, service charge, tip, or total \
-        rows. Totals are handled separately. Never invent items.
+        rows. Never invent items.
         """
 
         let prompt = """
@@ -349,23 +317,16 @@ struct FoundationModelsService: ReceiptExtractor {
         "ItemName    Price". Extract only the individual purchased line items \
         (food, drinks, products) in order. For each: the item name, the quantity \
         (use 1 if not shown), and the price (plain number, no currency symbol). \
-        Skip any subtotal, tax, gratuity, or total rows. If a line is genuinely \
-        illegible, omit it and count it in unreadableLineCount.
+        Skip any subtotal, tax, gratuity, or total rows.
 
         ---
         \(layoutText)
         ---
         """
 
-        let session = LanguageModelSession(instructions: instructions)
-        let draft: BillItemsDraft
-        do {
-            let response = try await session.respond(to: prompt, generating: BillItemsDraft.self)
-            draft = response.content
-        } catch {
-            throw FoundationModelsError.modelUnavailable(error.localizedDescription)
-        }
-
+        let session = LanguageModelSession(model: pccModel, instructions: instructions)
+        let response = try await session.respond(to: prompt, generating: BillItemsDraft.self)
+        let draft = response.content
         let rawItems = draft.items.map { (name: $0.name, quantity: $0.quantity, price: $0.price) }
         return ExtractedBill.build(
             vendor: draft.vendor.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -373,6 +334,60 @@ struct FoundationModelsService: ReceiptExtractor {
             subtotal: totals.subtotal, tax: totals.tax,
             serviceCharge: totals.serviceCharge, total: totals.total,
             unreadableLineCount: draft.unreadableLineCount)
+    }
+
+    /// Deterministic fallback: items come from RecognizeDocumentsRequest table
+    /// rows, not from the model. Rows where both the left (name) and right (price)
+    /// columns are populated are reliable item candidates — Vision detected them as
+    /// paired cells in the document's table structure. Total/tax/header rows are
+    /// filtered by keyword. The small model is called only for the vendor name,
+    /// which is a single scalar it extracts reliably from the top of the receipt.
+    private static func itemizeBillDeterministically(
+        rows: [VisionLayoutService.LayoutRow],
+        layoutText: String,
+        totals: BillTotalsParser.Totals
+    ) async throws -> ExtractedBill {
+        let skipPrefixes = [
+            "subtotal", "sub total", "tax", "service", "gratuity", "tip",
+            "total", "grand total", "amount due", "change", "cash",
+            "credit", "visa", "mastercard", "amex", "balance due",
+            "thank", "welcome", "order", "server", "table", "guests",
+            "check #", "receipt", "date", "time"
+        ]
+
+        let rawItems: [(name: String, quantity: String, price: String)] = rows.compactMap { row in
+            guard !row.leftText.isEmpty, !row.rightText.isEmpty else { return nil }
+            let nameLower = row.leftText.lowercased().trimmingCharacters(in: .whitespaces)
+            guard !skipPrefixes.contains(where: { nameLower.hasPrefix($0) }) else { return nil }
+            let price = row.rightText
+                .trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: "$", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            guard Double(price) != nil else { return nil }
+            return (name: row.leftText.trimmingCharacters(in: .whitespacesAndNewlines),
+                    quantity: "1",
+                    price: price)
+        }
+
+        // Vendor name: small model handles a single scalar from the top of
+        // the receipt reliably.
+        let vendor: String
+        if !layoutText.isEmpty {
+            let topLines = layoutText.components(separatedBy: "\n").prefix(6).joined(separator: "\n")
+            let session = LanguageModelSession(instructions: "Extract the restaurant or store name from the top of this receipt text. Reply with only the business name, nothing else.")
+            let resp = try? await session.respond(to: topLines)
+            vendor = resp?.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        } else {
+            vendor = ""
+        }
+
+        let unreadable = rawItems.isEmpty && !layoutText.isEmpty ? "1" : "0"
+        return ExtractedBill.build(
+            vendor: vendor,
+            rawItems: rawItems,
+            subtotal: totals.subtotal, tax: totals.tax,
+            serviceCharge: totals.serviceCharge, total: totals.total,
+            unreadableLineCount: unreadable)
     }
 
     // MARK: - Availability
