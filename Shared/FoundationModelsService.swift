@@ -107,6 +107,15 @@ struct BillItemsDraft {
     var unreadableLineCount: String
 }
 
+/// Binary item/skip label for each candidate line. The model only classifies
+/// text that deterministic extraction already found — zero hallucination risk.
+@available(iOS 26.0, *)
+@Generable
+struct ReceiptLineClassification {
+    @Guide(description: "Exactly one label per input line, in the same order. 'item' = a specific purchased product or service with its own individual price. 'skip' = anything else: subtotals, discount subtotals, taxes, tip suggestions (e.g. '20% is $X'), service charges, timestamps, payment methods, room charges, coupon lines, or any receipt metadata that is not a purchased item.")
+    var labels: [String]
+}
+
 /// On-device receipt extractor backed by Apple's Foundation Models framework.
 @available(iOS 26.0, *)
 struct FoundationModelsService: ReceiptExtractor {
@@ -316,33 +325,87 @@ struct FoundationModelsService: ReceiptExtractor {
             rows: rows, layoutText: layoutText, totals: totals)
     }
 
-    /// Deterministic fallback: items come from RecognizeDocumentsRequest table
-    /// rows, not from the model. Rows where both the left (name) and right (price)
-    /// columns are populated are reliable item candidates — Vision detected them as
-    /// paired cells in the document's table structure. Total/tax/header rows are
-    /// filtered by keyword. The small model is called only for the vendor name,
-    /// which is a single scalar it extracts reliably from the top of the receipt.
+    /// Final classification pass: the on-device model sees each candidate line
+    /// we already extracted and answers one binary question — "item or skip?" —
+    /// with no ability to invent new lines. Handles semantic edge cases that no
+    /// keyword list can anticipate: discount subtotals ("Disc Sub Total"), tip
+    /// suggestion lines ("20% is $16.60"), timestamps paired with totals ("3:03
+    /// PM"), room charges, military discounts, etc.
+    ///
+    /// Failure mode: if the model call fails, all candidates are returned
+    /// unchanged — better to show a false positive than silently drop real items.
+    private static func filterCandidatesViaModel(
+        _ candidates: [(name: String, quantity: String, price: String)]
+    ) async -> [(name: String, quantity: String, price: String)] {
+        guard !candidates.isEmpty else { return candidates }
+
+        let lineList = candidates.enumerated()
+            .map { "\($0.offset + 1). \($0.element.name)    \($0.element.price)" }
+            .joined(separator: "\n")
+
+        let session = LanguageModelSession(instructions: """
+            You classify lines from a restaurant or retail receipt. For each \
+            numbered line, output 'item' if it is a specific purchased product \
+            or service with its own individual price. Output 'skip' for anything \
+            else: subtotals, discount subtotals, taxes, tip/gratuity suggestions, \
+            service charges, timestamps, payment method lines, room charges, \
+            discount lines, coupons, or any other receipt metadata. Return exactly \
+            one label per line in the same order.
+            """)
+
+        guard let response = try? await session.respond(
+            to: "Classify these \(candidates.count) receipt lines:\n\(lineList)",
+            generating: ReceiptLineClassification.self
+        ) else {
+            return candidates
+        }
+
+        let labels = response.content.labels
+        return candidates.enumerated().compactMap { i, candidate in
+            guard i < labels.count else { return candidate }
+            return labels[i].lowercased().trimmingCharacters(in: .whitespaces) == "item" ? candidate : nil
+        }
+    }
+
     private static func itemizeBillDeterministically(
         rows: [VisionLayoutService.LayoutRow],
         layoutText: String,
         totals: BillTotalsParser.Totals
     ) async throws -> ExtractedBill {
+        // Fast deterministic pre-filter — catches obvious non-items without a
+        // model call. The model filter below handles semantic edge cases.
         let skipPrefixes = [
             "subtotal", "sub total", "tax", "service", "gratuity", "tip",
             "total", "grand total", "amount due", "change", "cash",
             "credit", "visa", "mastercard", "amex", "balance due",
             "thank", "welcome", "order", "server", "table", "guests",
-            "check #", "receipt", "date", "time"
+            "check #", "receipt", "date", "time",
+            "disc",         // "Disc Sub Total", "Discount"
+            "discount",
+            "room",         // "Room Charge", "Room Number"
+            "coupon", "promo", "reward", "military", "senior", "adjustment",
+            "please", "print", "sign", "authorization", "approved",
+            "payment", "card", "discover", "aid ",
         ]
+        // Substring markers: a line containing any of these is a total-section row
+        // regardless of what comes before it (e.g. "Disc Sub Total", "Your Subtotal").
+        let totalSubstrings = ["subtotal", "sub total", "sub-total"]
 
-        let rawItems: [(name: String, quantity: String, price: String)] = rows.compactMap { row in
+        let candidates: [(name: String, quantity: String, price: String)] = rows.compactMap { row in
             guard !row.leftText.isEmpty, !row.rightText.isEmpty else { return nil }
             let nameLower = row.leftText.lowercased().trimmingCharacters(in: .whitespaces)
+
+            // Prefix skip
             guard !skipPrefixes.contains(where: { nameLower.hasPrefix($0) }) else { return nil }
-            // A dollar sign followed by a digit in the name means two total-section
-            // lines got merged into one bounding-box group (e.g. "Tax Subtotal $132.25").
-            // Filter regardless of prefix — no purchased item name contains a price.
+            // Substring skip (catches "Disc Sub Total", "Happy Hour Sub Total", etc.)
+            guard !totalSubstrings.contains(where: { nameLower.contains($0) }) else { return nil }
+            // Merged total line: dollar amount embedded in the name
             guard row.leftText.range(of: #"\$\d"#, options: .regularExpression) == nil else { return nil }
+            // Timestamp in name: "3:03 PM", "6:03 PM", etc.
+            guard row.leftText.range(of: #"^\d{1,2}:\d{2}"#, options: .regularExpression) == nil else { return nil }
+            // Tip/percentage suggestion: "20% is", "15% tip", "18%", etc.
+            guard row.leftText.range(of: #"^\d+(\.\d+)?\s*%"#, options: .regularExpression) == nil else { return nil }
+
             let price = row.rightText
                 .trimmingCharacters(in: .whitespaces)
                 .replacingOccurrences(of: "$", with: "")
@@ -352,6 +415,10 @@ struct FoundationModelsService: ReceiptExtractor {
                     quantity: "1",
                     price: price)
         }
+
+        // Model classification — the semantic safety net. Classifies each candidate
+        // as "item" or "skip" without being able to invent new entries.
+        let finalItems = await filterCandidatesViaModel(candidates)
 
         // Vendor name: small model handles a single scalar from the top of
         // the receipt reliably.
@@ -365,10 +432,10 @@ struct FoundationModelsService: ReceiptExtractor {
             vendor = ""
         }
 
-        let unreadable = rawItems.isEmpty && !layoutText.isEmpty ? "1" : "0"
+        let unreadable = finalItems.isEmpty && !layoutText.isEmpty ? "1" : "0"
         return ExtractedBill.build(
             vendor: vendor,
-            rawItems: rawItems,
+            rawItems: finalItems,
             subtotal: totals.subtotal, tax: totals.tax,
             serviceCharge: totals.serviceCharge, total: totals.total,
             unreadableLineCount: unreadable)
