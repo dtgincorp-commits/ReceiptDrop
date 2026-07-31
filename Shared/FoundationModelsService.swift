@@ -276,23 +276,40 @@ struct FoundationModelsService: ReceiptExtractor {
         let structuredRows = (try? await VisionLayoutService.recognizeRows(in: data)) ?? []
         let hasStructuredItems = structuredRows.contains { !$0.leftText.isEmpty && !$0.rightText.isEmpty }
 
-        // Tier 2: Raw OCR + bounding-box row reconstruction — the fallback for
-        // thermal-printer receipts (the common case for restaurant/bar tabs) where
-        // Vision finds no formal table structure. Groups text observations by Y
-        // coordinate into visual rows, then pairs item names with trailing prices.
         let rows: [VisionLayoutService.LayoutRow]
         if hasStructuredItems {
             rows = structuredRows
         } else {
-            rows = (try? await VisionLayoutService.recognizeRowsViaRawOCR(in: data)) ?? []
+            // Tier 2 (bounding-box) and Tier 3 (flat OCR text) run in parallel.
+            //
+            // Tier 2: groups VNRecognizeTextRequest observations by Y-coordinate
+            // into visual rows and pairs names with trailing prices. Best for
+            // thermal-printer receipts where name and price are separate observations.
+            //
+            // Tier 3: applies the price-suffix regex directly to flat OCR text,
+            // one line at a time. Works universally — Apple Store receipts, printed
+            // email receipts, any format where name+price are one merged observation.
+            //
+            // We use whichever tier finds more item rows (both leftText and rightText
+            // populated), since a receipt format that defeats one will often work for
+            // the other.
+            async let tier2Task = VisionLayoutService.recognizeRowsViaRawOCR(in: data)
+            async let tier3Task = VisionOCRService.recognizeText(in: data)
+
+            let bbRows = (try? await tier2Task) ?? []
+            let ocrText = (try? await tier3Task) ?? ""
+            let ocrRows = VisionLayoutService.recognizeRowsFromOCRText(ocrText)
+
+            let bbItemCount = bbRows.filter { !$0.leftText.isEmpty && !$0.rightText.isEmpty }.count
+            let ocrItemCount = ocrRows.filter { !$0.leftText.isEmpty && !$0.rightText.isEmpty }.count
+
+            rows = ocrItemCount > bbItemCount ? ocrRows : bbRows
         }
 
         let layoutText = VisionLayoutService.layoutString(from: rows)
 
         // Use layoutText for totals — each row is already "Label    Amount" on one
         // line so BillTotalsParser can pair the keyword with its trailing number.
-        // Raw VisionOCRService text splits labels and amounts into separate lines
-        // (one observation per line), which the parser can't match.
         let totals = BillTotalsParser.extractTotals(from: layoutText)
 
         return try await itemizeBillDeterministically(

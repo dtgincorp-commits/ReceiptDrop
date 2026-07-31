@@ -387,12 +387,16 @@ enum VisionLayoutService {
         if !current.isEmpty { groups.append(current) }
 
         // Standalone price token: an observation that is itself just a price number.
-        let priceTokenPattern = #"^\$?(\d{1,6}(?:\.\d{1,2})?)\s*$"#
+        // Decimal is required (e.g. "14.00", "$9.75") — this prevents plain integers
+        // like "4" (table number), "3271" (check number) from being treated as prices.
+        let priceTokenPattern = #"^\$?(\d{1,6}\.\d{1,2})\s*$"#
         guard let priceTokenRegex = try? NSRegularExpression(pattern: priceTokenPattern) else { return [] }
 
-        // End-of-line price suffix: "Item Name   14.00" or "Item    $14.00"
-        // Requires 2+ spaces between name and price so "Table 4" doesn't match.
-        let priceSuffixPattern = #"^(.*\S)\s{2,}\$?(\d{1,6}(?:\.\d{1,2})?)\s*$"#
+        // End-of-line price suffix: "Item Name 14.00" or "Item Name $14.00"
+        // Decimal required for the same false-positive reason; 1+ space is enough —
+        // the old 2+ requirement broke single-space-formatted receipts (Apple Store,
+        // many paper receipts, and email-printed receipts).
+        let priceSuffixPattern = #"^(.*\S)\s+\$?(\d{1,6}\.\d{1,2})\s*$"#
         guard let priceSuffixRegex = try? NSRegularExpression(pattern: priceSuffixPattern) else { return [] }
 
         var rows: [LayoutRow] = []
@@ -436,6 +440,37 @@ enum VisionLayoutService {
         }
 
         return rows
+    }
+
+    /// Tier 3 fallback: parses flat OCR text (one observation per line from
+    /// VisionOCRService) using the same price-suffix regex. This is the most
+    /// universal approach — it works on any receipt format regardless of font,
+    /// column layout, or photo angle, because it only needs the text content,
+    /// not spatial bounding boxes.
+    ///
+    /// Use this when bounding-box row reconstruction finds no items (e.g. Apple
+    /// Store receipts, printed email receipts, or any format where the name+price
+    /// appear as a single merged observation rather than spatially separate ones).
+    static func recognizeRowsFromOCRText(_ text: String) -> [LayoutRow] {
+        guard !text.isEmpty,
+              let priceSuffixRegex = try? NSRegularExpression(
+                  pattern: #"^(.*\S)\s+\$?(\d{1,6}\.\d{1,2})\s*$"#
+              ) else { return [] }
+
+        return text.components(separatedBy: .newlines).compactMap { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard !t.isEmpty else { return nil }
+            let r = NSRange(t.startIndex..., in: t)
+            guard let m = priceSuffixRegex.firstMatch(in: t, range: r),
+                  let nameRange = Range(m.range(at: 1), in: t),
+                  let priceRange = Range(m.range(at: 2), in: t) else {
+                return LayoutRow(leftText: t, rightText: "")
+            }
+            return LayoutRow(
+                leftText: String(t[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines),
+                rightText: String(t[priceRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
     }
 
     /// Converts layout rows to a string where each printed line reads
