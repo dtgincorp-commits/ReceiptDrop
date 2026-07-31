@@ -271,12 +271,6 @@ struct FoundationModelsService: ReceiptExtractor {
     static func itemizeBill(data: Data) async throws -> ExtractedBill {
         try ensureModelAvailable()
 
-        // Raw OCR text — the same path that regular receipt logging uses. This is
-        // the most reliable source for BillTotalsParser because VNRecognizeTextRequest
-        // has been OCRing receipts since iOS 13, and the flat text preserves keyword
-        // prefixes like "Subtotal", "Tax", "Total" that the parser looks for.
-        let rawOCRText = (try? await VisionOCRService.recognizeText(in: data)) ?? ""
-
         // Tier 1: RecognizeDocumentsRequest — understands formal document tables.
         // Returns paired (name, price) rows when Vision detects a structured table.
         let structuredRows = (try? await VisionLayoutService.recognizeRows(in: data)) ?? []
@@ -295,11 +289,11 @@ struct FoundationModelsService: ReceiptExtractor {
 
         let layoutText = VisionLayoutService.layoutString(from: rows)
 
-        // Use raw OCR text for totals when available — it reliably contains the
-        // Subtotal/Tax/Total lines that BillTotalsParser looks for, even when the
-        // layout reconstruction misses them. Fall back to layoutText if OCR failed.
-        let totalsSource = rawOCRText.isEmpty ? layoutText : rawOCRText
-        let totals = BillTotalsParser.extractTotals(from: totalsSource)
+        // Use layoutText for totals — each row is already "Label    Amount" on one
+        // line so BillTotalsParser can pair the keyword with its trailing number.
+        // Raw VisionOCRService text splits labels and amounts into separate lines
+        // (one observation per line), which the parser can't match.
+        let totals = BillTotalsParser.extractTotals(from: layoutText)
 
         return try await itemizeBillDeterministically(
             rows: rows, layoutText: layoutText, totals: totals)
@@ -328,6 +322,10 @@ struct FoundationModelsService: ReceiptExtractor {
             guard !row.leftText.isEmpty, !row.rightText.isEmpty else { return nil }
             let nameLower = row.leftText.lowercased().trimmingCharacters(in: .whitespaces)
             guard !skipPrefixes.contains(where: { nameLower.hasPrefix($0) }) else { return nil }
+            // A dollar sign followed by a digit in the name means two total-section
+            // lines got merged into one bounding-box group (e.g. "Tax Subtotal $132.25").
+            // Filter regardless of prefix — no purchased item name contains a price.
+            guard row.leftText.range(of: #"\$\d"#, options: .regularExpression) == nil else { return nil }
             let price = row.rightText
                 .trimmingCharacters(in: .whitespaces)
                 .replacingOccurrences(of: "$", with: "")

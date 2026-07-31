@@ -365,9 +365,9 @@ enum VisionLayoutService {
         let sorted = observations.sorted { $0.box.maxY > $1.box.maxY }
 
         // Group observations into visual rows. Two observations belong to the same
-        // row when their Y-centers are within 1.8% of image height — wide enough to
-        // catch the name + price split of a single receipt line, tight enough to
-        // keep adjacent lines separate on a typical receipt photo.
+        // row when their Y-centers are within 1.2% of image height. Same-line
+        // text/price observations differ by <0.8%; adjacent receipt lines on a
+        // typical thermal-printer photo differ by ~2%, so 0.012 is the right cut.
         var groups: [[OcrObs]] = []
         var current: [OcrObs] = []
 
@@ -376,7 +376,7 @@ enum VisionLayoutService {
                 current = [obs]
             } else {
                 let groupMidY = current.map { $0.box.midY }.reduce(0, +) / CGFloat(current.count)
-                if abs(obs.box.midY - groupMidY) < 0.018 {
+                if abs(obs.box.midY - groupMidY) < 0.012 {
                     current.append(obs)
                 } else {
                     groups.append(current)
