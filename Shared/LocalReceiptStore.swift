@@ -253,6 +253,35 @@ enum LocalReceiptStore {
         return ""
     }
 
+    /// One-pass Comments lookup for the Receipts list's per-receipt summary
+    /// line: parses each category's CSV once and returns every row's Comments,
+    /// keyed by the same fields `comments(category:...)` matches on. Loading
+    /// the whole map on reload is what makes showing a summary under every
+    /// row affordable — the alternative (a lookup per visible row) re-reads
+    /// and re-parses the same CSV once per receipt.
+    static func commentsByReceipt(categories: [String]) -> [String: String] {
+        var map: [String: String] = [:]
+        for category in categories {
+            guard let csvURL = existingLogURL(category: category),
+                  let text = try? String(contentsOf: csvURL, encoding: .utf8) else { continue }
+            for line in text.split(separator: "\n", omittingEmptySubsequences: true).dropFirst() {
+                let fields = parseCSVLine(line)
+                // fields: [vendor, workDate, amount, comments, receiptFilename, scannedDate]
+                guard fields.count >= 5, !fields[3].isEmpty else { continue }
+                map[commentsKey(category: category, vendor: fields[0], workDate: fields[1],
+                                amount: fields[2], receiptFilename: fields[4])] = fields[3]
+            }
+        }
+        return map
+    }
+
+    /// Key for `commentsByReceipt` lookups. Uses the ASCII unit separator so
+    /// field values containing commas or pipes can't collide across fields.
+    static func commentsKey(category: String, vendor: String, workDate: String,
+                            amount: String, receiptFilename: String) -> String {
+        [category, vendor, workDate, amount, receiptFilename].joined(separator: "\u{1F}")
+    }
+
     /// Moves a receipt file from one category's folder to another (in
     /// Documents) — used when an edit changes the category but not the photo.
     static func moveFile(filename: String, from oldCategory: String, to newCategory: String) throws {

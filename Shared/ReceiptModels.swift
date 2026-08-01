@@ -778,3 +778,52 @@ enum VendorTypeBackfillService {
         return SubmissionStore.updateHistoryEntries(updates)
     }
 }
+
+/// Extracts the summary totals from a receipt's OCR/layout text by scanning
+/// for labeled keyword lines (Subtotal, Tax, Total, etc.). Deterministic and
+/// more reliable than asking a language model to find "the grand total" on a
+/// complex receipt where line-item prices are easily confused with totals.
+enum BillTotalsParser {
+    struct Totals {
+        var subtotal: String = ""
+        var tax: String = ""
+        var serviceCharge: String = ""
+        var total: String = ""
+    }
+
+    static func extractTotals(from text: String) -> Totals {
+        var result = Totals()
+        for line in text.components(separatedBy: .newlines) {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            let lower = t.lowercased()
+            if result.subtotal.isEmpty,
+               lower.hasPrefix("subtotal") || lower.hasPrefix("sub total") {
+                result.subtotal = trailingAmount(t) ?? ""
+            } else if result.tax.isEmpty,
+                      lower.hasPrefix("tax") || lower.hasPrefix("sales tax") || lower.hasPrefix("state tax") {
+                result.tax = trailingAmount(t) ?? ""
+            } else if result.serviceCharge.isEmpty,
+                      lower.hasPrefix("service") || lower.hasPrefix("gratuity") || lower.hasPrefix("grat") {
+                result.serviceCharge = trailingAmount(t) ?? ""
+            }
+            // Keep overwriting so the LAST "Total" line wins — the grand total
+            // is always the last occurrence on a restaurant check.
+            if lower.hasPrefix("total") || lower.hasPrefix("grand total") ||
+               lower.hasPrefix("total due") || lower.hasPrefix("amount due") ||
+               lower.hasPrefix("balance due") {
+                if let amt = trailingAmount(t) { result.total = amt }
+            }
+        }
+        return result
+    }
+
+    /// Extracts the rightmost dollar amount from a line, e.g. "Total    142.51" → "142.51".
+    private static func trailingAmount(_ line: String) -> String? {
+        let pattern = #"(?:^|\s)\$?\s*(\d{1,6}(?:\.\d{1,2})?)\s*$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+              let range = Range(match.range(at: 1), in: line) else { return nil }
+        let val = String(line[range])
+        return val.isEmpty ? nil : val
+    }
+}

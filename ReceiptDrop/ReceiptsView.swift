@@ -20,6 +20,7 @@ struct ReceiptsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var categoryStore = CategoryStore.shared
     @State private var entries: [HistoryEntry] = []
+    @State private var commentsMap: [String: String] = [:]
     @State private var newReceiptSource: NewReceiptSource?
     /// IDs (year/month/day) the user has manually collapsed. Everything else
     /// starts expanded.
@@ -550,6 +551,17 @@ struct ReceiptsView: View {
 
     private func reload() {
         entries = SubmissionStore.loadHistory()
+        // One CSV parse per category, not per row — see commentsByReceipt.
+        commentsMap = LocalReceiptStore.commentsByReceipt(
+            categories: Array(Set(entries.map(\.category))))
+    }
+
+    /// The AI-written Comments for this entry (its per-receipt summary), or
+    /// empty if the CSV row is gone or had no comments.
+    private func summary(for entry: HistoryEntry) -> String {
+        commentsMap[LocalReceiptStore.commentsKey(
+            category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
+            amount: entry.amount, receiptFilename: entry.receiptLink)] ?? ""
     }
 
     /// `categoryFilterRow` wrapped for use as the List's own first row

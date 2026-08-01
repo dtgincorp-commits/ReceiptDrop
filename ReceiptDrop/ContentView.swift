@@ -10,12 +10,15 @@ struct ContentView: View {
             ReceiptsView()
                 .tabItem { Label("Receipts", systemImage: "list.bullet.clipboard") }
                 .tag(0)
+            InsightsView()
+                .tabItem { Label("Insights", systemImage: "chart.bar.xaxis") }
+                .tag(1)
             RetryQueueView()
                 .tabItem { Label("Retry Queue", systemImage: "arrow.clockwise") }
-                .tag(1)
+                .tag(2)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gear") }
-                .tag(2)
+                .tag(3)
         }
         .tint(Theme.skyBlue)
         // Receipts saved by the share extension land in the App Group spool;
@@ -32,7 +35,7 @@ struct ContentView: View {
         }
         .alert("Back up your receipts?", isPresented: $showBackupReminder) {
             Button("Remind Me Later", role: .cancel) {}
-            Button("Go to Backup") { selectedTab = 2 }
+            Button("Go to Backup") { selectedTab = 3 }
         } message: {
             Text("It's been a while since your last backup. Go to Settings → Archive & Backup to back up now.")
         }
