@@ -34,6 +34,23 @@ enum APIKeyTester {
         try await verify(URLRequest(url: url))
     }
 
+    /// Perplexity doesn't document a free models-list endpoint the way the
+    /// other three providers do, so this validates the key with the smallest
+    /// possible real chat completion (1 output token) instead.
+    static func testPerplexityKey(_ apiKey: String) async throws {
+        var request = URLRequest(url: URL(string: "https://api.perplexity.ai/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        let body: [String: Any] = [
+            "model": AppConstants.perplexityModel,
+            "messages": [["role": "user", "content": "hi"]],
+            "max_tokens": 1,
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        try await verify(request)
+    }
+
     private static func verify(_ request: URLRequest) async throws {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {

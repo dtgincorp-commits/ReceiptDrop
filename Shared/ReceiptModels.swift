@@ -259,6 +259,7 @@ enum ExtractionProvider: String, Codable, CaseIterable, Identifiable {
     case claude
     case openAI
     case gemini
+    case perplexity
     case appleOnDevice
 
     var id: String { rawValue }
@@ -268,6 +269,7 @@ enum ExtractionProvider: String, Codable, CaseIterable, Identifiable {
         case .claude: return "Claude"
         case .openAI: return "OpenAI"
         case .gemini: return "Google Gemini"
+        case .perplexity: return "Perplexity"
         case .appleOnDevice: return "Apple On-Device"
         }
     }
@@ -361,6 +363,7 @@ enum ExtractionSettings {
         case .claude: return ClaudeService()
         case .openAI: return OpenAIService()
         case .gemini: return GeminiService()
+        case .perplexity: return PerplexityService()
         case .appleOnDevice:
             #if canImport(FoundationModels)
             if #available(iOS 26.0, *) { return FoundationModelsService() }

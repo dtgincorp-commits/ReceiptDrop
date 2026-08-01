@@ -18,11 +18,16 @@ enum AppConstants {
     /// general-availability Flash model. Change here if needed.
     static let geminiModel = "gemini-3.5-flash"
 
+    /// Perplexity model used for receipt extraction — their general-purpose
+    /// multimodal Sonar model. Change here if needed.
+    static let perplexityModel = "sonar-pro"
+
     /// Keychain account names (stored in the shared App Group keychain).
     enum KeychainKeys {
         static let anthropicAPIKey = "anthropic-api-key"
         static let openAIAPIKey = "openai-api-key"
         static let geminiAPIKey = "gemini-api-key"
+        static let perplexityAPIKey = "perplexity-api-key"
     }
 
     /// UserDefaults (App Group suite) keys.

@@ -48,7 +48,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Receipt Extraction")
                 } footer: {
-                    Text("\"On-Device OCR Text\" reads the receipt on your phone for free and sends only the text — faster and cheaper. Hard-to-read receipts automatically retry with the full image. \"Apple On-Device\" reads receipts entirely on your phone with Apple Intelligence — no API key, nothing leaves the device — and requires iOS 26+ on an Apple Intelligence–capable iPhone with the feature enabled.\n\nOffline Mode blocks the cloud providers (Claude, OpenAI, Gemini) so nothing is ever sent off the device — reading and search then require the Apple On-Device provider. Turn it on to verify the app works fully in Airplane Mode.")
+                    Text("\"On-Device OCR Text\" reads the receipt on your phone for free and sends only the text — faster and cheaper. Hard-to-read receipts automatically retry with the full image. \"Apple On-Device\" reads receipts entirely on your phone with Apple Intelligence — no API key, nothing leaves the device — and requires iOS 26+ on an Apple Intelligence–capable iPhone with the feature enabled.\n\nOffline Mode blocks the cloud providers (Claude, OpenAI, Gemini, Perplexity) so nothing is ever sent off the device — reading and search then require the Apple On-Device provider. Turn it on to verify the app works fully in Airplane Mode.")
                 }
 
                 Section {
@@ -85,6 +85,12 @@ struct SettingsView: View {
                         account: AppConstants.KeychainKeys.geminiAPIKey,
                         footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Gemini API.",
                         testKey: APIKeyTester.testGeminiKey)
+                case .perplexity:
+                    APIKeySection(
+                        title: "Perplexity API Key", placeholder: "pplx-…",
+                        account: AppConstants.KeychainKeys.perplexityAPIKey,
+                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Perplexity API.",
+                        testKey: APIKeyTester.testPerplexityKey)
                 case .appleOnDevice:
                     Section {
                         Label("No API key needed — reading happens on-device.",

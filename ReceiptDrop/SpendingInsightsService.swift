@@ -3,7 +3,7 @@ import Foundation
 import FoundationModels
 #endif
 
-// MARK: - Cash Intelligence (spending insights)
+// MARK: - Receipt Intelligence (spending insights)
 //
 // Deterministic spending statistics computed from the submission history,
 // optionally narrated by the on-device Apple Intelligence model. All

@@ -295,6 +295,15 @@ enum VisionLayoutService {
     /// Runs RecognizeDocumentsRequest on the image and converts the structured
     /// observation into "Name    Price" rows. Falls back to the flat-text OCR
     /// path if the document request fails.
+    ///
+    /// `RecognizeDocumentsRequest` is a Vision type only declared in the iOS 26
+    /// SDK — `@available` alone can't gate it, since that only checks runtime
+    /// availability, not whether the *compiling* toolchain's SDK even declares
+    /// the symbol. Gated behind `canImport(FoundationModels)` (a framework that
+    /// only exists in the same iOS 26 SDK generation) as an SDK-version proxy,
+    /// matching the pattern already used in FoundationModelsService.swift — the
+    /// only caller of this function is already inside that same gate.
+    #if canImport(FoundationModels)
     @available(iOS 26.0, *)
     static func recognizeRows(in data: Data) async throws -> [LayoutRow] {
         let request = RecognizeDocumentsRequest()
@@ -326,6 +335,7 @@ enum VisionLayoutService {
 
         return rows
     }
+    #endif
 
     /// Raw-OCR fallback for thermal-printer receipts where RecognizeDocumentsRequest
     /// finds no formal table structure. Uses VNRecognizeTextRequest with bounding
@@ -592,6 +602,114 @@ struct OpenAIService: ReceiptExtractor {
     }
 }
 
+// MARK: - Perplexity
+
+enum PerplexityError: LocalizedError {
+    case missingAPIKey
+    case api(String)
+    case parsing(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingAPIKey: return "No Perplexity API key. Add one in Settings."
+        case .api(let detail): return "Perplexity API error: \(detail)"
+        case .parsing(let detail): return "Couldn't read Perplexity's response: \(detail)"
+        }
+    }
+}
+
+/// Reads a receipt with Perplexity's Chat Completions API. Perplexity's API
+/// is OpenAI-compatible (same endpoint shape, Bearer auth, `image_url`
+/// content parts, `json_schema` response format), so this mirrors
+/// `OpenAIService` closely rather than inventing a new request shape.
+struct PerplexityService: ReceiptExtractor {
+    func extract(data: Data, kind: ReceiptKind, categoryContext: String = "") async throws -> ExtractedReceipt {
+        guard kind == .image else {
+            throw PerplexityError.api("Perplexity extraction currently supports images only, not PDFs.")
+        }
+        let uploadData = ClaudeService.downscaledJPEG(from: data) ?? data
+        let base64 = uploadData.base64EncodedString()
+        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext)
+        let content: [[String: Any]] = [
+            ["type": "text", "text": "\(preamble) Extract this receipt's details."],
+            ["type": "image_url", "image_url": ["url": "data:\(kind.mimeType);base64,\(base64)"]],
+        ]
+        return try await send(content: content)
+    }
+
+    func extract(ocrText: String, categoryContext: String = "") async throws -> ExtractedReceipt {
+        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext)
+        let content: [[String: Any]] = [
+            ["type": "text", "text": "\(preamble) Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details.\n\n\(ocrText)"],
+        ]
+        return try await send(content: content)
+    }
+
+    private func send(content: [[String: Any]]) async throws -> ExtractedReceipt {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.perplexityAPIKey),
+              !apiKey.isEmpty else {
+            throw PerplexityError.missingAPIKey
+        }
+
+        let schema: [String: Any] = [
+            "type": "object",
+            "properties": [
+                "vendor": ["type": "string", "description": "The contractor or vendor / business name on the receipt. Empty string if not present."],
+                "work_date": ["type": "string", "description": "The primary date on the receipt, normalized to yyyy-MM-dd. Empty string if none is shown."],
+                "amount": ["type": "string", "description": "The grand total as a plain number string with no currency symbol or thousands separators, e.g. 1234.56."],
+                "comments": ["type": "string", "description": "A short (max ~12 word) description of what was purchased."],
+                "confidence": ["type": "string", "enum": ["high", "low"], "description": "\"low\" if the receipt is handwritten, blurry, damaged, or any field was hard to read or guessed. \"high\" only if every field is confidently accurate."],
+                "confidence_reason": ["type": "string", "description": "If confidence is \"low\", a short phrase explaining why. Empty string if confidence is \"high\"."],
+                "vendor_type": ["type": "string", "enum": VendorTypeToken.allValidValues, "description": "The kind of business this vendor is, judged from its name/context. Pick the closest fit; use \"other\" if none fit well."],
+            ],
+            "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason", "vendor_type"],
+            "additionalProperties": false,
+        ]
+
+        let body: [String: Any] = [
+            "model": AppConstants.perplexityModel,
+            "messages": [["role": "user", "content": content]],
+            "response_format": [
+                "type": "json_schema",
+                "json_schema": ["schema": schema],
+            ],
+        ]
+
+        var request = URLRequest(url: URL(string: "https://api.perplexity.ai/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw PerplexityError.api("No HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw PerplexityError.api(String(data: respData, encoding: .utf8) ?? "HTTP \(http.statusCode)")
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let contentString = message["content"] as? String,
+              let fieldsData = contentString.data(using: .utf8),
+              let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any] else {
+            throw PerplexityError.parsing("Malformed response envelope")
+        }
+
+        func string(_ key: String) -> String {
+            (fields[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+
+        return ExtractedReceipt.build(
+            vendor: string("vendor"), rawWorkDate: string("work_date"), amount: string("amount"),
+            comments: string("comments"), rawVendorType: string("vendor_type"),
+            modelReportedLowConfidence: string("confidence").lowercased() == "low",
+            modelReason: string("confidence_reason"))
+    }
+}
+
 // MARK: - Google Gemini
 
 enum GeminiError: LocalizedError {
@@ -739,6 +857,7 @@ enum SemanticSearchService {
         case .claude: return try await parseQueryViaClaude(text)
         case .openAI: return try await parseQueryViaOpenAI(text)
         case .gemini: return try await parseQueryViaGemini(text)
+        case .perplexity: return try await parseQueryViaPerplexity(text)
         case .appleOnDevice:
             #if canImport(FoundationModels)
             if #available(iOS 26.0, *) { return try await parseQueryOnDevice(text) }
@@ -820,6 +939,51 @@ enum SemanticSearchService {
             "response_format": ["type": "json_schema", "json_schema": ["name": "parse_search_query", "strict": true, "schema": schema]],
         ]
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw SemanticSearchError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let contentString = message["content"] as? String,
+              let fieldsData = contentString.data(using: .utf8),
+              let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any] else {
+            throw SemanticSearchError.parsing("Malformed response")
+        }
+        return QueryParseResult(
+            vendorType: VendorTypeToken.resolve(fields["vendor_type"] as? String),
+            amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
+            amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue)
+    }
+
+    // MARK: Perplexity
+
+    private static func parseQueryViaPerplexity(_ text: String) async throws -> QueryParseResult {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.perplexityAPIKey), !apiKey.isEmpty else {
+            throw SemanticSearchError.missingAPIKey
+        }
+        let schema: [String: Any] = [
+            "type": "object",
+            "properties": [
+                "vendor_type": ["type": ["string", "null"], "enum": VendorTypeToken.allValidValues + [NSNull()]],
+                "amount_min": ["type": ["number", "null"]],
+                "amount_max": ["type": ["number", "null"]],
+            ],
+            "required": ["vendor_type", "amount_min", "amount_max"],
+            "additionalProperties": false,
+        ]
+        let body: [String: Any] = [
+            "model": AppConstants.perplexityModel,
+            "messages": [["role": "user", "content": "Parse this receipt search query into a structured filter. Map any mentioned business type onto the closest enum value; use null (not a forced guess) if no business type is mentioned: \"\(text)\""]],
+            "response_format": ["type": "json_schema", "json_schema": ["schema": schema]],
+        ]
+        var request = URLRequest(url: URL(string: "https://api.perplexity.ai/chat/completions")!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
@@ -932,6 +1096,7 @@ enum VendorTypeClassificationService {
         case .claude: return try await classifyViaClaude(vendorNames)
         case .openAI: return try await classifyViaOpenAI(vendorNames)
         case .gemini: return try await classifyViaGemini(vendorNames)
+        case .perplexity: return try await classifyViaPerplexity(vendorNames)
         case .appleOnDevice:
             #if canImport(FoundationModels)
             if #available(iOS 26.0, *) { return try await classifyOnDevice(vendorNames) }
@@ -1024,6 +1189,45 @@ enum VendorTypeClassificationService {
             "response_format": ["type": "json_schema", "json_schema": ["name": "classify_vendor_types", "strict": true, "schema": schema]],
         ]
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw VendorTypeClassificationError.api(String(data: respData, encoding: .utf8) ?? "HTTP request failed")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let contentString = message["content"] as? String,
+              let fieldsData = contentString.data(using: .utf8),
+              let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any],
+              let types = fields["vendor_types"] as? [String] else {
+            throw VendorTypeClassificationError.parsing("Malformed response")
+        }
+        return zip(vendorNames, with: types)
+    }
+
+    // MARK: Perplexity
+
+    private static func classifyViaPerplexity(_ vendorNames: [String]) async throws -> [String: String] {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.perplexityAPIKey), !apiKey.isEmpty else {
+            throw VendorTypeClassificationError.missingAPIKey
+        }
+        let schema: [String: Any] = [
+            "type": "object",
+            "properties": ["vendor_types": ["type": "array", "items": ["type": "string", "enum": VendorTypeToken.allValidValues]]],
+            "required": ["vendor_types"],
+            "additionalProperties": false,
+        ]
+        let body: [String: Any] = [
+            "model": AppConstants.perplexityModel,
+            "messages": [["role": "user", "content": prompt(for: vendorNames)]],
+            "response_format": ["type": "json_schema", "json_schema": ["schema": schema]],
+        ]
+        var request = URLRequest(url: URL(string: "https://api.perplexity.ai/chat/completions")!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "content-type")

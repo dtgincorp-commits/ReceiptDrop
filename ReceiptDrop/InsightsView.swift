@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// "Cash Intelligence" — spending insights over the receipt history. The
+/// "Receipt Intelligence" — spending insights over the receipt history. The
 /// numbers are computed deterministically (`SpendingInsightsService`); the
 /// optional Apple Intelligence narrative below them is generated on-device
 /// and never sees anything but the already-computed digest.
@@ -25,7 +25,7 @@ struct InsightsView: View {
                     insightsList
                 }
             }
-            .navigationTitle("Cash Intelligence")
+            .navigationTitle("Receipt Intelligence")
         }
         .onAppear(perform: reload)
         .onChange(of: scenePhase) { if $0 == .active { reload() } }

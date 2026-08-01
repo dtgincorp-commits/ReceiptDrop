@@ -83,6 +83,7 @@ enum BillItemizationService {
         case .claude: return try await itemizeViaClaude(data)
         case .openAI: return try await itemizeViaOpenAI(data)
         case .gemini: return try await itemizeViaGemini(data)
+        case .perplexity: return try await itemizeViaPerplexity(data)
         case .appleOnDevice:
             #if canImport(FoundationModels)
             if #available(iOS 26.0, *) { return try await FoundationModelsService.itemizeBill(data: data) }
@@ -236,6 +237,82 @@ enum BillItemizationService {
         ]
 
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (respData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw BillItemizationError.api("No HTTP response") }
+        guard (200..<300).contains(http.statusCode) else {
+            let body = String(data: respData, encoding: .utf8) ?? ""
+            let message = shortAPIMessage(from: body, fallback: "HTTP \(http.statusCode)")
+            if http.statusCode == 429 {
+                throw BillItemizationError.rateLimited(message)
+            }
+            throw BillItemizationError.api(message)
+        }
+        guard let json = try JSONSerialization.jsonObject(with: respData) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let contentString = message["content"] as? String,
+              let fieldsData = contentString.data(using: .utf8),
+              let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any] else {
+            throw BillItemizationError.parsing("Malformed response envelope")
+        }
+        func string(_ key: String) -> String { (fields[key] as? String) ?? "" }
+        let rawItems = parseItems(from: fields["items"] as? [[String: Any]] ?? [])
+        return ExtractedBill.build(
+            vendor: string("vendor"), rawItems: rawItems,
+            subtotal: string("subtotal"), tax: string("tax"),
+            serviceCharge: string("service_charge"), total: string("total"),
+            unreadableLineCount: string("unreadable_line_count"))
+    }
+
+    // MARK: - Perplexity
+
+    private static func itemizeViaPerplexity(_ data: Data) async throws -> ExtractedBill {
+        guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.perplexityAPIKey), !apiKey.isEmpty else {
+            throw BillItemizationError.missingAPIKey("Perplexity")
+        }
+        let uploadData = ClaudeService.downscaledJPEG(from: data) ?? data
+        let base64 = uploadData.base64EncodedString()
+
+        let itemSchema: [String: Any] = [
+            "type": "object",
+            "properties": [
+                "name": ["type": "string"],
+                "quantity": ["type": "string"],
+                "price": ["type": "string"],
+            ],
+            "required": ["name", "quantity", "price"],
+            "additionalProperties": false,
+        ]
+        let schema: [String: Any] = [
+            "type": "object",
+            "properties": [
+                "vendor": ["type": "string"],
+                "items": ["type": "array", "items": itemSchema],
+                "subtotal": ["type": "string"],
+                "tax": ["type": "string"],
+                "service_charge": ["type": "string"],
+                "total": ["type": "string"],
+                "unreadable_line_count": ["type": "string"],
+            ],
+            "required": ["vendor", "items", "subtotal", "tax", "service_charge", "total", "unreadable_line_count"],
+            "additionalProperties": false,
+        ]
+        let content: [[String: Any]] = [
+            ["type": "text", "text": itemsPrompt],
+            ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64)"]],
+        ]
+        let body: [String: Any] = [
+            "model": AppConstants.perplexityModel,
+            "messages": [["role": "user", "content": content]],
+            "response_format": ["type": "json_schema", "json_schema": ["schema": schema]],
+        ]
+
+        var request = URLRequest(url: URL(string: "https://api.perplexity.ai/chat/completions")!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
