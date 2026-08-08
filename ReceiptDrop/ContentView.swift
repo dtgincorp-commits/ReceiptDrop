@@ -88,8 +88,18 @@ struct RetryQueueView: View {
                             }
                         }
                         ForEach(entries) { entry in
-                            QueueRow(entry: entry, isRetrying: retrying.contains(entry.id)) {
-                                Task { await retry(entry) }
+                            NavigationLink {
+                                QueueEntryDetailView(
+                                    entry: entry,
+                                    onRetry: { Task { await retry(entry) } },
+                                    onDelete: {
+                                        SubmissionStore.remove(entry)
+                                        reload()
+                                    })
+                            } label: {
+                                QueueRow(entry: entry, isRetrying: retrying.contains(entry.id)) {
+                                    Task { await retry(entry) }
+                                }
                             }
                         }
                         .onDelete(perform: delete)
@@ -182,6 +192,105 @@ private struct QueueRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// Tapping a Retry Queue row lands here — shows the actual photo/PDF that
+/// failed to submit (read back from the parked file via
+/// `SubmissionStore.attachmentData`) plus the full error text, since the
+/// list row truncates it to two lines. Retrying or deleting both return to
+/// the list immediately (rather than tracking progress in this screen too)
+/// so success/failure is reported in one place, the same way it already is
+/// for the inline retry button.
+private struct QueueEntryDetailView: View {
+    let entry: QueueEntry
+    let onRetry: () -> Void
+    let onDelete: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var image: UIImage?
+    @State private var isPDF = false
+    @State private var showDeleteConfirm = false
+
+    var body: some View {
+        Form {
+            Section {
+                HStack {
+                    Spacer()
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 320)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else if isPDF {
+                        Label("PDF attached", systemImage: "doc.fill")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ProgressView()
+                            .frame(height: 120)
+                    }
+                    Spacer()
+                }
+            }
+
+            Section {
+                LabeledContent("Category", value: entry.category)
+                LabeledContent("Queued", value: entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+            }
+
+            Section {
+                Text(entry.error)
+                    .font(.subheadline)
+                    .foregroundStyle(.red)
+            } header: {
+                Text("Why it failed")
+            }
+
+            Section {
+                Button {
+                    onRetry()
+                    dismiss()
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("Retry").bold()
+                        Spacer()
+                    }
+                }
+                Button(role: .destructive) {
+                    showDeleteConfirm = true
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("Delete from Queue")
+                        Spacer()
+                    }
+                }
+            }
+        }
+        .navigationTitle("Failed Submission")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Delete this from the queue?", isPresented: $showDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                onDelete()
+                dismiss()
+            }
+        } message: {
+            Text("The photo won't be submitted or saved anywhere — this can't be undone.")
+        }
+        .onAppear(perform: loadPreview)
+    }
+
+    private func loadPreview() {
+        guard let data = SubmissionStore.attachmentData(for: entry) else { return }
+        if entry.kind == .image {
+            image = UIImage(data: data)
+        } else {
+            isPDF = true
+            image = pdfThumbnail(data)
+        }
     }
 }
 
