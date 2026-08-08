@@ -22,12 +22,20 @@ enum AppConstants {
     /// multimodal Sonar model. Change here if needed.
     static let perplexityModel = "sonar-pro"
 
+    /// Azure AI Document Intelligence model used for receipt/bill extraction
+    /// — the prebuilt receipt model (fixed schema, not a chat model, so
+    /// there's no "which model" choice the way there is for the others).
+    static let azureDocIntelModel = "prebuilt-receipt"
+    static let azureDocIntelAPIVersion = "2024-11-30"
+
     /// Keychain account names (stored in the shared App Group keychain).
     enum KeychainKeys {
         static let anthropicAPIKey = "anthropic-api-key"
         static let openAIAPIKey = "openai-api-key"
         static let geminiAPIKey = "gemini-api-key"
         static let perplexityAPIKey = "perplexity-api-key"
+        static let azureDocIntelKey = "azure-docintel-api-key"
+        static let azureDocIntelEndpoint = "azure-docintel-endpoint"
     }
 
     /// UserDefaults (App Group suite) keys.
@@ -48,7 +56,11 @@ enum AppConstants {
 
     /// Default categories on first launch — a placeholder for a brand-new
     /// user to rename/replace via Manage Categories, not real business names.
-    static let defaultCategories = ["Sample Category"]
+    /// Uppercase to match `CategoryStore.add`'s own convention — every other
+    /// category the app ever creates goes through `add`, which uppercases;
+    /// this one didn't, which is how a restored backup could end up with
+    /// both "Sample Category" and "SAMPLE CATEGORY" as separate entries.
+    static let defaultCategories = ["SAMPLE CATEGORY"]
 
     /// CSV header row, written when a category's local log file is first created.
     static let sheetHeader = [

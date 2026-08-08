@@ -2,6 +2,7 @@ import AVFoundation
 import ImageIO
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 import Vision
 
 /// Capture screen for "Check a Bill" — a custom AVFoundation camera (not
@@ -32,6 +33,11 @@ struct BillCaptureView: View {
     @State private var showLibraryPicker = false
     @State private var showPermissionAlert = false
     @State private var showCaptureFailedAlert = false
+    @State private var showLibraryImportFailedAlert = false
+    /// Guards against `onCaptured` firing twice — e.g. a stray auto-capture
+    /// frame landing while a library photo is still being processed. Only
+    /// the first genuine capture (whichever source wins) is delivered.
+    @State private var hasCaptured = false
 
     var body: some View {
         ZStack {
@@ -114,7 +120,9 @@ struct BillCaptureView: View {
 
                     Button {
                         camera.capturePhoto { data in
+                            guard !hasCaptured else { return }
                             if let data {
+                                hasCaptured = true
                                 onCaptured(data)
                             } else {
                                 showCaptureFailedAlert = true
@@ -138,7 +146,11 @@ struct BillCaptureView: View {
                 pulse = true
             }
             camera.autoCaptureEnabled = autoCaptureOn
-            camera.onAutoCapture = { data in onCaptured(data) }
+            camera.onAutoCapture = { data in
+                guard !hasCaptured else { return }
+                hasCaptured = true
+                onCaptured(data)
+            }
             camera.start { authorized in
                 if authorized {
                     camera.setTorch(on: torchOn, level: torchBrightness)
@@ -158,7 +170,15 @@ struct BillCaptureView: View {
             // without picking; if they pick, the screen dismisses anyway.
             if isOpen {
                 camera.pause()
-            } else if photoPickerItem == nil {
+            } else if photoPickerItem == nil && !hasCaptured {
+                // `photoPickerItem == nil` alone isn't a fully reliable
+                // signal here — SwiftUI doesn't guarantee this callback
+                // fires strictly after the one for `photoPickerItem`, so a
+                // picked-but-not-yet-processed item could theoretically race
+                // this check. `hasCaptured` is the actual backstop: it's
+                // false only until a capture has genuinely gone through, so
+                // even in the worst-case ordering the camera resuming here
+                // can't produce a second `onCaptured` call.
                 camera.resume()
                 camera.setTorch(on: torchOn, level: torchBrightness)
             }
@@ -166,17 +186,27 @@ struct BillCaptureView: View {
         .onChange(of: photoPickerItem) { item in
             guard let item else { return }
             Task {
-                // Re-encode to real JPEG bytes — a library photo can be HEIC/PNG,
-                // and the itemization request always labels the upload as
-                // image/jpeg, so passing the original bytes through unconverted
-                // breaks decoding server-side for anything that isn't already JPEG.
-                if let data = try? await item.loadTransferable(type: Data.self),
-                   let image = UIImage(data: data),
-                   let jpeg = image.jpegData(compressionQuality: 0.9) {
-                    onCaptured(jpeg)
-                } else {
-                    photoPickerItem = nil
+                // Cleared on every outcome (success or failure) so re-picking
+                // the same photo later still fires this handler again.
+                defer { photoPickerItem = nil }
+
+                // Re-encode to real JPEG bytes via ImageIO — a library photo
+                // can be HEIC/PNG, and the itemization request always labels
+                // the upload as image/jpeg, so passing the original bytes
+                // through unconverted breaks decoding server-side for
+                // anything that isn't already JPEG. `loadTransferable` itself
+                // can also legitimately return nil (e.g. an iCloud-only asset
+                // whose full-resolution data isn't downloaded yet) — that
+                // failure was previously swallowed with no feedback,
+                // which is what made the picker look like it "did nothing."
+                guard let data = try? await item.loadTransferable(type: Data.self),
+                      let jpeg = Self.convertToJPEG(data) else {
+                    showLibraryImportFailedAlert = true
+                    return
                 }
+                guard !hasCaptured else { return }
+                hasCaptured = true
+                onCaptured(jpeg)
             }
         }
         .alert("Camera Access Needed", isPresented: $showPermissionAlert) {
@@ -189,6 +219,39 @@ struct BillCaptureView: View {
         } message: {
             Text("That didn't come through — please try again.")
         }
+        .alert("Couldn't Use That Photo", isPresented: $showLibraryImportFailedAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("If it's still uploading from iCloud, wait for it to finish downloading in Photos and try again — or take a new photo instead.")
+        }
+    }
+
+    /// Converts arbitrary Photos-library bytes (HEIC, PNG, already-JPEG,
+    /// etc.) to real JPEG data, downscaling if needed. Unlike
+    /// `ClaudeService.downscaledJPEG` — which skips re-encoding and returns
+    /// the original bytes as-is when they're already small enough, an
+    /// assumption that only holds for this app's own JPEG camera captures —
+    /// this always re-encodes, since a library asset's original format isn't
+    /// guaranteed to be JPEG at all.
+    private static func convertToJPEG(_ data: Data, maxPixel: Int = 1568) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
+            return nil
+        }
+
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, thumbnail, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 
     /// Low/Medium/High as fast, reliable one-tap presets, plus a slider

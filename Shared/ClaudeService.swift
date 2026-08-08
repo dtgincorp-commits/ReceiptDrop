@@ -858,6 +858,11 @@ enum SemanticSearchService {
         case .openAI: return try await parseQueryViaOpenAI(text)
         case .gemini: return try await parseQueryViaGemini(text)
         case .perplexity: return try await parseQueryViaPerplexity(text)
+        case .azureDocumentIntelligence:
+            // Azure's prebuilt-receipt model is fixed-schema document
+            // extraction, not an instruction-following chat model — it has
+            // no way to parse a free-form search phrase.
+            throw SemanticSearchError.api("Microsoft Document Intelligence can't parse search queries — switch AI Provider in Settings to search receipts.")
         case .appleOnDevice:
             #if canImport(FoundationModels)
             if #available(iOS 26.0, *) { return try await parseQueryOnDevice(text) }
@@ -1097,6 +1102,10 @@ enum VendorTypeClassificationService {
         case .openAI: return try await classifyViaOpenAI(vendorNames)
         case .gemini: return try await classifyViaGemini(vendorNames)
         case .perplexity: return try await classifyViaPerplexity(vendorNames)
+        case .azureDocumentIntelligence:
+            // Fixed-schema document extraction, not a chat model — no way
+            // to classify a vendor name into a business type from text alone.
+            throw VendorTypeClassificationError.api("Microsoft Document Intelligence can't classify vendor types — switch AI Provider in Settings to use this.")
         case .appleOnDevice:
             #if canImport(FoundationModels)
             if #available(iOS 26.0, *) { return try await classifyOnDevice(vendorNames) }

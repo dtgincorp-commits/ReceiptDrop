@@ -260,6 +260,7 @@ enum ExtractionProvider: String, Codable, CaseIterable, Identifiable {
     case openAI
     case gemini
     case perplexity
+    case azureDocumentIntelligence
     case appleOnDevice
 
     var id: String { rawValue }
@@ -270,6 +271,7 @@ enum ExtractionProvider: String, Codable, CaseIterable, Identifiable {
         case .openAI: return "OpenAI"
         case .gemini: return "Google Gemini"
         case .perplexity: return "Perplexity"
+        case .azureDocumentIntelligence: return "Microsoft Document Intelligence"
         case .appleOnDevice: return "Apple On-Device"
         }
     }
@@ -364,6 +366,7 @@ enum ExtractionSettings {
         case .openAI: return OpenAIService()
         case .gemini: return GeminiService()
         case .perplexity: return PerplexityService()
+        case .azureDocumentIntelligence: return AzureDocumentIntelligenceService()
         case .appleOnDevice:
             #if canImport(FoundationModels)
             if #available(iOS 26.0, *) { return FoundationModelsService() }
@@ -406,8 +409,13 @@ enum BackupSettings {
 
     static var reminderFrequency: BackupReminderFrequency {
         get {
+            // Defaults to Weekly, not Off — `AutoBackupService` relies on
+            // this being on so backups actually happen without anyone
+            // having to find and flip the setting first (see the 2025
+            // restore incident this was built to prevent). Still
+            // one-line-overridable from Settings for anyone who wants Off.
             guard let raw = defaults.string(forKey: AppConstants.DefaultsKeys.backupReminderFrequency),
-                  let value = BackupReminderFrequency(rawValue: raw) else { return .off }
+                  let value = BackupReminderFrequency(rawValue: raw) else { return .weekly }
             return value
         }
         set { defaults.set(newValue.rawValue, forKey: AppConstants.DefaultsKeys.backupReminderFrequency) }
@@ -548,7 +556,7 @@ enum ArchiveBackupService {
     /// finished zip into the on-device backup library (Documents/Backups)
     /// rather than leaving it in tmp — that's what lets Restore list past
     /// backups by date instead of requiring the document picker every time.
-    /// Prunes to the 2 most recent afterward, since each retained backup
+    /// Prunes to the 3 most recent afterward, since each retained backup
     /// costs roughly the full size of your photos.
     @discardableResult
     static func buildFullBackup() throws -> URL {
@@ -565,7 +573,7 @@ enum ArchiveBackupService {
         let finalURL = backupsFolder.appendingPathComponent(tempZipURL.lastPathComponent)
         try? FileManager.default.removeItem(at: finalURL)
         try FileManager.default.moveItem(at: tempZipURL, to: finalURL)
-        LocalReceiptStore.pruneBackups(keeping: 2)
+        LocalReceiptStore.pruneBackups(keeping: 3)
         return finalURL
     }
 }

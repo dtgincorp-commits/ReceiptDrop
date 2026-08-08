@@ -32,7 +32,15 @@ final class CategoryStore: ObservableObject {
 
     func add(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !trimmed.isEmpty, !categories.contains(trimmed) else { return }
+        // Case-insensitive on purpose: `trimmed` is always uppercase, but
+        // existing entries aren't guaranteed to be — the hardcoded
+        // `AppConstants.defaultCategories` seed ("Sample Category") never
+        // goes through this uppercasing, so a case-sensitive check here let
+        // restore (which calls `add` for every category in a backup's
+        // manifest) silently create a second "SAMPLE CATEGORY" duplicate.
+        guard !trimmed.isEmpty,
+              !categories.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame })
+        else { return }
         categories.append(trimmed)
         persist()
     }
@@ -42,6 +50,13 @@ final class CategoryStore: ObservableObject {
         categories.remove(atOffsets: offsets)
         persist()
         persistDescriptions()
+    }
+
+    /// Removes one category by name — used by category-merge cleanup, where
+    /// the caller has a name, not an index into the live `categories` array.
+    func remove(named name: String) {
+        guard let index = categories.firstIndex(of: name) else { return }
+        remove(at: IndexSet(integer: index))
     }
 
     func description(for category: String) -> String {

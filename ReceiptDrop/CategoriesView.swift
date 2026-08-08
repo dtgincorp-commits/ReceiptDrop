@@ -64,6 +64,13 @@ struct CategoryDetailView: View {
     @State private var rebuildMessage: String?
     @State private var missingCSVAlert = false
 
+    @State private var mergeDestination: String?
+    @State private var showMergeConfirm = false
+    @State private var isMerging = false
+    @State private var mergeMessage: String?
+    @State private var mergeError: String?
+    @State private var duplicatePairs: [DuplicateDetectionService.Pair] = []
+
     init(category: String) {
         self.category = category
         _descriptionInput = State(initialValue: CategoryStore.shared.description(for: category))
@@ -132,6 +139,46 @@ struct CategoryDetailView: View {
             } footer: {
                 Text("Wipes and regenerates \(category)'s CSV log strictly from what's shown on the Receipts screen — fixes stray or duplicate rows. Comments on existing rows come back blank (they're only stored in the CSV); new receipts keep their Comments as usual. Other categories aren't affected.")
             }
+
+            if otherCategories.count > 0 {
+                Section {
+                    Picker("Merge Into", selection: $mergeDestination) {
+                        Text("Select a category").tag(String?.none)
+                        ForEach(otherCategories, id: \.self) { Text($0).tag(String?.some($0)) }
+                    }
+                    Button(role: .destructive) {
+                        showMergeConfirm = true
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if isMerging { ProgressView() } else { Text("Merge \(category) In…") }
+                            Spacer()
+                        }
+                    }
+                    .disabled(isMerging || mergeDestination == nil)
+                    if let mergeMessage {
+                        Label(mergeMessage, systemImage: "checkmark.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.green)
+                    }
+                    if !duplicatePairs.isEmpty {
+                        NavigationLink {
+                            DuplicateReviewView(pairs: $duplicatePairs)
+                        } label: {
+                            Label("Review \(duplicatePairs.count) Possible Duplicate\(duplicatePairs.count == 1 ? "" : "s")",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    if let mergeError {
+                        Text(mergeError).font(.caption).foregroundStyle(.red)
+                    }
+                } header: {
+                    Text("Merge")
+                } footer: {
+                    Text("Moves every receipt (photos and Comments included) from \(category) into the category you pick, then removes \(category) from the list. A full backup is made first. Useful for cleaning up an accidental duplicate — e.g. two categories that differ only in capitalization.")
+                }
+            }
         }
         .navigationTitle(category)
         .navigationBarTitleDisplayMode(.inline)
@@ -145,6 +192,43 @@ struct CategoryDetailView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("No log file yet for \(category) — submit a receipt (or rebuild the log) first.")
+        }
+        .alert("Merge \(category) into \(mergeDestination ?? "")?", isPresented: $showMergeConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Back Up, Then Merge", role: .destructive) {
+                if let mergeDestination { merge(into: mergeDestination) }
+            }
+        } message: {
+            Text("A full backup will be made first. Then all \(entries.count) receipt\(entries.count == 1 ? "" : "s") in \(category) will move into \(mergeDestination ?? ""), and \(category) will be removed from your category list. This can only be undone by restoring that backup.")
+        }
+    }
+
+    private var otherCategories: [String] {
+        categoryStore.categories.filter { $0 != category }
+    }
+
+    private func merge(into destination: String) {
+        mergeMessage = nil
+        mergeError = nil
+        isMerging = true
+        Task {
+            do {
+                let summary = try CategoryMergeService.merge(from: category, into: destination)
+                await MainActor.run {
+                    isMerging = false
+                    duplicatePairs = summary.duplicatePairs
+                    var message = "Backed up to Files → On My iPhone → Receipt Drop → Backups → \(summary.backupFilename). Moved \(summary.receiptsMoved) receipt\(summary.receiptsMoved == 1 ? "" : "s") into \(destination)."
+                    if !summary.duplicatePairs.isEmpty {
+                        message += " Found \(summary.duplicatePairs.count) possible duplicate\(summary.duplicatePairs.count == 1 ? "" : "s") — see below."
+                    }
+                    mergeMessage = message
+                }
+            } catch {
+                await MainActor.run {
+                    isMerging = false
+                    mergeError = "Backup failed, so nothing was merged: \(error.localizedDescription)"
+                }
+            }
         }
     }
 
