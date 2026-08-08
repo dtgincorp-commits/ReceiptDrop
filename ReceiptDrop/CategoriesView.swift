@@ -6,8 +6,14 @@ import UIKit
 /// Settings ("Categories ›") and from the Receipts screen's sort menu
 /// ("Manage Categories…").
 struct CategoriesView: View {
+    /// True when reached via "Add Category" (rather than "Manage
+    /// Categories…") — the new-category field gets keyboard focus
+    /// immediately so the user can start typing without an extra tap.
+    var focusNewCategoryOnAppear: Bool = false
+
     @StateObject private var categoryStore = CategoryStore.shared
     @State private var newCategory = ""
+    @FocusState private var newCategoryFieldFocused: Bool
 
     var body: some View {
         Form {
@@ -30,6 +36,11 @@ struct CategoriesView: View {
                     TextField("New category", text: $newCategory)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
+                        .focused($newCategoryFieldFocused)
+                        .onSubmit {
+                            categoryStore.add(newCategory)
+                            newCategory = ""
+                        }
                     Button {
                         categoryStore.add(newCategory)
                         newCategory = ""
@@ -46,6 +57,11 @@ struct CategoriesView: View {
         }
         .navigationTitle("Categories")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if focusNewCategoryOnAppear {
+                newCategoryFieldFocused = true
+            }
+        }
     }
 
     private func receiptCount(for category: String) -> Int {

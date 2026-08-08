@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var isClassifying = false
     @State private var classifyMessage: String?
     @State private var classifyError: String?
+    @State private var showConnectAI = false
 
     var body: some View {
         NavigationStack {
@@ -45,6 +46,14 @@ struct SettingsView: View {
                                 ExtractionSettings.provider = .appleOnDevice
                             }
                         }
+
+                    // Guided version of everything above — for users who
+                    // don't know what an API key is. Same storage underneath.
+                    Button {
+                        showConnectAI = true
+                    } label: {
+                        Label("Connect AI (Guided Setup)…", systemImage: "wand.and.stars")
+                    }
                 } header: {
                     Text("Receipt Extraction")
                 } footer: {
@@ -143,6 +152,14 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .sheet(isPresented: $showConnectAI) {
+                ConnectAIView {
+                    showConnectAI = false
+                    // The wizard may have switched the provider — pick up the
+                    // change so the picker and key section reflect it.
+                    selectedProvider = ExtractionSettings.provider
+                }
+            }
         }
     }
 
