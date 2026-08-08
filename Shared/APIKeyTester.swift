@@ -51,6 +51,21 @@ enum APIKeyTester {
         try await verify(request)
     }
 
+    /// Azure needs both a resource endpoint and a key (the other providers
+    /// only need a key), so this doesn't fit the single-string `testKey`
+    /// closure shape used by `APIKeySection` — called directly by the
+    /// dedicated Azure settings section instead. Lists the account's
+    /// document models as the cheapest real call that proves both values.
+    static func testAzureKey(endpoint: String, key: String) async throws {
+        let trimmedEndpoint = endpoint.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: "\(trimmedEndpoint)/documentintelligence/documentModels?api-version=\(AppConstants.azureDocIntelAPIVersion)") else {
+            throw TestError.failed("Invalid endpoint URL.")
+        }
+        var request = URLRequest(url: url)
+        request.setValue(key, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
+        try await verify(request)
+    }
+
     private static func verify(_ request: URLRequest) async throws {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {

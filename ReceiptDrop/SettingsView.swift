@@ -48,7 +48,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Receipt Extraction")
                 } footer: {
-                    Text("\"On-Device OCR Text\" reads the receipt on your phone for free and sends only the text — faster and cheaper. Hard-to-read receipts automatically retry with the full image. \"Apple On-Device\" reads receipts entirely on your phone with Apple Intelligence — no API key, nothing leaves the device — and requires iOS 26+ on an Apple Intelligence–capable iPhone with the feature enabled.\n\nOffline Mode blocks the cloud providers (Claude, OpenAI, Gemini, Perplexity) so nothing is ever sent off the device — reading and search then require the Apple On-Device provider. Turn it on to verify the app works fully in Airplane Mode.")
+                    Text("\"On-Device OCR Text\" reads the receipt on your phone for free and sends only the text — faster and cheaper. Hard-to-read receipts automatically retry with the full image. \"Apple On-Device\" reads receipts entirely on your phone with Apple Intelligence — no API key, nothing leaves the device — and requires iOS 26+ on an Apple Intelligence–capable iPhone with the feature enabled.\n\nOffline Mode blocks the cloud providers (Claude, OpenAI, Gemini, Perplexity, Microsoft Document Intelligence) so nothing is ever sent off the device — reading and search then require the Apple On-Device provider. Turn it on to verify the app works fully in Airplane Mode.")
                 }
 
                 Section {
@@ -91,6 +91,8 @@ struct SettingsView: View {
                         account: AppConstants.KeychainKeys.perplexityAPIKey,
                         footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Perplexity API.",
                         testKey: APIKeyTester.testPerplexityKey)
+                case .azureDocumentIntelligence:
+                    AzureAPIKeySection()
                 case .appleOnDevice:
                     Section {
                         Label("No API key needed — reading happens on-device.",
@@ -315,6 +317,137 @@ private struct APIKeySection: View {
     }
 }
 
+/// Azure needs two values (a resource endpoint + a key) instead of the
+/// single key the other providers take, so it gets its own section rather
+/// than reusing `APIKeySection`. Both are stored in the Keychain and both
+/// must be present before a "Test" is meaningful.
+private struct AzureAPIKeySection: View {
+    @State private var endpointInput = ""
+    @State private var keyInput = ""
+    @State private var savedEndpoint: String? = KeychainHelper.get(AppConstants.KeychainKeys.azureDocIntelEndpoint)
+    @State private var savedKey: String? = KeychainHelper.get(AppConstants.KeychainKeys.azureDocIntelKey)
+    @State private var revealSavedKey = false
+    @State private var testState: TestState = .idle
+    @State private var saveError: String?
+
+    private enum TestState: Equatable {
+        case idle
+        case testing
+        case success
+        case failure(String)
+    }
+
+    var body: some View {
+        Section {
+            if let savedEndpoint, let savedKey {
+                Label("Endpoint saved", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text(savedEndpoint)
+                    .font(.system(.footnote, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                HStack {
+                    Label("API key saved", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Spacer()
+                    Button("Remove", role: .destructive) {
+                        KeychainHelper.delete(AppConstants.KeychainKeys.azureDocIntelEndpoint)
+                        KeychainHelper.delete(AppConstants.KeychainKeys.azureDocIntelKey)
+                        self.savedEndpoint = nil
+                        self.savedKey = nil
+                        revealSavedKey = false
+                        testState = .idle
+                    }
+                }
+                Button(revealSavedKey ? "Hide Saved Key" : "Show Saved Key") {
+                    revealSavedKey.toggle()
+                }
+                if revealSavedKey {
+                    Text(savedKey)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                testControl(endpoint: savedEndpoint, key: savedKey)
+            } else {
+                TextField("https://your-resource.cognitiveservices.azure.com", text: $endpointInput)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                SecureField("API key", text: $keyInput)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Save to Keychain") {
+                    let endpoint = endpointInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let key = keyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !endpoint.isEmpty, !key.isEmpty else { return }
+                    do {
+                        try KeychainHelper.setDetailed(endpoint, for: AppConstants.KeychainKeys.azureDocIntelEndpoint)
+                        try KeychainHelper.setDetailed(key, for: AppConstants.KeychainKeys.azureDocIntelKey)
+                        endpointInput = ""
+                        keyInput = ""
+                        savedEndpoint = endpoint
+                        savedKey = key
+                        saveError = nil
+                    } catch {
+                        saveError = error.localizedDescription
+                    }
+                }
+                .disabled(endpointInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          || keyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if let saveError {
+                    Text(saveError).font(.caption).foregroundStyle(.red)
+                }
+            }
+        } header: {
+            Text("Microsoft Document Intelligence")
+        } footer: {
+            Text("Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call your Azure resource. Create a Document Intelligence resource in the Azure portal, then copy its endpoint and key here — the free tier covers 500 pages/month.")
+        }
+    }
+
+    @ViewBuilder
+    private func testControl(endpoint: String, key: String) -> some View {
+        switch testState {
+        case .idle:
+            Button("Test Key") { runTest(endpoint: endpoint, key: key) }
+        case .testing:
+            HStack {
+                ProgressView()
+                Text("Testing…").foregroundStyle(.secondary)
+            }
+        case .success:
+            HStack {
+                Label("Key works", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Spacer()
+                Button("Test Again") { runTest(endpoint: endpoint, key: key) }
+            }
+        case .failure(let message):
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Key didn't work", systemImage: "xmark.circle.fill")
+                    .foregroundStyle(.red)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Test Again") { runTest(endpoint: endpoint, key: key) }
+            }
+        }
+    }
+
+    private func runTest(endpoint: String, key: String) {
+        testState = .testing
+        Task {
+            do {
+                try await APIKeyTester.testAzureKey(endpoint: endpoint, key: key)
+                testState = .success
+            } catch {
+                testState = .failure(error.localizedDescription)
+            }
+        }
+    }
+}
+
 // MARK: - Archive & Backup
 
 struct ArchiveBackupView: View {
@@ -341,9 +474,41 @@ struct ArchiveBackupView: View {
     @State private var restoreMessage: String?
     @State private var showRestoreConfirmation = false
     @State private var localBackups: [URL] = LocalReceiptStore.listBackups()
+    /// Staged after the Files picker returns a zip — restore doesn't start
+    /// until the user confirms the exact filename, since the system picker
+    /// (see the folder-vs-zip discussion) can leave someone unsure exactly
+    /// what they just selected.
+    @State private var pendingRestoreURL: URL?
+
+    private enum DeleteScopeKind: String, CaseIterable, Identifiable {
+        case year = "Year"
+        case month = "Month"
+        var id: String { rawValue }
+    }
+    @State private var deleteScopeKind: DeleteScopeKind = .year
+    @State private var deleteYear: Int?
+    @State private var deleteMonth: Int?
+    @State private var showDeleteConfirmation = false
+    @State private var deleteMessage: String?
 
     private var years: [Int] { ArchiveBackupService.availableYears() }
     private var months: [Int] { selectedYear.map(ArchiveBackupService.availableMonths(inYear:)) ?? [] }
+    private var deleteMonths: [Int] { deleteYear.map(ArchiveBackupService.availableMonths(inYear:)) ?? [] }
+
+    /// The period currently staged for deletion, if the picker selection is
+    /// complete — `nil` disables the delete button entirely rather than
+    /// letting an incomplete Month selection through.
+    private var deleteScope: (label: String, entries: [HistoryEntry])? {
+        guard let deleteYear else { return nil }
+        switch deleteScopeKind {
+        case .year:
+            return (String(deleteYear), ArchiveBackupService.entries(inYear: deleteYear))
+        case .month:
+            guard let deleteMonth else { return nil }
+            return ("\(Self.monthName(deleteMonth)) \(deleteYear)",
+                    ArchiveBackupService.entries(inYear: deleteYear, month: deleteMonth))
+        }
+    }
 
     private var canArchive: Bool {
         switch scopeKind {
@@ -358,6 +523,7 @@ struct ArchiveBackupView: View {
             archiveSection
             backupSection
             restoreSection
+            deleteSection
             if let errorMessage {
                 Section {
                     Text(errorMessage).foregroundStyle(.red)
@@ -371,9 +537,22 @@ struct ArchiveBackupView: View {
         }
         .fileImporter(isPresented: $showRestorePicker, allowedContentTypes: [.zip]) { result in
             switch result {
-            case .success(let url): restore(from: url)
+            case .success(let url): pendingRestoreURL = url
             case .failure(let error): errorMessage = error.localizedDescription
             }
+        }
+        .alert("Restore from \"\(pendingRestoreURL?.lastPathComponent ?? "")\"?",
+               isPresented: Binding(
+                get: { pendingRestoreURL != nil },
+                set: { if !$0 { pendingRestoreURL = nil } }),
+               presenting: pendingRestoreURL) { url in
+            Button("Cancel", role: .cancel) {}
+            Button("Restore") {
+                restore(from: url)
+                pendingRestoreURL = nil
+            }
+        } message: { _ in
+            Text("Restore is additive — it never overwrites or deletes anything already on this phone, only adds what's missing from this backup.")
         }
         .onAppear {
             localBackups = LocalReceiptStore.listBackups()
@@ -384,6 +563,15 @@ struct ArchiveBackupView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(restoreMessage ?? "")
+        }
+        .alert("Delete \(deleteScope?.label ?? "") Receipts?",
+               isPresented: $showDeleteConfirmation, presenting: deleteScope) { scope in
+            Button("Cancel", role: .cancel) {}
+            Button("Back Up, Then Delete", role: .destructive) {
+                performDelete(label: scope.label, entries: scope.entries)
+            }
+        } message: { scope in
+            Text("A full backup will be made first. Then \(scope.entries.count) receipt\(scope.entries.count == 1 ? "" : "s") from \(scope.label) — including photos — will be permanently deleted. This can only be undone by restoring that backup, and only while it still exists on this phone (the 3 most recent backups are kept).")
         }
     }
 
@@ -430,7 +618,7 @@ struct ArchiveBackupView: View {
             Button {
                 showRestorePicker = true
             } label: {
-                Label("Restore from Other Location…", systemImage: "arrow.down.doc")
+                Label("Restore/Select from a Backup Zip…", systemImage: "arrow.down.doc")
             }
             .disabled(isWorking)
 
@@ -445,7 +633,7 @@ struct ArchiveBackupView: View {
         } header: {
             Text("Restore")
         } footer: {
-            Text("These backups are stored on this phone at Files → On My iPhone → Receipt Drop → Backups. Tap one to restore it — never overwrites or deletes anything already on this phone, only adds what's missing. Swipe to delete a backup you no longer need. \"Restore from Other Location\" opens the Files picker, for backups saved to iCloud Drive or from another phone. Your API key isn't stored in backups; re-enter it in Settings after restoring on a new phone.")
+            Text("These backups are stored on this phone at Files → On My iPhone → Receipt Drop → Backups. Tap one to restore it — never overwrites or deletes anything already on this phone, only adds what's missing. Swipe to delete a backup you no longer need. \"Restore/Select from a Backup Zip\" opens the Files picker, for backups saved to iCloud Drive or from another phone — select the .zip file itself, not a folder. Your API key isn't stored in backups; re-enter it in Settings after restoring on a new phone.")
         }
     }
 
@@ -552,6 +740,93 @@ struct ArchiveBackupView: View {
             Text("Backup")
         } footer: {
             Text("Backs up every receipt, photo, and category setting into one zip file. Save it to iCloud Drive or AirDrop it to your Mac so it's recoverable even if this phone is lost — an iPhone backup alone can't restore just this app's files individually. Never includes your API keys.")
+        }
+    }
+
+    @ViewBuilder
+    private var deleteSection: some View {
+        Section {
+            Picker("Scope", selection: $deleteScopeKind) {
+                ForEach(DeleteScopeKind.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: deleteScopeKind) { _ in deleteMonth = nil }
+
+            Picker("Year", selection: $deleteYear) {
+                Text("Select a year").tag(Int?.none)
+                ForEach(years, id: \.self) { year in
+                    Text("\(String(year)) (\(ArchiveBackupService.entries(inYear: year).count))").tag(Int?.some(year))
+                }
+            }
+            .onChange(of: deleteYear) { _ in deleteMonth = nil }
+
+            if deleteScopeKind == .month, let deleteYear {
+                Picker("Month", selection: $deleteMonth) {
+                    Text("Select a month").tag(Int?.none)
+                    ForEach(deleteMonths, id: \.self) { month in
+                        Text("\(Self.monthName(month)) (\(ArchiveBackupService.entries(inYear: deleteYear, month: month).count))").tag(Int?.some(month))
+                    }
+                }
+            }
+
+            Button(role: .destructive) {
+                showDeleteConfirmation = true
+            } label: {
+                HStack {
+                    Spacer()
+                    if isWorking { ProgressView() } else { Text("Delete \(deleteScopeKind.rawValue)…") }
+                    Spacer()
+                }
+            }
+            .disabled(isWorking || deleteScope == nil)
+
+            if let deleteMessage {
+                Label(deleteMessage, systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.green)
+            }
+        } header: {
+            Text("Delete Receipts")
+        } footer: {
+            Text("Permanently deletes every receipt and photo from the selected year or month. A full backup is created automatically first — restore it from the Restore section above if you need anything back. Consider also saving a copy to iCloud Drive or AirDropping it to your Mac, since only the 3 most recent on-device backups are kept, and a later backup can silently push this one out.")
+        }
+    }
+
+    /// Backs up first, and only proceeds to delete if that backup actually
+    /// succeeds — a failed backup must never be followed by deletion, or the
+    /// whole point of forcing it is defeated. Deletion mirrors exactly what
+    /// swiping to delete a single receipt does in `ReceiptsView` (history
+    /// entry + underlying photo file), just looped over the period's entries.
+    /// Shared by both the Year and Month scopes — `entries` is already
+    /// filtered to whichever period the caller resolved via `deleteScope`.
+    private func performDelete(label: String, entries: [HistoryEntry]) {
+        errorMessage = nil
+        deleteMessage = nil
+        isWorking = true
+        Task {
+            do {
+                let backupURL = try ArchiveBackupService.buildFullBackup()
+                for entry in entries {
+                    SubmissionStore.removeHistory(entry)
+                    try? LocalReceiptStore.deleteEntry(
+                        category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
+                        amount: entry.amount, receiptFilename: entry.receiptLink, extraFiles: entry.extraFiles)
+                }
+                await MainActor.run {
+                    BackupSettings.lastBackupDate = Date()
+                    isWorking = false
+                    deleteYear = nil
+                    deleteMonth = nil
+                    lastBackupDate = BackupSettings.lastBackupDate
+                    localBackups = LocalReceiptStore.listBackups()
+                    deleteMessage = "Backed up to Files → On My iPhone → Receipt Drop → Backups → \(backupURL.lastPathComponent). Deleted \(entries.count) receipt\(entries.count == 1 ? "" : "s") for \(label)."
+                }
+            } catch {
+                await MainActor.run {
+                    isWorking = false
+                    errorMessage = "Backup failed, so nothing was deleted: \(error.localizedDescription)"
+                }
+            }
         }
     }
 

@@ -32,6 +32,16 @@ struct ReceiptsView: View {
     @State private var showCategories = false
     @State private var showBillCapture = false
     @State private var capturedBill: CapturedBill?
+    /// Bytes from a just-finished capture, held until the `fullScreenCover`
+    /// has fully dismissed — presenting the review `.sheet` in the same tick
+    /// as the cover's dismissal drops the presentation silently (a sheet
+    /// can't reliably present while another presentation is still
+    /// transitioning out). Consumed in the cover's `onDismiss`.
+    @State private var pendingCapturedBillData: Data?
+    /// Same problem in reverse: "Scan a New Bill" from the review sheet
+    /// needs the sheet to finish dismissing before the capture
+    /// `fullScreenCover` presents. Consumed in the sheet's `onDismiss`.
+    @State private var pendingRescan = false
     /// nil shows every category; otherwise the tree only shows this one.
     @State private var filterCategory: String?
     @State private var searchText = ""
@@ -46,6 +56,31 @@ struct ReceiptsView: View {
     /// results. Replaces per-row pulsing as the primary way of surfacing
     /// this: one calm aggregate call-to-action instead of N animated nags.
     @State private var reviewFilterActive = false
+    /// Set by swiping a year header — drives the delete-year confirmation
+    /// alert. Same forced-backup-first flow as Settings → Archive & Backup →
+    /// Delete Receipts, just reachable without leaving this screen.
+    @State private var yearPendingDelete: Int?
+    @State private var isDeletingYear = false
+    @State private var deleteYearError: String?
+    @State private var deleteYearSuccessMessage: String?
+    /// Month rows are keyed by their month-start `Date` (see `MonthGroup.id`)
+    /// rather than a year/month pair — simpler to carry through the swipe
+    /// action and alert, then decomposed into calendar components only where
+    /// `ArchiveBackupService.entries(inYear:month:)` actually needs them.
+    @State private var monthPendingDelete: Date?
+    @State private var isDeletingMonth = false
+    @State private var deleteMonthError: String?
+    @State private var deleteMonthSuccessMessage: String?
+    /// Recomputed on every `reload()`, across the *entire* history — not
+    /// scoped to a category or to right-after-a-merge the way the original
+    /// duplicate-review flow was. That one-shot version disappeared as soon
+    /// as you navigated away, with no way back to it short of re-merging.
+    /// This is the durable, always-current replacement.
+    @State private var duplicatePairs: [DuplicateDetectionService.Pair] = []
+
+    private var duplicateEntryIDs: Set<UUID> {
+        Set(duplicatePairs.flatMap { [$0.first.id, $0.second.id] })
+    }
 
     private var filteredEntries: [HistoryEntry] {
         guard let filterCategory else { return entries }
@@ -291,6 +326,34 @@ struct ReceiptsView: View {
         .listRowSeparator(.hidden)
     }
 
+    /// Same layout as `needsReviewBanner`, purple instead of orange so the
+    /// two are visually distinct at a glance — always present when
+    /// `duplicatePairs` is non-empty, not just right after a merge.
+    @ViewBuilder
+    private var duplicatesBanner: some View {
+        NavigationLink {
+            DuplicateReviewView(pairs: $duplicatePairs)
+        } label: {
+            HStack {
+                Image(systemName: "doc.on.doc.fill")
+                    .foregroundStyle(.indigo)
+                Text("\(duplicatePairs.count) possible duplicate\(duplicatePairs.count == 1 ? "" : "s") found")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .background(Color.indigo.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        .listRowSeparator(.hidden)
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -329,7 +392,8 @@ struct ReceiptsView: View {
                             .listRowSeparator(.hidden)
                         } else {
                             ForEach(effectiveSearchResults) { entry in
-                                ReceiptRow(entry: entry, onReview: { editingEntry = entry })
+                                ReceiptRow(entry: entry, onReview: { editingEntry = entry },
+                                           isDuplicate: duplicateEntryIDs.contains(entry.id))
                                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                         Button(role: .destructive) {
@@ -367,6 +431,9 @@ struct ReceiptsView: View {
                         if !needsReviewEntries.isEmpty {
                             needsReviewBanner
                         }
+                        if !duplicatePairs.isEmpty {
+                            duplicatesBanner
+                        }
                         categoryPillRow
                         ForEach(flatRows(from: YearGroup.build(from: filteredEntries, groupByWorkDate: groupByWorkDate))) { row in
                             rowView(for: row)
@@ -377,6 +444,20 @@ struct ReceiptsView: View {
                                             delete(entry)
                                         } label: {
                                             Label("Delete", systemImage: "trash")
+                                        }
+                                        .tint(.red)
+                                    } else if case .year(let year) = row.kind {
+                                        Button(role: .destructive) {
+                                            yearPendingDelete = year.id
+                                        } label: {
+                                            Label("Delete Year", systemImage: "trash")
+                                        }
+                                        .tint(.red)
+                                    } else if case .month(let month) = row.kind {
+                                        Button(role: .destructive) {
+                                            monthPendingDelete = month.id
+                                        } label: {
+                                            Label("Delete Month", systemImage: "trash")
                                         }
                                         .tint(.red)
                                     }
@@ -504,15 +585,30 @@ struct ReceiptsView: View {
         .sheet(item: $newReceiptSource) { source in
             NewReceiptView(source: source, onComplete: reload)
         }
-        .fullScreenCover(isPresented: $showBillCapture) {
+        .fullScreenCover(isPresented: $showBillCapture, onDismiss: {
+            // Runs after the cover has fully finished dismissing, so
+            // presenting the review sheet here can't collide with that
+            // transition still being in flight.
+            if let data = pendingCapturedBillData {
+                pendingCapturedBillData = nil
+                capturedBill = CapturedBill(data: data)
+            }
+        }) {
             BillCaptureView(
                 onCancel: { showBillCapture = false },
                 onCaptured: { data in
+                    pendingCapturedBillData = data
                     showBillCapture = false
-                    capturedBill = CapturedBill(data: data)
                 })
         }
-        .sheet(item: $capturedBill) { bill in
+        .sheet(item: $capturedBill, onDismiss: {
+            // Same reasoning as above, in reverse: present the capture
+            // cover only once this sheet has fully dismissed.
+            if pendingRescan {
+                pendingRescan = false
+                showBillCapture = true
+            }
+        }) { bill in
             BillReviewView(
                 photoData: bill.data,
                 onDone: {
@@ -520,8 +616,8 @@ struct ReceiptsView: View {
                     reload()
                 },
                 onScanNew: {
+                    pendingRescan = true
                     capturedBill = nil
-                    showBillCapture = true
                 })
                 // Only "Done" or "Scan a New Bill" should close this — an
                 // accidental swipe-down was closing it before the user had
@@ -547,6 +643,148 @@ struct ReceiptsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .receiptDropDidUpdateHistory)) { _ in
             reload()
         }
+        .alert("Delete \(yearPendingDelete.map(String.init) ?? "") Receipts?",
+               isPresented: Binding(
+                get: { yearPendingDelete != nil },
+                set: { if !$0 { yearPendingDelete = nil } }),
+               presenting: yearPendingDelete) { year in
+            Button("Cancel", role: .cancel) {}
+            Button("Back Up, Then Delete", role: .destructive) {
+                deleteYear(year)
+            }
+        } message: { year in
+            let count = ArchiveBackupService.entries(inYear: year).count
+            Text("A full backup will be made first. Then \(count) receipt\(count == 1 ? "" : "s") from \(String(year)) — including photos — will be permanently deleted. This can only be undone by restoring that backup, and only while it still exists on this phone (the 3 most recent backups are kept).")
+        }
+        .alert("Couldn't Delete Year", isPresented: Binding(
+            get: { deleteYearError != nil },
+            set: { if !$0 { deleteYearError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteYearError ?? "")
+        }
+        .alert("Year Deleted", isPresented: Binding(
+            get: { deleteYearSuccessMessage != nil },
+            set: { if !$0 { deleteYearSuccessMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteYearSuccessMessage ?? "")
+        }
+        .alert("Delete \(monthPendingDelete.map(Self.monthYearLabel) ?? "") Receipts?",
+               isPresented: Binding(
+                get: { monthPendingDelete != nil },
+                set: { if !$0 { monthPendingDelete = nil } }),
+               presenting: monthPendingDelete) { monthStart in
+            Button("Cancel", role: .cancel) {}
+            Button("Back Up, Then Delete", role: .destructive) {
+                deleteMonth(monthStart)
+            }
+        } message: { monthStart in
+            let (year, month) = Self.yearMonthComponents(monthStart)
+            let count = ArchiveBackupService.entries(inYear: year, month: month).count
+            Text("A full backup will be made first. Then \(count) receipt\(count == 1 ? "" : "s") from \(Self.monthYearLabel(monthStart)) — including photos — will be permanently deleted. This can only be undone by restoring that backup, and only while it still exists on this phone (the 3 most recent backups are kept).")
+        }
+        .alert("Couldn't Delete Month", isPresented: Binding(
+            get: { deleteMonthError != nil },
+            set: { if !$0 { deleteMonthError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteMonthError ?? "")
+        }
+        .alert("Month Deleted", isPresented: Binding(
+            get: { deleteMonthSuccessMessage != nil },
+            set: { if !$0 { deleteMonthSuccessMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteMonthSuccessMessage ?? "")
+        }
+    }
+
+    private static func yearMonthComponents(_ date: Date) -> (year: Int, month: Int) {
+        let calendar = Calendar.current
+        return (calendar.component(.year, from: date), calendar.component(.month, from: date))
+    }
+
+    private static func monthYearLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMMM yyyy")
+        return formatter.string(from: date)
+    }
+
+    /// Mirrors `deleteYear(_:)` exactly, scoped to one month instead of a
+    /// whole year — see that function's doc comment for why this isn't
+    /// shared with the Settings screen's copy.
+    private func deleteMonth(_ monthStart: Date) {
+        deleteMonthError = nil
+        deleteMonthSuccessMessage = nil
+        isDeletingMonth = true
+        let (year, month) = Self.yearMonthComponents(monthStart)
+        let label = Self.monthYearLabel(monthStart)
+        Task {
+            do {
+                let backupURL = try ArchiveBackupService.buildFullBackup()
+                let monthEntries = ArchiveBackupService.entries(inYear: year, month: month)
+                for entry in monthEntries {
+                    SubmissionStore.removeHistory(entry)
+                    try? LocalReceiptStore.deleteEntry(
+                        category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
+                        amount: entry.amount, receiptFilename: entry.receiptLink, extraFiles: entry.extraFiles)
+                }
+                await MainActor.run {
+                    BackupSettings.lastBackupDate = Date()
+                    isDeletingMonth = false
+                    reload()
+                    deleteMonthSuccessMessage = """
+                        Backed up to Files → On My iPhone → Receipt Drop → Backups → \(backupURL.lastPathComponent)
+
+                        Deleted \(monthEntries.count) receipt\(monthEntries.count == 1 ? "" : "s") for \(label).
+                        """
+                }
+            } catch {
+                await MainActor.run {
+                    isDeletingMonth = false
+                    deleteMonthError = "Backup failed, so nothing was deleted: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    /// Same forced-backup-then-delete flow as Settings → Archive & Backup →
+    /// Delete Receipts (see `performDeleteYear` there) — kept as a separate
+    /// copy rather than a shared helper since the two call sites reload
+    /// differently afterward (this screen's own `reload()` vs. that screen's
+    /// local `lastBackupDate`/`localBackups` state).
+    private func deleteYear(_ year: Int) {
+        deleteYearError = nil
+        deleteYearSuccessMessage = nil
+        isDeletingYear = true
+        Task {
+            do {
+                let backupURL = try ArchiveBackupService.buildFullBackup()
+                let yearEntries = ArchiveBackupService.entries(inYear: year)
+                for entry in yearEntries {
+                    SubmissionStore.removeHistory(entry)
+                    try? LocalReceiptStore.deleteEntry(
+                        category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
+                        amount: entry.amount, receiptFilename: entry.receiptLink, extraFiles: entry.extraFiles)
+                }
+                await MainActor.run {
+                    BackupSettings.lastBackupDate = Date()
+                    isDeletingYear = false
+                    reload()
+                    deleteYearSuccessMessage = """
+                        Backed up to Files → On My iPhone → Receipt Drop → Backups → \(backupURL.lastPathComponent)
+
+                        Deleted \(yearEntries.count) receipt\(yearEntries.count == 1 ? "" : "s") for \(year).
+                        """
+                }
+            } catch {
+                await MainActor.run {
+                    isDeletingYear = false
+                    deleteYearError = "Backup failed, so nothing was deleted: \(error.localizedDescription)"
+                }
+            }
+        }
     }
 
     private func reload() {
@@ -554,6 +792,7 @@ struct ReceiptsView: View {
         // One CSV parse per category, not per row — see commentsByReceipt.
         commentsMap = LocalReceiptStore.commentsByReceipt(
             categories: Array(Set(entries.map(\.category))))
+        duplicatePairs = DuplicateDetectionService.findPairs(in: entries)
     }
 
     /// The AI-written Comments for this entry (its per-receipt summary), or
@@ -617,12 +856,20 @@ struct ReceiptsView: View {
         collapsed = Set(years.flatMap { year in year.months.map { AnyHashable($0.id) } })
     }
 
+    /// Runs off the main thread — same reasoning as `DuplicateReviewView
+    /// .delete`: `LocalReceiptStore.deleteEntry` rewrites the category's CSV
+    /// through `NSFileCoordinator`, which can genuinely stall for a few
+    /// seconds under contention (e.g. the Files app browsing the same
+    /// folder). Calling it synchronously from the swipe action froze the
+    /// whole screen for however long that took.
     private func delete(_ entry: HistoryEntry) {
-        SubmissionStore.removeHistory(entry)
-        try? LocalReceiptStore.deleteEntry(
-            category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
-            amount: entry.amount, receiptFilename: entry.receiptLink, extraFiles: entry.extraFiles)
-        reload()
+        Task {
+            SubmissionStore.removeHistory(entry)
+            try? LocalReceiptStore.deleteEntry(
+                category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
+                amount: entry.amount, receiptFilename: entry.receiptLink, extraFiles: entry.extraFiles)
+            await MainActor.run { reload() }
+        }
     }
 
     /// Flattens the Year > Month > Day > receipt tree into a single list of
@@ -662,7 +909,8 @@ struct ReceiptsView: View {
             HeaderRow(label: day.label, font: .subheadline.bold(), level: 2,
                      isExpanded: expandedBinding(for: row.id))
         case .entry(let entry):
-            ReceiptRow(entry: entry, onReview: { editingEntry = entry })
+            ReceiptRow(entry: entry, onReview: { editingEntry = entry },
+                       isDuplicate: duplicateEntryIDs.contains(entry.id))
         }
     }
 
@@ -801,6 +1049,7 @@ private struct YearGroup: Identifiable {
 private struct ReceiptRow: View {
     let entry: HistoryEntry
     let onReview: () -> Void
+    var isDuplicate: Bool = false
 
     @State private var showPreview = false
     @State private var missingFileAlert = false
@@ -835,6 +1084,20 @@ private struct ReceiptRow: View {
                 }
                 .buttonStyle(.plain)
                 .fixedSize()
+                if isDuplicate {
+                    // Same visual language as the category tag right next to
+                    // it (same font/padding/corner treatment) so it reads as
+                    // a sibling badge, not a different kind of UI element —
+                    // just a different, alarm-toned color to stand apart.
+                    Text("DUP")
+                        .font(.caption2.weight(.heavy))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.indigo)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                        .fixedSize()
+                }
                 Text(entry.vendor.isEmpty ? "Unknown vendor" : entry.vendor)
                     .font(.subheadline.weight(.semibold))
                 Spacer()

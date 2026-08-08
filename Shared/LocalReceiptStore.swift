@@ -503,7 +503,7 @@ enum LocalReceiptStore {
     /// Deletes all but the newest `keeping` backups — each retained backup
     /// costs roughly the full size of your photos, so unbounded retention
     /// isn't free the way it is for CSVs/history.
-    static func pruneBackups(keeping: Int = 2) {
+    static func pruneBackups(keeping: Int = 3) {
         let backups = listBackups()
         guard backups.count > keeping else { return }
         for url in backups[keeping...] {

@@ -84,6 +84,7 @@ enum BillItemizationService {
         case .openAI: return try await itemizeViaOpenAI(data)
         case .gemini: return try await itemizeViaGemini(data)
         case .perplexity: return try await itemizeViaPerplexity(data)
+        case .azureDocumentIntelligence: return try await itemizeViaAzure(data)
         case .appleOnDevice:
             #if canImport(FoundationModels)
             if #available(iOS 26.0, *) { return try await FoundationModelsService.itemizeBill(data: data) }
@@ -417,5 +418,50 @@ enum BillItemizationService {
             subtotal: string("subtotal"), tax: string("tax"),
             serviceCharge: string("service_charge"), total: string("total"),
             unreadableLineCount: string("unreadable_line_count"))
+    }
+
+    // MARK: - Microsoft Document Intelligence
+
+    /// Unlike the four chat-model providers above, this isn't a prompted
+    /// extraction — Azure's `prebuilt-receipt` model returns a fixed schema
+    /// (merchant, items, totals) with no "unreadable line" concept and no
+    /// notion of gratuity vs. tax beyond what it labels `Tip`. Items come
+    /// straight from Azure's own line-item detection, not from our
+    /// deterministic Vision pipeline.
+    private static func itemizeViaAzure(_ data: Data) async throws -> ExtractedBill {
+        let fields: [String: Any]
+        do {
+            fields = try await AzureDocumentIntelligenceService.analyze(data: data)
+        } catch AzureDocIntelError.missingCredentials {
+            throw BillItemizationError.missingAPIKey("Microsoft Document Intelligence")
+        } catch AzureDocIntelError.api(let detail) {
+            throw BillItemizationError.api(detail)
+        } catch AzureDocIntelError.parsing(let detail) {
+            throw BillItemizationError.parsing(detail)
+        }
+
+        let vendor = AzureDocumentIntelligenceService.string(fields, "MerchantName")
+
+        let itemsArray = (fields["Items"] as? [String: Any])?["valueArray"] as? [[String: Any]] ?? []
+        let rawItems: [(name: String, quantity: String, price: String)] = itemsArray.compactMap { itemField in
+            guard let obj = itemField["valueObject"] as? [String: Any] else { return nil }
+            let name = AzureDocumentIntelligenceService.string(obj, "Description")
+            let quantityField = obj["Quantity"] as? [String: Any]
+            let quantity = (quantityField?["valueNumber"] as? Double).map { String(Int($0)) } ?? "1"
+            let price = AzureDocumentIntelligenceService.amount(obj, "TotalPrice")
+                ?? AzureDocumentIntelligenceService.amount(obj, "Price")
+            guard !name.isEmpty, let price else { return nil }
+            return (name: name, quantity: quantity, price: String(price))
+        }
+
+        func amountString(_ key: String) -> String {
+            AzureDocumentIntelligenceService.amount(fields, key).map { String($0) } ?? ""
+        }
+
+        return ExtractedBill.build(
+            vendor: vendor, rawItems: rawItems,
+            subtotal: amountString("Subtotal"), tax: amountString("TotalTax"),
+            serviceCharge: amountString("Tip"), total: amountString("Total"),
+            unreadableLineCount: "0")
     }
 }
