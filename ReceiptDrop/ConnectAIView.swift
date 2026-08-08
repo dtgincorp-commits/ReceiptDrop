@@ -15,25 +15,11 @@ enum AISetupState {
     }
 
     /// True when the currently selected provider can actually run — either it
-    /// needs no key (Apple On-Device) or its key/credentials are saved. Used
-    /// to silently mark existing users as "done" instead of showing them a
-    /// first-run wizard for a setup they finished long ago.
+    /// needs no key (Apple On-Device, model ready) or its key/credentials are
+    /// saved. Used to silently mark existing users as "done" instead of
+    /// showing them a first-run wizard for a setup they finished long ago.
     static var currentProviderIsConfigured: Bool {
-        switch ExtractionSettings.provider {
-        case .appleOnDevice:
-            return true
-        case .claude:
-            return KeychainHelper.get(AppConstants.KeychainKeys.anthropicAPIKey) != nil
-        case .openAI:
-            return KeychainHelper.get(AppConstants.KeychainKeys.openAIAPIKey) != nil
-        case .gemini:
-            return KeychainHelper.get(AppConstants.KeychainKeys.geminiAPIKey) != nil
-        case .perplexity:
-            return KeychainHelper.get(AppConstants.KeychainKeys.perplexityAPIKey) != nil
-        case .azureDocumentIntelligence:
-            return KeychainHelper.get(AppConstants.KeychainKeys.azureDocIntelKey) != nil
-                && KeychainHelper.get(AppConstants.KeychainKeys.azureDocIntelEndpoint) != nil
-        }
+        ExtractionSettings.aiConfigured
     }
 }
 

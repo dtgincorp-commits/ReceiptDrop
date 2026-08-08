@@ -25,6 +25,14 @@ struct ReceiptSubmitView: View {
     @State private var statusText: String = ""
     @State private var message: String?
 
+    /// Shown instead of running AI extraction when no provider is configured
+    /// (see `ExtractionSettings.aiConfigured`) — the photo is still saved,
+    /// just with hand-typed fields instead of an automatic read.
+    @State private var manualVendor: String = ""
+    @State private var manualAmount: String = ""
+    @State private var manualWorkDate: Date = Date()
+    @State private var manualComments: String = ""
+
     /// The just-saved entry whose date couldn't be read — held so the
     /// `.needsDate` nudge can update it once the user sets a date.
     @State private var pendingDateEntry: HistoryEntry?
@@ -50,6 +58,15 @@ struct ReceiptSubmitView: View {
         return true
     }
 
+    private var manualFieldsValid: Bool {
+        !manualVendor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && Double(manualAmount.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+    }
+
+    private var canSubmit: Bool {
+        !selectedCategory.isEmpty && (ExtractionSettings.aiConfigured || manualFieldsValid)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -66,6 +83,28 @@ struct ReceiptSubmitView: View {
                             Label("PDF attached", systemImage: "doc.fill")
                         }
                         Spacer()
+                    }
+                }
+
+                if !ExtractionSettings.aiConfigured {
+                    Section {
+                        TextField("Merchant / Vendor", text: $manualVendor)
+                            .disabled(controlsDisabled)
+                        HStack {
+                            Text("$")
+                            TextField("Amount", text: $manualAmount)
+                                .keyboardType(.decimalPad)
+                                .disabled(controlsDisabled)
+                        }
+                        DatePicker("Work Date", selection: $manualWorkDate, displayedComponents: .date)
+                            .disabled(controlsDisabled)
+                        TextField("Comments", text: $manualComments, axis: .vertical)
+                            .lineLimit(2...4)
+                            .disabled(controlsDisabled)
+                    } header: {
+                        Text("Details")
+                    } footer: {
+                        Text("Connect an AI in Settings to fill these in automatically from the photo next time.")
                     }
                 }
 
@@ -117,7 +156,7 @@ struct ReceiptSubmitView: View {
                     Spacer()
                 }
             }
-            .disabled(selectedCategory.isEmpty)
+            .disabled(!canSubmit)
         case .running:
             HStack {
                 Spacer()
@@ -200,6 +239,12 @@ struct ReceiptSubmitView: View {
 
         message = nil
         submitState = .running
+
+        guard ExtractionSettings.aiConfigured else {
+            submitManually(data: data, kind: kind, category: category)
+            return
+        }
+
         statusText = SubmissionPipeline.Stage.reading.statusText
 
         Task {
@@ -232,6 +277,42 @@ struct ReceiptSubmitView: View {
                                         error: error.localizedDescription)
                 message = "Couldn't submit — saved to the retry queue in the app. \(error.localizedDescription)"
                 submitState = .queued
+            }
+        }
+    }
+
+    /// No AI provider configured — saves the photo/PDF with the hand-typed
+    /// fields instead of running extraction. Not routed through the retry
+    /// queue on failure: retries there always re-run AI extraction
+    /// (`SubmissionPipeline.run`), which would ignore what the user typed —
+    /// simpler to just let them hit Submit again.
+    private func submitManually(data: Data, kind: ReceiptKind, category: String) {
+        statusText = SubmissionPipeline.Stage.saving.statusText
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = AppConstants.sheetDateFormat
+        let normalizedAmount = Double(manualAmount.trimmingCharacters(in: .whitespacesAndNewlines))
+            .map { String($0) } ?? manualAmount
+        let vendor = manualVendor.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workDate = formatter.string(from: manualWorkDate)
+        let comments = manualComments.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        Task {
+            do {
+                _ = try SubmissionPipeline.saveWithoutExtraction(
+                    data: data, kind: kind, category: category,
+                    vendor: vendor, workDate: workDate, amount: normalizedAmount, comments: comments)
+                submitState = .success
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                onComplete()
+            } catch let duplicate as SubmissionError {
+                message = duplicate.localizedDescription
+                submitState = .success
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                onComplete()
+            } catch {
+                message = "Couldn't save: \(error.localizedDescription)"
+                submitState = .idle
             }
         }
     }

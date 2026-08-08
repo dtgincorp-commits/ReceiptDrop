@@ -141,6 +141,35 @@ struct SubmissionPipeline {
         return entry
     }
 
+    /// Saves a receipt without running AI extraction — used when no AI
+    /// provider is configured (see `ExtractionSettings.aiConfigured`). Unlike
+    /// `recordManualEntry`, the photo/PDF itself is still saved; only the
+    /// extraction step is skipped, since the user supplies vendor/date/amount
+    /// by hand instead. Same duplicate check and CSV/history shape as `run`,
+    /// so a receipt saved this way is indistinguishable from an AI-read one
+    /// once an AI provider is connected later — nothing to migrate.
+    @discardableResult
+    static func saveWithoutExtraction(data: Data, kind: ReceiptKind, category: String,
+                                       vendor: String, workDate: String, amount: String,
+                                       comments: String) throws -> HistoryEntry {
+        if let existing = SubmissionStore.loadHistory().first(where: {
+            $0.category == category && $0.workDate == workDate && $0.amount == amount
+        }) {
+            throw SubmissionError.duplicate(existing)
+        }
+
+        let filename = try LocalReceiptStore.save(data: data, category: category, kind: kind)
+        try LocalReceiptStore.appendLog(
+            vendor: vendor, workDate: workDate, amount: amount,
+            comments: comments, receiptFilename: filename, category: category)
+
+        let entry = HistoryEntry(
+            category: category, vendor: vendor, workDate: workDate, amount: amount,
+            receiptLink: filename, timestamp: Date(), verificationStatus: .verified)
+        SubmissionStore.appendHistory(entry)
+        return entry
+    }
+
     /// Records a receipt read via the Live Text scanner — Claude reads text
     /// already recognized on-device (VisionKit), and no photo is saved, same
     /// as `recordManualEntry` but auto-filled by Claude instead of typed in.
