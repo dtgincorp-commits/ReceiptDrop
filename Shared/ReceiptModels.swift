@@ -359,6 +359,33 @@ enum ExtractionSettings {
         }
     }
 
+    /// True when the currently selected provider can actually run right now —
+    /// either it needs no key (Apple On-Device, and only when the model is
+    /// actually ready on this device) or its key/credentials are saved.
+    /// Lives here (not just in the app target) because the capture fallback
+    /// in `ReceiptSubmitView`/`SubmissionPipeline` needs it too, and those
+    /// compile into the share extension as well.
+    static var aiConfigured: Bool {
+        switch provider {
+        case .appleOnDevice:
+            #if canImport(FoundationModels)
+            if #available(iOS 26.0, *) { return FoundationModelsService.isModelReady }
+            #endif
+            return false
+        case .claude:
+            return KeychainHelper.get(AppConstants.KeychainKeys.anthropicAPIKey) != nil
+        case .openAI:
+            return KeychainHelper.get(AppConstants.KeychainKeys.openAIAPIKey) != nil
+        case .gemini:
+            return KeychainHelper.get(AppConstants.KeychainKeys.geminiAPIKey) != nil
+        case .perplexity:
+            return KeychainHelper.get(AppConstants.KeychainKeys.perplexityAPIKey) != nil
+        case .azureDocumentIntelligence:
+            return KeychainHelper.get(AppConstants.KeychainKeys.azureDocIntelKey) != nil
+                && KeychainHelper.get(AppConstants.KeychainKeys.azureDocIntelEndpoint) != nil
+        }
+    }
+
     /// The extractor instance for the currently selected provider.
     static func currentExtractor() -> ReceiptExtractor {
         switch provider {

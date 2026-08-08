@@ -166,6 +166,10 @@ struct SettingsView: View {
     private func classifyUnclassified() {
         classifyMessage = nil
         classifyError = nil
+        guard ExtractionSettings.aiConfigured else {
+            classifyError = "This needs an AI — use Connect AI above."
+            return
+        }
         isClassifying = true
         Task {
             do {

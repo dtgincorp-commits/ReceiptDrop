@@ -35,6 +35,10 @@ struct ReceiptsView: View {
     /// field ready to type into instead of just the list.
     @State private var focusNewCategoryOnOpen = false
     @State private var showBillCapture = false
+    /// Shown instead of the Check a Bill capture screen when no AI provider
+    /// is configured — invites the user to connect one rather than letting
+    /// them start a capture that would just error at the end.
+    @State private var showBillCaptureAIInvite = false
     @State private var capturedBill: CapturedBill?
     /// Bytes from a just-finished capture, held until the `fullScreenCover`
     /// has fully dismissed — presenting the review `.sheet` in the same tick
@@ -204,6 +208,10 @@ struct ReceiptsView: View {
     private func runSemanticSearch() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
+        guard ExtractionSettings.aiConfigured else {
+            semanticError = "Smart search needs an AI — connect one in Settings. Plain text search above still works."
+            return
+        }
         semanticError = nil
         isSemanticSearching = true
         Task {
@@ -483,7 +491,8 @@ struct ReceiptsView: View {
             }
             .navigationTitle("Receipts")
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search, or try \"restaurants over $100\"")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic),
+                        prompt: ExtractionSettings.aiConfigured ? "Search, or try \"restaurants over $100\"" : "Search receipts")
             .onSubmit(of: .search) { runSemanticSearch() }
             .onChange(of: searchText) { _ in
                 semanticFilter = nil
@@ -536,7 +545,11 @@ struct ReceiptsView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        showBillCapture = true
+                        if ExtractionSettings.aiConfigured {
+                            showBillCapture = true
+                        } else {
+                            showBillCaptureAIInvite = true
+                        }
                     } label: {
                         Image(systemName: "doc.text.magnifyingglass")
                     }
@@ -556,7 +569,12 @@ struct ReceiptsView: View {
                             } label: {
                                 Label("Take Photo", systemImage: "camera")
                             }
-                            if DataScannerViewController.isSupported && DataScannerViewController.isAvailable {
+                            // No non-AI fallback makes sense here — raw scanned
+                            // text with nothing to structure it into fields
+                            // isn't useful, unlike a photo (which can still be
+                            // saved and filled in by hand).
+                            if DataScannerViewController.isSupported && DataScannerViewController.isAvailable
+                                && ExtractionSettings.aiConfigured {
                                 Button {
                                     newReceiptSource = .scanText
                                 } label: {
@@ -612,6 +630,12 @@ struct ReceiptsView: View {
                     pendingCapturedBillData = data
                     showBillCapture = false
                 })
+        }
+        .sheet(isPresented: $showBillCaptureAIInvite) {
+            AIFeatureInviteView(
+                title: "Check a Bill needs an AI",
+                message: "This reads a bill line-by-line and splits out each item — it needs an AI connected to do that reading. Takes about two minutes to set up.",
+                dismiss: { showBillCaptureAIInvite = false })
         }
         .sheet(item: $capturedBill, onDismiss: {
             // Same reasoning as above, in reverse: present the capture
@@ -1243,5 +1267,65 @@ private struct ReceiptRow: View {
             return
         }
         UIApplication.shared.open(filesURL)
+    }
+}
+
+/// Shown in place of an AI-only feature (currently just Check a Bill) when no
+/// provider is configured — invites the user into the Connect AI wizard
+/// rather than either hiding the entry point or letting them hit a raw error
+/// partway through. Not reused for every AI-only feature (search and
+/// classify show an inline message instead, since they have a "keep going
+/// without AI" path this feature doesn't).
+private struct AIFeatureInviteView: View {
+    let title: String
+    let message: String
+    let dismiss: () -> Void
+
+    @State private var showConnectAI = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Spacer()
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 44))
+                    .foregroundStyle(.secondary)
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                Button {
+                    showConnectAI = true
+                } label: {
+                    Text("Connect an AI")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(.horizontal, 40)
+                .padding(.top, 8)
+                Button("Not Now", action: dismiss)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Spacer()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close", action: dismiss)
+                }
+            }
+        }
+        .sheet(isPresented: $showConnectAI) {
+            ConnectAIView {
+                showConnectAI = false
+                dismiss()
+            }
+        }
     }
 }
