@@ -4,6 +4,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab = 0
     @State private var showBackupReminder = false
+    @State private var showConnectAI = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -26,6 +27,7 @@ struct ContentView: View {
         .onAppear {
             LocalReceiptStore.drainSpoolIntoDocuments()
             showBackupReminder = BackupSettings.isReminderDue()
+            maybeShowAISetup()
         }
         .onChange(of: scenePhase) {
             if $0 == .active {
@@ -39,6 +41,21 @@ struct ContentView: View {
         } message: {
             Text("It's been a while since your last backup. Go to Settings → Archive & Backup to back up now.")
         }
+        .sheet(isPresented: $showConnectAI) {
+            ConnectAIView { showConnectAI = false }
+        }
+    }
+
+    /// First-run guided AI setup — shown once, and only to users who don't
+    /// already have a working provider. An existing user (key already saved,
+    /// or on-device selected) is marked done silently so they never see it.
+    private func maybeShowAISetup() {
+        guard !AISetupState.hasCompletedSetup else { return }
+        if AISetupState.currentProviderIsConfigured {
+            AISetupState.hasCompletedSetup = true
+            return
+        }
+        showConnectAI = true
     }
 }
 

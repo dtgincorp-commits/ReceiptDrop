@@ -49,6 +49,7 @@ enum AppConstants {
         static let offlineOnly = "offlineOnly"                 // block cloud providers; on-device only
         static let lastBackupDate = "lastBackupDate"
         static let backupReminderFrequency = "backupReminderFrequency"
+        static let hasCompletedAISetup = "hasCompletedAISetup"  // guided Connect-AI wizard shown/skipped
     }
 
     /// Date format written to the Work_Date column.

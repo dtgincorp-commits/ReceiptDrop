@@ -30,6 +30,10 @@ struct ReceiptsView: View {
     @AppStorage("receiptsGroupByWorkDate") private var groupByWorkDate = false
     @State private var editingEntry: HistoryEntry?
     @State private var showCategories = false
+    /// Set alongside `showCategories` when reached via "Add Category" (rather
+    /// than "Manage Categories…") so the sheet opens with the new-category
+    /// field ready to type into instead of just the list.
+    @State private var focusNewCategoryOnOpen = false
     @State private var showBillCapture = false
     @State private var capturedBill: CapturedBill?
     /// Bytes from a just-finished capture, held until the `fullScreenCover`
@@ -520,6 +524,7 @@ struct ReceiptsView: View {
                         }
                         Divider()
                         Button {
+                            focusNewCategoryOnOpen = false
                             showCategories = true
                         } label: {
                             Label("Manage Categories…", systemImage: "folder.badge.gearshape")
@@ -574,6 +579,13 @@ struct ReceiptsView: View {
                             newReceiptSource = .manual
                         } label: {
                             Label("Enter Manually", systemImage: "pencil")
+                        }
+                        Divider()
+                        Button {
+                            focusNewCategoryOnOpen = true
+                            showCategories = true
+                        } label: {
+                            Label("Add Category", systemImage: "folder.badge.plus")
                         }
                     } label: {
                         Label("New Receipt", systemImage: "plus")
@@ -635,7 +647,7 @@ struct ReceiptsView: View {
         }
         .sheet(isPresented: $showCategories, onDismiss: reload) {
             NavigationStack {
-                CategoriesView()
+                CategoriesView(focusNewCategoryOnAppear: focusNewCategoryOnOpen)
             }
         }
         .onAppear(perform: reload)
