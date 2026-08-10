@@ -56,7 +56,7 @@ struct ReceiptDraft {
     @Guide(description: "The contractor or vendor / business name on the receipt. Empty string if not present.")
     var vendor: String
 
-    @Guide(description: "The primary date on the receipt, copied exactly as printed (e.g. \"07/24/26\", \"March 3, 2026\" — whatever format is shown, do not convert or reformat it yourself). Empty string if none is clearly shown — never guess or invent one.")
+    @Guide(description: "The primary date on the receipt, normalized to yyyy-MM-dd. Empty string if no date is clearly shown — never guess or invent one.")
     var workDate: String
 
     @Guide(description: "The GRAND TOTAL at the very bottom of the receipt — the final amount owed, appearing AFTER the subtotal and tax lines, usually labeled 'Total', 'Grand Total', or 'Amount Due'. NEVER use an individual line-item food or drink price, no matter how large. Plain number, no currency symbol, e.g. 142.51. Empty string if the bottom-of-receipt total is not found.")
