@@ -19,6 +19,7 @@ struct DuplicateReviewView: View {
     /// that file (e.g. the Files app browsing the same folder); without this,
     /// a slow delete looked identical to a broken one.
     @State private var deletingIDs: Set<UUID> = []
+    @State private var editingEntry: HistoryEntry?
 
     var body: some View {
         Group {
@@ -42,34 +43,53 @@ struct DuplicateReviewView: View {
         }
         .navigationTitle("Possible Duplicates")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $editingEntry) { entry in
+            EditReceiptView(
+                entry: entry,
+                onCancel: { editingEntry = nil },
+                onComplete: {
+                    editingEntry = nil
+                    // Same refresh mechanism the delete path already uses —
+                    // any presenting screen bound to a live (non-snapshot)
+                    // `pairs` source (the main Receipts screen's duplicates
+                    // banner) will recompute and drop this pair if the edit
+                    // fixed whatever made it look like a duplicate.
+                    NotificationCenter.default.post(name: .receiptDropDidUpdateHistory, object: nil)
+                })
+        }
     }
 
     @ViewBuilder
     private func row(for entry: HistoryEntry) -> some View {
-        HStack(spacing: 12) {
-            thumbnail(for: entry)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.vendor.isEmpty ? "(no vendor)" : entry.vendor)
-                    .font(.subheadline.weight(.semibold))
-                Text("\(entry.workDate.isEmpty ? "no date" : entry.workDate) · $\(entry.amount)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(entry.category)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if deletingIDs.contains(entry.id) {
-                ProgressView()
-            } else {
-                Button(role: .destructive) {
-                    delete(entry)
-                } label: {
-                    Image(systemName: "trash")
+        Button {
+            editingEntry = entry
+        } label: {
+            HStack(spacing: 12) {
+                thumbnail(for: entry)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.vendor.isEmpty ? "(no vendor)" : entry.vendor)
+                        .font(.subheadline.weight(.semibold))
+                    Text("\(entry.workDate.isEmpty ? "no date" : entry.workDate) · $\(entry.amount)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(entry.category)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderless)
+                Spacer()
+                if deletingIDs.contains(entry.id) {
+                    ProgressView()
+                } else {
+                    Button(role: .destructive) {
+                        delete(entry)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                }
             }
         }
+        .buttonStyle(.plain)
     }
 
     /// Loads the file synchronously on the main thread — same tradeoff

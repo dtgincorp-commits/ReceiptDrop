@@ -472,6 +472,8 @@ private struct AzureAPIKeySection: View {
 // MARK: - Archive & Backup
 
 struct ArchiveBackupView: View {
+    @StateObject private var categoryStore = CategoryStore.shared
+
     private enum ScopeKind: String, CaseIterable, Identifiable {
         case year = "Year"
         case month = "Month"
@@ -500,6 +502,8 @@ struct ArchiveBackupView: View {
     /// (see the folder-vs-zip discussion) can leave someone unsure exactly
     /// what they just selected.
     @State private var pendingRestoreURL: URL?
+    @State private var restoreDuplicatePairs: [DuplicateDetectionService.Pair] = []
+    @State private var showRestoreDuplicates = false
 
     private enum DeleteScopeKind: String, CaseIterable, Identifiable {
         case year = "Year"
@@ -558,22 +562,33 @@ struct ArchiveBackupView: View {
         }
         .fileImporter(isPresented: $showRestorePicker, allowedContentTypes: [.zip]) { result in
             switch result {
-            case .success(let url): pendingRestoreURL = url
+            case .success(let url):
+                errorMessage = nil
+                let accessing = url.startAccessingSecurityScopedResource()
+                defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                // Reject immediately if this isn't a restorable backup,
+                // rather than letting the user pick a target category and
+                // tap Restore only to hit the same error afterward.
+                if RestoreService.isFullBackup(zipURL: url) {
+                    pendingRestoreURL = url
+                } else {
+                    errorMessage = "\"\(url.lastPathComponent)\" is an Archive export, not a full backup — Restore needs a zip made with \"Backup Now\". Archive exports are for sharing or printing a period's receipts; they can't be restored."
+                }
             case .failure(let error): errorMessage = error.localizedDescription
             }
         }
-        .alert("Restore from \"\(pendingRestoreURL?.lastPathComponent ?? "")\"?",
-               isPresented: Binding(
-                get: { pendingRestoreURL != nil },
-                set: { if !$0 { pendingRestoreURL = nil } }),
-               presenting: pendingRestoreURL) { url in
-            Button("Cancel", role: .cancel) {}
-            Button("Restore") {
-                restore(from: url)
-                pendingRestoreURL = nil
+        .sheet(isPresented: Binding(
+            get: { pendingRestoreURL != nil },
+            set: { if !$0 { pendingRestoreURL = nil } })) {
+            if let url = pendingRestoreURL {
+                RestoreOptionsView(
+                    url: url, existingCategories: categoryStore.categories,
+                    onCancel: { pendingRestoreURL = nil },
+                    onConfirm: { targetCategory in
+                        pendingRestoreURL = nil
+                        restore(from: url, targetCategory: targetCategory)
+                    })
             }
-        } message: { _ in
-            Text("Restore is additive — it never overwrites or deletes anything already on this phone, only adds what's missing from this backup.")
         }
         .onAppear {
             localBackups = LocalReceiptStore.listBackups()
@@ -584,6 +599,11 @@ struct ArchiveBackupView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(restoreMessage ?? "")
+        }
+        .sheet(isPresented: $showRestoreDuplicates, onDismiss: { restoreDuplicatePairs = [] }) {
+            NavigationStack {
+                DuplicateReviewView(pairs: $restoreDuplicatePairs)
+            }
         }
         .alert("Delete \(deleteScope?.label ?? "") Receipts?",
                isPresented: $showDeleteConfirmation, presenting: deleteScope) { scope in
@@ -606,7 +626,7 @@ struct ArchiveBackupView: View {
                 }
             }
             if localBackups.isEmpty {
-                Text("No backups on this phone yet — tap \"Back Up Now\" above.")
+                Text("No backups on this phone yet — tap \"Backup Now\" above.")
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(localBackups, id: \.self) { url in
@@ -654,11 +674,11 @@ struct ArchiveBackupView: View {
         } header: {
             Text("Restore")
         } footer: {
-            Text("These backups are stored on this phone at Files → On My iPhone → Receipt Drop → Backups. Tap one to restore it — never overwrites or deletes anything already on this phone, only adds what's missing. Swipe to delete a backup you no longer need. \"Restore/Select from a Backup Zip\" opens the Files picker, for backups saved to iCloud Drive or from another phone — select the .zip file itself, not a folder. Your API key isn't stored in backups; re-enter it in Settings after restoring on a new phone.")
+            Text("These backups are stored on this phone at Files → On My iPhone → Receipt Drop → Backups. Tap one to restore it — never overwrites or deletes anything already on this phone, only adds what's missing. Swipe to delete a backup you no longer need. \"Restore/Select from a Backup Zip\" opens the Files picker, for backups saved to iCloud Drive or from another phone — select the .zip file itself, not a folder. When restoring from the Files picker, you can choose to import everything into one category instead of keeping the original ones — handy for a backup from another iPhone. Possible duplicates are flagged for review after restoring. Your API key isn't stored in backups; re-enter it in Settings after restoring on a new phone.")
         }
     }
 
-    private func restore(from url: URL) {
+    private func restore(from url: URL, targetCategory: String? = nil) {
         errorMessage = nil
         restoreMessage = nil
         isWorking = true
@@ -666,12 +686,21 @@ struct ArchiveBackupView: View {
             let accessing = url.startAccessingSecurityScopedResource()
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
             do {
-                let summary = try RestoreService.restore(zipURL: url)
+                let summary = try RestoreService.restore(zipURL: url, targetCategory: targetCategory)
                 await MainActor.run {
                     isWorking = false
-                    restoreMessage = "Restored \(summary.receiptsRestored) receipt\(summary.receiptsRestored == 1 ? "" : "s") (\(summary.receiptsSkipped) already present)."
+                    var message = "Restored \(summary.receiptsRestored) receipt\(summary.receiptsRestored == 1 ? "" : "s") (\(summary.receiptsSkipped) already present)."
+                    if !summary.duplicatePairs.isEmpty {
+                        message += " Found \(summary.duplicatePairs.count) possible duplicate\(summary.duplicatePairs.count == 1 ? "" : "s")."
+                    }
+                    restoreMessage = message
                     localBackups = LocalReceiptStore.listBackups()
-                    showRestoreConfirmation = true
+                    if !summary.duplicatePairs.isEmpty {
+                        restoreDuplicatePairs = summary.duplicatePairs
+                        showRestoreDuplicates = true
+                    } else {
+                        showRestoreConfirmation = true
+                    }
                 }
             } catch {
                 await MainActor.run {
@@ -729,7 +758,12 @@ struct ArchiveBackupView: View {
         } header: {
             Text("Archive")
         } footer: {
-            Text("Periods are based on each receipt's work date (falling back to the scan date if missing). Creates a zip of that period's photos, attachments, and a CSV, then lets you save it via AirDrop, iCloud Drive, or Files. Nothing is deleted from the app.")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Periods are based on each receipt's work date (falling back to the scan date if missing). Creates a zip of that period's photos, attachments, and a CSV, then lets you save it via AirDrop, iCloud Drive, or Files. Nothing is deleted from the app.")
+                Text("This export can't be restored later — for a zip you can restore (on this phone or another one), use \"Backup Now\" below instead.")
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+            }
         }
     }
 
@@ -747,7 +781,7 @@ struct ArchiveBackupView: View {
             } label: {
                 HStack {
                     Spacer()
-                    if isWorking { ProgressView() } else { Text("Back Up Now") }
+                    if isWorking { ProgressView() } else { Text("Backup Now") }
                     Spacer()
                 }
             }
@@ -866,14 +900,14 @@ struct ArchiveBackupView: View {
                 switch scope {
                 case .year:
                     guard let year else { isWorking = false; return }
-                    label = "ReceiptDrop_\(year)"
+                    label = "ReceiptDrop_Export_\(year)"
                     entries = ArchiveBackupService.entries(inYear: year)
                 case .month:
                     guard let year, let month else { isWorking = false; return }
-                    label = "ReceiptDrop_\(year)-\(String(format: "%02d", month))"
+                    label = "ReceiptDrop_Export_\(year)-\(String(format: "%02d", month))"
                     entries = ArchiveBackupService.entries(inYear: year, month: month)
                 case .custom:
-                    label = "ReceiptDrop_\(LocalReceiptStore.dateString(start))_to_\(LocalReceiptStore.dateString(end))"
+                    label = "ReceiptDrop_Export_\(LocalReceiptStore.dateString(start))_to_\(LocalReceiptStore.dateString(end))"
                     entries = ArchiveBackupService.entries(from: start, to: end)
                 }
                 let url = try ArchiveBackupService.buildArchive(label: label, entries: entries)
@@ -945,6 +979,92 @@ struct ArchiveBackupView: View {
     private static func backupSizeString(for url: URL) -> String {
         let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+}
+
+/// Confirms a zip picked via the Files importer before restoring it, and
+/// offers redirecting every receipt in the backup into one category —
+/// useful when importing another iPhone's backup, where the source phone
+/// may have same-named categories that mean something different on this
+/// phone. `nil` passed to `onConfirm` keeps each receipt under its
+/// original category name (today's default restore behavior).
+private struct RestoreOptionsView: View {
+    let url: URL
+    let existingCategories: [String]
+    let onCancel: () -> Void
+    let onConfirm: (String?) -> Void
+
+    private enum Mode: Hashable {
+        case keepOriginal
+        case importIntoCategory
+    }
+
+    @State private var mode: Mode = .keepOriginal
+    @State private var selectedExisting: String?
+    @State private var newCategoryName = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Restore is additive — it never overwrites or deletes anything already on this phone, only adds what's missing from this backup.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Picker("", selection: $mode) {
+                        Text("Keep Original Categories").tag(Mode.keepOriginal)
+                        Text("Import Into One Category").tag(Mode.importIntoCategory)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                } footer: {
+                    Text(mode == .keepOriginal
+                         ? "Receipts are filed under the same category names they had on the other phone — creating any that don't already exist here."
+                         : "Every receipt in this backup is filed under one category you choose below, regardless of what category it was under on the other phone. Useful for keeping an import visibly separate until you've reviewed it — e.g. two phones both having a \"DTG\" category that mean different things.")
+                }
+
+                if mode == .importIntoCategory {
+                    Section {
+                        if !existingCategories.isEmpty {
+                            Picker("Category", selection: $selectedExisting) {
+                                Text("New Category").tag(String?.none)
+                                ForEach(existingCategories, id: \.self) { Text($0).tag(String?.some($0)) }
+                            }
+                        }
+                        if selectedExisting == nil {
+                            TextField("New category name", text: $newCategoryName)
+                                .textInputAutocapitalization(.characters)
+                                .autocorrectionDisabled()
+                        }
+                    } header: {
+                        Text("Category")
+                    }
+                }
+            }
+            .navigationTitle(url.lastPathComponent)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Restore") {
+                        switch mode {
+                        case .keepOriginal:
+                            onConfirm(nil)
+                        case .importIntoCategory:
+                            let target = selectedExisting
+                                ?? newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+                            onConfirm(target)
+                        }
+                    }
+                    .disabled(mode == .importIntoCategory && selectedExisting == nil
+                              && newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
     }
 }
 
