@@ -193,7 +193,26 @@ struct ClaudeService: ReceiptExtractor {
     /// Shared by `normalizeDate` and `ExtractedReceipt.build` so the "is this a
     /// real date?" decision and the stored value never disagree.
     static func flexibleDate(_ raw: String) -> Date? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        // The 13 formats below are exact full-string matches — a model that
+        // ignores its instructions and copies a receipt's date+time verbatim
+        // (e.g. "08/07/2026 3:42 PM") would otherwise fail every one of them
+        // even though the date itself is perfectly readable. Strip the parts
+        // that aren't the date before attempting to match.
+        trimmed = trimmed.replacingOccurrences(
+            of: #"\s*\d{1,2}:\d{2}(:\d{2})?\s*[AaPp]\.?[Mm]\.?\s*$"#,
+            with: "", options: .regularExpression)
+        trimmed = trimmed.replacingOccurrences(
+            of: #"\s*\d{1,2}:\d{2}(:\d{2})?\s*$"#,
+            with: "", options: .regularExpression)
+        trimmed = trimmed.replacingOccurrences(
+            of: #"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,?\s*"#,
+            with: "", options: [.regularExpression, .caseInsensitive])
+        trimmed = trimmed.replacingOccurrences(
+            of: #"^(Receipt Date|Work Date|Date)\s*:?\s*"#,
+            with: "", options: [.regularExpression, .caseInsensitive])
+        trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

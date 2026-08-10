@@ -17,9 +17,11 @@ struct ScannedTextSubmitView: View {
     @State private var pendingDateEntry: HistoryEntry?
     @State private var pickedDate = Date()
 
-    /// The exact review reason `ExtractedReceipt.build` writes when no date was
-    /// found — matching it lets us prompt for a date instead of keeping today's.
-    private static let unreadableDateReason = "Date unreadable, defaulted to today"
+    /// Suffix common to both review-reason variants `ExtractedReceipt.build`
+    /// writes when the date couldn't be parsed (see `ReceiptSubmitView`'s
+    /// matching constant for the full explanation) — matching it lets us
+    /// prompt for a date instead of keeping today's.
+    private static let unreadableDateReasonSuffix = "defaulted to today"
 
     private enum SubmitState: Equatable {
         case idle
@@ -165,7 +167,7 @@ struct ScannedTextSubmitView: View {
                 // Ask for the date rather than keeping today's if it couldn't
                 // be read — consistent with the photo/PDF submit flow.
                 if entry.verificationStatus == .needsReview,
-                   entry.reviewReason == Self.unreadableDateReason {
+                   entry.reviewReason.hasSuffix(Self.unreadableDateReasonSuffix) {
                     pendingDateEntry = entry
                     pickedDate = Date()
                     submitState = .needsDate

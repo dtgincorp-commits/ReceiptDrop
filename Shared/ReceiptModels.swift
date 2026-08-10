@@ -200,7 +200,17 @@ struct ExtractedReceipt {
             }
         } else {
             needsReview = true
-            if reason.isEmpty { reason = "Date unreadable, defaulted to today" }
+            // Include the actual string the AI returned (when there was one)
+            // so a future "why didn't this parse?" is answerable by reading
+            // the review reason instead of re-scanning and guessing. Both
+            // branches end in "defaulted to today" — callers that need to
+            // detect this case (the "set the date" prompt) match on that
+            // suffix rather than the exact string, so this stays compatible.
+            if reason.isEmpty {
+                reason = rawWorkDate.isEmpty
+                    ? "Date unreadable, defaulted to today"
+                    : "Couldn't parse date: \"\(rawWorkDate)\" — defaulted to today"
+            }
         }
         // Only ever store a recognized token (built-in or custom) or empty —
         // never let a model's free-text deviation into the vocabulary

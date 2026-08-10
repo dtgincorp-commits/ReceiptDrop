@@ -38,11 +38,14 @@ struct ReceiptSubmitView: View {
     @State private var pendingDateEntry: HistoryEntry?
     @State private var pickedDate = Date()
 
-    /// The exact review reason `ExtractedReceipt.build` writes when no date was
-    /// found. Matching it lets us prompt for a date instead of silently keeping
-    /// today's — matters for library images, where retaking a photo isn't an
-    /// option.
-    private static let unreadableDateReason = "Date unreadable, defaulted to today"
+    /// Suffix common to both review-reason variants `ExtractedReceipt.build`
+    /// writes when the date couldn't be parsed — "Date unreadable, defaulted
+    /// to today" (nothing was returned) and "Couldn't parse date: \"...\" —
+    /// defaulted to today" (something was returned but didn't match a known
+    /// format). Matching the suffix (not the whole string) catches both, so
+    /// we can prompt for a date instead of silently keeping today's — matters
+    /// for library images, where retaking a photo isn't an option.
+    private static let unreadableDateReasonSuffix = "defaulted to today"
 
     /// Drives the Submit section's UI while the pipeline runs.
     private enum SubmitState: Equatable {
@@ -256,7 +259,7 @@ struct ReceiptSubmitView: View {
                 // — stop and ask the user to set it (works for library images
                 // too, where retaking a photo isn't possible).
                 if entry.verificationStatus == .needsReview,
-                   entry.reviewReason == Self.unreadableDateReason {
+                   entry.reviewReason.hasSuffix(Self.unreadableDateReasonSuffix) {
                     pendingDateEntry = entry
                     pickedDate = Date()
                     submitState = .needsDate
