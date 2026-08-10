@@ -216,8 +216,21 @@ struct ClaudeService: ReceiptExtractor {
         guard !trimmed.isEmpty else { return nil }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        // True ISO only, matched by shape first. DateFormatter treats "/"
+        // and "-" as interchangeable separators, so leaving "yyyy-MM-dd" in
+        // the general format list below let it silently claim short US
+        // dates like "8/8/26" as year 8 / month 8 / day 26 (promoted to
+        // 2008) whenever the day was 12 or lower — invalid days above 12
+        // were the only thing saving the correct pattern's turn. Gating this
+        // pattern on the string actually looking like yyyy-M(M)-d(d) first
+        // stops it from matching anything else.
+        if trimmed.range(of: #"^\d{4}-\d{1,2}-\d{1,2}$"#, options: .regularExpression) != nil {
+            formatter.dateFormat = "yyyy-MM-dd"
+            if let date = formatter.date(from: trimmed) { return date }
+        }
+
         let formats = [
-            "yyyy-MM-dd",
             "M/d/yyyy", "MM/dd/yyyy",
             "M/d/yy", "MM/dd/yy",
             "M-d-yyyy", "MM-dd-yyyy", "M-d-yy", "MM-dd-yy",

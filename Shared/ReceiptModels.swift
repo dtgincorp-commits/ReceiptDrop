@@ -239,7 +239,7 @@ enum ExtractionPrompt {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = AppConstants.sheetDateFormat
-        var lines = ["Today's date is \(formatter.string(from: Date())). The transaction date is often NOT at the top — check the payment / card-approval block near the bottom too (e.g. a line like \"Date: 3/20/24\"). Output it as yyyy-MM-dd, expanding a 2-digit year to 20YY (so 3/20/24 becomes 2024-03-20). Only if there is genuinely no date anywhere, return an empty string — never guess or invent one."]
+        var lines = ["Today's date is \(formatter.string(from: Date())), given only so you can judge whether a date you find is plausible — never output today's date as the receipt's date unless the receipt itself clearly shows that date. The transaction date can appear near the top (often beside a check or order number) or in the payment / card-approval block near the bottom — check both. Look for labels like \"Date\", \"Ordered\", \"Order Date\", \"Transaction Date\", \"Sale Date\", or \"Served\" (e.g. a line like \"Date: 3/20/24\" or \"Ordered: 8/8/26\"). Output it as yyyy-MM-dd, expanding a 2-digit year to 20YY (so 3/20/24 becomes 2024-03-20). Only if there is genuinely no date anywhere, return an empty string — never guess or invent one."]
         if !categoryContext.isEmpty {
             lines.append("This receipt is being filed under a category described by the user as: \"\(categoryContext)\". Use this to write more specific Comments, and lower your confidence if the receipt looks unrelated to this description.")
         }
