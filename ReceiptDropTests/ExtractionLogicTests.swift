@@ -136,6 +136,25 @@ final class ExtractionLogicTests: XCTestCase {
         XCTAssertEqual(ClaudeService.normalizeDate("Mar 20, 2024"), "2024-03-20")
     }
 
+    func testNormalizeDateHandlesLowDayNumbers() {
+        // Regression: DateFormatter treats "/" and "-" as interchangeable,
+        // so "yyyy-MM-dd" used to silently claim short US dates whenever the
+        // day was 12 or lower (an invalid day above 12 was the only thing
+        // that used to save the correct pattern's turn) — e.g. "8/8/26" was
+        // read as year 8 / month 8 / day 26, promoted to 2008-08-26 instead
+        // of 2026-08-08. Every case here uses a day <= 12, which the earlier
+        // tests above (day 20) never exercised.
+        XCTAssertEqual(ClaudeService.normalizeDate("8/8/26"), "2026-08-08")
+        XCTAssertEqual(ClaudeService.normalizeDate("1/2/25"), "2025-01-02")
+        XCTAssertEqual(ClaudeService.normalizeDate("08/08/26"), "2026-08-08")
+        XCTAssertEqual(ClaudeService.normalizeDate("8-8-26"), "2026-08-08")
+        XCTAssertEqual(ClaudeService.normalizeDate("8/8/26 2:29 PM"), "2026-08-08")
+        XCTAssertEqual(ClaudeService.normalizeDate("2026-08-08"), "2026-08-08")
+        XCTAssertEqual(ClaudeService.normalizeDate("2026/08/08"), "2026-08-08")
+        // Day above 12 — must keep working exactly as before.
+        XCTAssertEqual(ClaudeService.normalizeDate("12/25/26"), "2026-12-25")
+    }
+
     func testNormalizeDateFallsBackToTodayForGarbage() {
         let today = DateFormatter.posixDay.string(from: Date())
         XCTAssertEqual(ClaudeService.normalizeDate("not a date"), today)
