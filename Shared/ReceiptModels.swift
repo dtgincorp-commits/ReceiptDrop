@@ -619,13 +619,20 @@ enum RestoreError: LocalizedError {
     case notAFullBackup
 
     var errorDescription: String? {
-        "This is an Archive export, not a full backup — Restore needs a zip made with \"Back Up Now\"."
+        "This is an Archive export, not a full backup — Restore needs a zip made with \"Backup Now\"."
     }
 }
 
 struct RestoreSummary {
     var receiptsRestored = 0
     var receiptsSkipped = 0
+    /// Suspected duplicates found across every category this restore
+    /// touched (whichever categories the restored receipts actually landed
+    /// in — the original ones, or the single target category) — not just
+    /// among the newly-restored entries, since a duplicate could be one
+    /// already on this phone matching one just restored. Never
+    /// auto-resolved — see `DuplicateReviewView`.
+    var duplicatePairs: [DuplicateDetectionService.Pair] = []
 }
 
 /// Restores a full backup zip (from `ArchiveBackupService.buildFullBackup`).
@@ -634,7 +641,33 @@ struct RestoreSummary {
 /// run on the same zip twice (second run reports everything as skipped) and
 /// safe to run into a phone that already has receipts (a merge, not a wipe).
 enum RestoreService {
-    static func restore(zipURL: URL) throws -> RestoreSummary {
+    /// Cheap pre-check ("does this zip even have the files Restore needs?")
+    /// so a picked file can be rejected the instant it's chosen, with the
+    /// exact same message `restore(zipURL:)` would eventually throw — rather
+    /// than only discovering the problem after the user has also chosen a
+    /// target category and tapped Restore. Reads only the zip's central
+    /// directory (via `MinimalZipReader.listEntryNames`), never extracts or
+    /// decompresses anything.
+    static func isFullBackup(zipURL: URL) -> Bool {
+        guard let names = try? MinimalZipReader.listEntryNames(zipURL: zipURL) else { return false }
+        // `.forUploading` zips wrap everything in one label-named folder, so
+        // these files sit one path segment down rather than at the zip
+        // root — matched the same way `restore(zipURL:)` itself accepts
+        // either layout.
+        let hasHistory = names.contains { $0 == "history.json" || $0.hasSuffix("/history.json") }
+        let hasManifest = names.contains { $0 == "manifest.json" || $0.hasSuffix("/manifest.json") }
+        return hasHistory && hasManifest
+    }
+
+    /// `targetCategory`, if given, redirects every restored receipt into
+    /// that one category regardless of what category it was under on the
+    /// source phone — useful for importing another iPhone's backup as a
+    /// visibly separate batch (e.g. two phones both having a "DTG" category
+    /// that mean different things) rather than silently merging into
+    /// same-named categories here. `nil` keeps today's behavior: each
+    /// receipt stays under its original category name, creating any that
+    /// don't already exist on this phone.
+    static func restore(zipURL: URL, targetCategory: String? = nil) throws -> RestoreSummary {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("ReceiptDropRestore_\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tempRoot) }
@@ -661,33 +694,67 @@ enum RestoreService {
             throw RestoreError.notAFullBackup
         }
 
-        restoreManifest(at: manifestURL, isFreshInstall: SubmissionStore.loadHistory().isEmpty)
+        // Importing into one target category shouldn't also silently create
+        // every category name the source phone happened to have — only the
+        // one category actually being used should show up here.
+        if targetCategory == nil {
+            restoreManifest(at: manifestURL, isFreshInstall: SubmissionStore.loadHistory().isEmpty)
+        }
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let backupEntries = try decoder.decode([HistoryEntry].self, from: Data(contentsOf: historyURL))
+        var backupEntries = try decoder.decode([HistoryEntry].self, from: Data(contentsOf: historyURL))
+
+        // The file/CSV each entry needs to pull from inside the extracted
+        // zip lives under its *original* category folder — remembered here
+        // before any remap below, since `entry.category` itself is about to
+        // become the (possibly different) destination category.
+        let sourceCategories = Dictionary(uniqueKeysWithValues: backupEntries.map { ($0.id, $0.category) })
+
+        if let targetCategory {
+            CategoryStore.shared.add(targetCategory)
+            backupEntries = backupEntries.map { entry in
+                HistoryEntry(
+                    id: entry.id, category: targetCategory, vendor: entry.vendor,
+                    workDate: entry.workDate, amount: entry.amount,
+                    receiptLink: entry.receiptLink, timestamp: entry.timestamp,
+                    verificationStatus: entry.verificationStatus, reviewReason: entry.reviewReason,
+                    extraFiles: entry.extraFiles, vendorType: entry.vendorType)
+            }
+        }
 
         let existingIDs = Set(SubmissionStore.loadHistory().map { $0.id })
         let newEntries = backupEntries.filter { !existingIDs.contains($0.id) }
 
         for entry in newEntries {
+            let sourceCategory = sourceCategories[entry.id] ?? entry.category
             for filename in [entry.receiptLink] + entry.extraFiles {
                 guard !filename.isEmpty, !SubmissionPipeline.isPlaceholderLabel(filename) else { continue }
-                let sourceURL = contentRoot.appendingPathComponent(entry.category).appendingPathComponent(filename)
+                let sourceURL = contentRoot.appendingPathComponent(sourceCategory).appendingPathComponent(filename)
                 guard FileManager.default.fileExists(atPath: sourceURL.path) else { continue }
                 try? LocalReceiptStore.importFile(from: sourceURL, category: entry.category, filename: filename)
             }
         }
 
-        for category in Set(backupEntries.map(\.category)) {
-            let backupCSVURL = contentRoot.appendingPathComponent(category).appendingPathComponent("\(category)_log.csv")
-            if let backupCSVText = try? String(contentsOf: backupCSVURL, encoding: .utf8) {
-                try? LocalReceiptStore.mergeCSVRows(category: category, csvText: backupCSVText)
-            }
+        for sourceCategory in Set(sourceCategories.values) {
+            let backupCSVURL = contentRoot.appendingPathComponent(sourceCategory).appendingPathComponent("\(sourceCategory)_log.csv")
+            guard let backupCSVText = try? String(contentsOf: backupCSVURL, encoding: .utf8) else { continue }
+            try? LocalReceiptStore.mergeCSVRows(category: targetCategory ?? sourceCategory, csvText: backupCSVText)
         }
 
         let restoredCount = SubmissionStore.mergeHistory(backupEntries)
-        return RestoreSummary(receiptsRestored: restoredCount, receiptsSkipped: backupEntries.count - restoredCount)
+
+        // Scan every category this restore actually touched — not just the
+        // newly-restored entries — since a duplicate could be an entry
+        // already on this phone matching one just restored.
+        let touchedCategories = Set(backupEntries.map(\.category))
+        let duplicatePairs = touchedCategories.flatMap { category in
+            DuplicateDetectionService.findPairs(in: SubmissionStore.loadHistory().filter { $0.category == category })
+        }
+
+        return RestoreSummary(
+            receiptsRestored: restoredCount, receiptsSkipped: backupEntries.count - restoredCount,
+            duplicatePairs: duplicatePairs)
     }
 
     /// Categories/descriptions merge in regardless (additive, never clobbers

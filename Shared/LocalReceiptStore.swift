@@ -653,6 +653,16 @@ enum MinimalZipReader {
         let localHeaderOffset: UInt32
     }
 
+    /// Lists entry paths without extracting/decompressing anything — just
+    /// the central directory, which is cheap even for a large zip full of
+    /// photos. Used to sanity-check a picked file (e.g. "is this actually a
+    /// full backup, not an Archive export?") before committing to a full
+    /// restore.
+    static func listEntryNames(zipURL: URL) throws -> [String] {
+        let data = try Data(contentsOf: zipURL, options: .mappedIfSafe)
+        return try centralDirectoryEntries(in: data).map(\.filename)
+    }
+
     static func extract(zipURL: URL, to destination: URL) throws {
         let data = try Data(contentsOf: zipURL, options: .mappedIfSafe)
         let entries = try centralDirectoryEntries(in: data)
