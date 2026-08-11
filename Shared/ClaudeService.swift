@@ -94,10 +94,14 @@ struct ClaudeService: ReceiptExtractor {
         let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext)
         return try await send(content: [
             ["type": "text", "text": "\(preamble) Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details using the record_receipt tool.\n\n\(ocrText)"],
-        ])
+        ], sourceText: ocrText)
     }
 
-    private func send(content: [[String: Any]]) async throws -> ExtractedReceipt {
+    /// `sourceText`, when given, is the raw receipt text — cross-checked
+    /// against the model's reported date in `ExtractedReceipt.build`. Only
+    /// `extract(ocrText:)` has this; the image/PDF path has no text to check
+    /// against, so it stays nil there.
+    private func send(content: [[String: Any]], sourceText: String? = nil) async throws -> ExtractedReceipt {
         guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.anthropicAPIKey),
               !apiKey.isEmpty else {
             throw ClaudeError.missingAPIKey
@@ -184,7 +188,7 @@ struct ClaudeService: ReceiptExtractor {
             vendor: string("vendor"), rawWorkDate: string("work_date"), amount: string("amount"),
             comments: string("comments"), rawVendorType: string("vendor_type"),
             modelReportedLowConfidence: string("confidence").lowercased() == "low",
-            modelReason: string("confidence_reason"))
+            modelReason: string("confidence_reason"), sourceText: sourceText)
     }
 
     /// Parses a raw date string in any of the formats receipts commonly use —
@@ -566,10 +570,10 @@ struct OpenAIService: ReceiptExtractor {
         let content: [[String: Any]] = [
             ["type": "text", "text": "\(preamble) Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details.\n\n\(ocrText)"],
         ]
-        return try await send(content: content)
+        return try await send(content: content, sourceText: ocrText)
     }
 
-    private func send(content: [[String: Any]]) async throws -> ExtractedReceipt {
+    private func send(content: [[String: Any]], sourceText: String? = nil) async throws -> ExtractedReceipt {
         guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.openAIAPIKey),
               !apiKey.isEmpty else {
             throw OpenAIError.missingAPIKey
@@ -630,7 +634,7 @@ struct OpenAIService: ReceiptExtractor {
             vendor: string("vendor"), rawWorkDate: string("work_date"), amount: string("amount"),
             comments: string("comments"), rawVendorType: string("vendor_type"),
             modelReportedLowConfidence: string("confidence").lowercased() == "low",
-            modelReason: string("confidence_reason"))
+            modelReason: string("confidence_reason"), sourceText: sourceText)
     }
 }
 
@@ -674,10 +678,10 @@ struct PerplexityService: ReceiptExtractor {
         let content: [[String: Any]] = [
             ["type": "text", "text": "\(preamble) Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details.\n\n\(ocrText)"],
         ]
-        return try await send(content: content)
+        return try await send(content: content, sourceText: ocrText)
     }
 
-    private func send(content: [[String: Any]]) async throws -> ExtractedReceipt {
+    private func send(content: [[String: Any]], sourceText: String? = nil) async throws -> ExtractedReceipt {
         guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.perplexityAPIKey),
               !apiKey.isEmpty else {
             throw PerplexityError.missingAPIKey
@@ -738,7 +742,7 @@ struct PerplexityService: ReceiptExtractor {
             vendor: string("vendor"), rawWorkDate: string("work_date"), amount: string("amount"),
             comments: string("comments"), rawVendorType: string("vendor_type"),
             modelReportedLowConfidence: string("confidence").lowercased() == "low",
-            modelReason: string("confidence_reason"))
+            modelReason: string("confidence_reason"), sourceText: sourceText)
     }
 }
 
@@ -777,10 +781,10 @@ struct GeminiService: ReceiptExtractor {
         let parts: [[String: Any]] = [
             ["text": "\(preamble) Here is text recognized from a photo of a receipt via on-device OCR. It may contain recognition noise (misread characters, garbled spacing). Extract the receipt's details.\n\n\(ocrText)"],
         ]
-        return try await send(parts: parts)
+        return try await send(parts: parts, sourceText: ocrText)
     }
 
-    private func send(parts: [[String: Any]]) async throws -> ExtractedReceipt {
+    private func send(parts: [[String: Any]], sourceText: String? = nil) async throws -> ExtractedReceipt {
         guard let apiKey = KeychainHelper.get(AppConstants.KeychainKeys.geminiAPIKey),
               !apiKey.isEmpty else {
             throw GeminiError.missingAPIKey
@@ -840,7 +844,7 @@ struct GeminiService: ReceiptExtractor {
             vendor: string("vendor"), rawWorkDate: string("work_date"), amount: string("amount"),
             comments: string("comments"), rawVendorType: string("vendor_type"),
             modelReportedLowConfidence: string("confidence").lowercased() == "low",
-            modelReason: string("confidence_reason"))
+            modelReason: string("confidence_reason"), sourceText: sourceText)
     }
 }
 

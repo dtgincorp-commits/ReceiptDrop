@@ -170,8 +170,18 @@ struct ExtractedReceipt {
     /// silently defaults to today), or an implausible-but-well-formed date.
     /// Keeping this in one place means Claude, OpenAI, and Gemini all get
     /// identical HITL flagging behavior.
+    ///
+    /// `sourceText`, when available (the OCR'd receipt text), is cross-checked
+    /// against the model's reported date via `ReceiptDateDetector` — a
+    /// deterministic second opinion that catches a model reporting a date
+    /// that doesn't actually appear on the receipt (confirmed real failure:
+    /// a model that correctly wrote "Ordered at 8/8/26" into Comments while
+    /// reporting a *different* date as workDate — it recognized the date
+    /// fine, it just populated the wrong field). `nil` (full-image paths that
+    /// never OCR) skips this check entirely — behavior identical to before.
     static func build(vendor: String, rawWorkDate: String, amount: String, comments: String,
-                      rawVendorType: String, modelReportedLowConfidence: Bool, modelReason: String) -> ExtractedReceipt {
+                      rawVendorType: String, modelReportedLowConfidence: Bool, modelReason: String,
+                      sourceText: String? = nil) -> ExtractedReceipt {
         var needsReview = modelReportedLowConfidence
         var reason = modelReason
         if vendor.isEmpty {
@@ -185,6 +195,7 @@ struct ExtractedReceipt {
         // Accept any format receipts actually use (M/d/yy, MM/dd/yyyy, …), not
         // just yyyy-MM-dd — otherwise a correctly-read date in the receipt's
         // own format would be treated as "unreadable" and dropped for today.
+        var resolvedWorkDate = ClaudeService.normalizeDate(rawWorkDate)
         if let parsed = ClaudeService.flexibleDate(rawWorkDate) {
             // Well-formed but implausible: a model working from noisy OCR
             // text (no visual layout to anchor on) can hallucinate a
@@ -197,6 +208,38 @@ struct ExtractedReceipt {
             } else if parsed < calendar.date(byAdding: .month, value: -15, to: Date())! {
                 needsReview = true
                 if reason.isEmpty { reason = "Date is over a year old — please confirm" }
+            }
+
+            if let sourceText {
+                let printed = ReceiptDateDetector.dates(in: sourceText)
+                let parsedDay = calendar.startOfDay(for: parsed)
+                // Empty means the receipt's date format isn't one
+                // NSDataDetector recognizes — NOT that the model invented
+                // its answer. Acting on an empty result would punish
+                // correct reads on unusual receipts, so we only judge when
+                // the detector actually found something.
+                if !printed.isEmpty && !printed.contains(parsedDay) {
+                    needsReview = true
+                    if printed.count == 1 {
+                        // Unambiguous: the receipt shows exactly one date
+                        // and it isn't the one the model reported.
+                        // Deterministic text beats model inference here —
+                        // take the printed date. Still flagged, so the
+                        // correction is visible, but the *stored* value is
+                        // right even if the user never looks.
+                        let formatter = DateFormatter()
+                        formatter.locale = Locale(identifier: "en_US_POSIX")
+                        formatter.dateFormat = AppConstants.sheetDateFormat
+                        resolvedWorkDate = formatter.string(from: printed[0])
+                        if reason.isEmpty {
+                            reason = "Date corrected to \(resolvedWorkDate) — the receipt shows that, not \(rawWorkDate). Please confirm."
+                        }
+                    } else if reason.isEmpty {
+                        // Genuine ambiguity (multiple dates on the receipt,
+                        // model's answer matches none) — flag, don't guess.
+                        reason = "Date \(rawWorkDate) doesn't appear on this receipt. Please confirm."
+                    }
+                }
             }
         } else {
             needsReview = true
@@ -218,7 +261,7 @@ struct ExtractedReceipt {
         let resolvedVendorType = VendorTypeToken.resolve(rawVendorType) ?? ""
         return ExtractedReceipt(
             vendor: vendor,
-            workDate: ClaudeService.normalizeDate(rawWorkDate),
+            workDate: resolvedWorkDate,
             amount: amount,
             comments: comments,
             vendorType: resolvedVendorType,
@@ -235,11 +278,36 @@ struct ExtractedReceipt {
 /// better Comments and sanity-check whether the receipt looks like it
 /// belongs), if the user bothered to write one.
 enum ExtractionPrompt {
-    static func preamble(categoryContext: String) -> String {
+    /// `modelNormalizesDate` controls who converts the receipt's printed date
+    /// into `yyyy-MM-dd`. The cloud models (Claude/OpenAI/Gemini/Perplexity)
+    /// do it themselves reliably, so they get today's date for plausibility
+    /// grounding plus an explicit format instruction.
+    ///
+    /// Apple's small on-device model passes `false`, for a confirmed reason:
+    /// asking it to both *find* the date and *reformat* it is two tasks, and
+    /// when it couldn't manage the conversion it fell back to copying the one
+    /// correctly-formatted yyyy-MM-dd string in its context — today's date,
+    /// handed to it by this very preamble. That produced a well-formed but
+    /// wrong date that passed every downstream plausibility check silently
+    /// (real case: a receipt printed "Ordered: 8/8/26 2:29 PM" saved as
+    /// today's date, while the model's own Comments correctly quoted
+    /// "8/8/26"). So for that model this omits today's date entirely — no
+    /// copyable target — and asks only for the date exactly as printed,
+    /// leaving normalization to `ClaudeService.flexibleDate`, which handles
+    /// the receipt formats deterministically.
+    static func preamble(categoryContext: String, modelNormalizesDate: Bool = true) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = AppConstants.sheetDateFormat
-        var lines = ["Today's date is \(formatter.string(from: Date())), given only so you can judge whether a date you find is plausible — never output today's date as the receipt's date unless the receipt itself clearly shows that date. The transaction date can appear near the top (often beside a check or order number) or in the payment / card-approval block near the bottom — check both. Look for labels like \"Date\", \"Ordered\", \"Order Date\", \"Transaction Date\", \"Sale Date\", or \"Served\" (e.g. a line like \"Date: 3/20/24\" or \"Ordered: 8/8/26\"). Output it as yyyy-MM-dd, expanding a 2-digit year to 20YY (so 3/20/24 becomes 2024-03-20). Only if there is genuinely no date anywhere, return an empty string — never guess or invent one."]
+
+        let dateGrounding = modelNormalizesDate
+            ? "Today's date is \(formatter.string(from: Date())), given only so you can judge whether a date you find is plausible — never output today's date as the receipt's date unless the receipt itself clearly shows that date. "
+            : ""
+        let formatInstruction = modelNormalizesDate
+            ? "Output it as yyyy-MM-dd, expanding a 2-digit year to 20YY (so 3/20/24 becomes 2024-03-20). "
+            : "Copy the date exactly as it is printed on the receipt — do not convert, reformat, or reorder it, and never substitute a date from anywhere else. "
+
+        var lines = [dateGrounding + "The transaction date can appear near the top (often beside a check or order number) or in the payment / card-approval block near the bottom — check both. Look for labels like \"Date\", \"Ordered\", \"Order Date\", \"Transaction Date\", \"Sale Date\", or \"Served\" (e.g. a line like \"Date: 3/20/24\" or \"Ordered: 8/8/26\"). " + formatInstruction + "Only if there is genuinely no date anywhere, return an empty string — never guess or invent one."]
         if !categoryContext.isEmpty {
             lines.append("This receipt is being filed under a category described by the user as: \"\(categoryContext)\". Use this to write more specific Comments, and lower your confidence if the receipt looks unrelated to this description.")
         }
