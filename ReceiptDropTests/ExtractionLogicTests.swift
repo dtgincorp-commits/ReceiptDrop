@@ -171,6 +171,125 @@ final class ExtractionLogicTests: XCTestCase {
         XCTAssertEqual(r.workDate, "2024-03-20")
         XCTAssertNotEqual(r.reviewReason, "Date unreadable, defaulted to today")
     }
+
+    // MARK: - ReceiptDateDetector
+
+    // The real receipt text from the Yellow Chilli bug report — printed
+    // date is 8/8/26, with a separate bare "Time  2:30 PM" line that must
+    // NOT be mistaken for a date on today.
+    private let yellowChilliText = """
+        The Yellow Chilli - Tustin
+        2463 Park Avenue
+        Tustin, CA 92782
+        Take Out
+        Check #9
+        Ordered:            8/8/26 2:29 PM
+        3 Pudina Seekh      $68.97
+        1 Half Tray          $0.00
+         Chanajor Garam Tikki $125.00
+        2 Bread Basket      $33.98
+        Subtotal           $227.95
+        Tax                 $17.65
+        Total              $245.60
+        Credit Card         Keyed
+        Time                2:30 PM
+        Transaction Type    Sale
+        """
+
+    func testDateDetectorFindsPrintedDate() {
+        let dates = ReceiptDateDetector.dates(in: yellowChilliText)
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = AppConstants.sheetDateFormat
+        XCTAssertTrue(dates.map { f.string(from: $0) }.contains("2026-08-08"))
+    }
+
+    func testDateDetectorIgnoresBareTimeLine() {
+        // The "Time  2:30 PM" line has no date attached — must not register
+        // as a date on today, or every receipt would silently look
+        // "correct" no matter what date the AI reports.
+        let dates = ReceiptDateDetector.dates(in: yellowChilliText)
+        let today = Calendar.current.startOfDay(for: Date())
+        XCTAssertFalse(dates.contains(today))
+    }
+
+    // MARK: - ExtractedReceipt.build date cross-check (sourceText)
+
+    func testMatchingDateNotFlagged() {
+        let r = ExtractedReceipt.build(
+            vendor: "The Yellow Chilli", rawWorkDate: "2026-08-08", amount: "245.60",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: yellowChilliText)
+        XCTAssertEqual(r.workDate, "2026-08-08")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testWrongDateIsCorrectedToThePrintedDate() {
+        // The actual bug: model reads the receipt fine (in this test,
+        // "today" stands in for whatever wrong date it substituted) but
+        // reports a date that isn't on the receipt at all. With exactly one
+        // date printed, the receipt's own text wins over the model.
+        let today = DateFormatter.posixDay.string(from: Date())
+        let r = ExtractedReceipt.build(
+            vendor: "The Yellow Chilli", rawWorkDate: today, amount: "245.60",
+            comments: "Ordered at 8/8/26 2:29 PM.", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: yellowChilliText)
+        XCTAssertEqual(r.workDate, "2026-08-08")
+        XCTAssertTrue(r.needsReview)
+        XCTAssertTrue(r.reviewReason.contains("2026-08-08"))
+    }
+
+    func testAmbiguousMultiDateReceiptFlagsWithoutGuessing() {
+        let text = "Order date: 3/1/26\nDelivery date: 3/5/26\nTotal: $10.00"
+        let r = ExtractedReceipt.build(
+            vendor: "Some Shop", rawWorkDate: "2026-03-10", amount: "10.00",
+            comments: "", rawVendorType: "retail",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: text)
+        // Model's date matches neither printed date — flagged, and NOT
+        // silently rewritten to either one, since which is "the" date is
+        // genuinely ambiguous.
+        XCTAssertEqual(r.workDate, "2026-03-10")
+        XCTAssertTrue(r.needsReview)
+    }
+
+    func testAmbiguousMultiDateReceiptAcceptsMatchingDate() {
+        let text = "Order date: 3/1/26\nDelivery date: 3/5/26\nTotal: $10.00"
+        let r = ExtractedReceipt.build(
+            vendor: "Some Shop", rawWorkDate: "2026-03-01", amount: "10.00",
+            comments: "", rawVendorType: "retail",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: text)
+        XCTAssertEqual(r.workDate, "2026-03-01")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testNoDetectableDateLeavesModelAnswerAlone() {
+        // Detector finds nothing (unusual/unsupported format on this
+        // "receipt") — that means "can't verify," not "the model is wrong."
+        // Punishing correct reads on unusual receipts would be worse than
+        // not checking at all.
+        let r = ExtractedReceipt.build(
+            vendor: "Some Shop", rawWorkDate: "2026-03-01", amount: "10.00",
+            comments: "", rawVendorType: "retail",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: "no date-shaped text here at all, just a total of $10.00")
+        XCTAssertEqual(r.workDate, "2026-03-01")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testNilSourceTextBehavesLikeBeforeThisChange() {
+        // Full-image extraction paths pass no sourceText — regression guard
+        // that omitting it entirely is identical to today's behavior.
+        let r = ExtractedReceipt.build(
+            vendor: "The Yellow Chilli", rawWorkDate: recentDate, amount: "245.60",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertEqual(r.workDate, recentDate)
+        XCTAssertFalse(r.needsReview)
+    }
 }
 
 private extension DateFormatter {

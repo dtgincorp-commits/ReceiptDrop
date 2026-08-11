@@ -56,7 +56,15 @@ struct ReceiptDraft {
     @Guide(description: "The contractor or vendor / business name on the receipt. Empty string if not present.")
     var vendor: String
 
-    @Guide(description: "The primary date on the receipt, normalized to yyyy-MM-dd. Empty string if no date is clearly shown — never guess or invent one.")
+    // Deliberately asks for the raw printed date rather than yyyy-MM-dd (the
+    // format every other provider is asked for). Making this small on-device
+    // model both find *and* reformat the date is two tasks: when it couldn't
+    // do the conversion it copied the yyyy-MM-dd date it could see — today's,
+    // from the prompt preamble — producing a well-formed but wrong date that
+    // passed every downstream check silently. `ClaudeService.flexibleDate`
+    // normalizes whatever comes back here, deterministically. See
+    // `ExtractionPrompt.preamble(categoryContext:modelNormalizesDate:)`.
+    @Guide(description: "The primary date on the receipt, copied exactly as printed (e.g. \"07/24/26\", \"8/8/26 2:29 PM\", \"March 3, 2026\" — whatever format is shown, do not convert or reformat it yourself). Empty string if none is clearly shown — never guess or invent one, and never use today's date.")
     var workDate: String
 
     @Guide(description: "The GRAND TOTAL at the very bottom of the receipt — the final amount owed, appearing AFTER the subtotal and tax lines, usually labeled 'Total', 'Grand Total', or 'Amount Due'. NEVER use an individual line-item food or drink price, no matter how large. Plain number, no currency symbol, e.g. 142.51. Empty string if the bottom-of-receipt total is not found.")
@@ -161,7 +169,7 @@ struct FoundationModelsService: ReceiptExtractor {
         try Self.ensureModelAvailable()
 
         let vocabulary = VendorTypeToken.allValidValues.joined(separator: ", ")
-        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext)
+        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext, modelNormalizesDate: false)
 
         let instructions = """
         You extract structured data from a photo of a receipt, invoice, or \
@@ -212,7 +220,7 @@ struct FoundationModelsService: ReceiptExtractor {
         try Self.ensureModelAvailable()
 
         let vocabulary = VendorTypeToken.allValidValues.joined(separator: ", ")
-        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext)
+        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext, modelNormalizesDate: false)
 
         let instructions = """
         You extract structured data from noisy, on-device-OCR text of a receipt, \
@@ -257,7 +265,7 @@ struct FoundationModelsService: ReceiptExtractor {
             comments: draft.comments.trimmingCharacters(in: .whitespacesAndNewlines),
             rawVendorType: draft.vendorType,
             modelReportedLowConfidence: draft.lowConfidence,
-            modelReason: draft.reviewReason)
+            modelReason: draft.reviewReason, sourceText: ocrText)
     }
 
     // MARK: - Bill itemization ("Check a Bill")
