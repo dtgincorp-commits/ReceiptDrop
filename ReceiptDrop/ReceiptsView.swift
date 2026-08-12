@@ -541,7 +541,6 @@ struct ReceiptsView: View {
                     } label: {
                         Label("Options", systemImage: "line.3.horizontal")
                     }
-                    .tint(.white)
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -553,7 +552,6 @@ struct ReceiptsView: View {
                     } label: {
                         Image(systemName: "doc.text.magnifyingglass")
                     }
-                    .tint(.white)
                     .accessibilityLabel("Check a Bill")
                 }
                 ToolbarItem(placement: .primaryAction) {
@@ -608,7 +606,6 @@ struct ReceiptsView: View {
                     } label: {
                         Label("New Receipt", systemImage: "plus")
                     }
-                    .tint(.white)
                 }
             }
         }

@@ -147,6 +147,13 @@ enum LocalReceiptStore {
     /// directory covers everything inside it, including future files. Safe to
     /// call repeatedly — call it on every launch so the flag survives folders
     /// being recreated. Returns true if at least one root was flagged.
+    ///
+    /// This is a fixed privacy stance, not a setting: Backup zips (a sibling
+    /// `Documents/Backups` folder, not excluded) already ride along in
+    /// iCloud and — since `BackupSettings.isAutoBackupDue()` was fixed to
+    /// bootstrap itself — get created automatically, so there's already a
+    /// recovery path for a lost phone without also putting every receipt
+    /// image (redundantly) into iCloud.
     @discardableResult
     static func excludeReceiptsFromBackup() -> Bool {
         let roots = [documentsRootURL(), spoolRootURL()].compactMap { $0 }
@@ -399,15 +406,19 @@ enum LocalReceiptStore {
     /// Copies a single file from a restore's extracted-zip temp folder into
     /// this category's Documents folder, preserving its filename. No-ops if
     /// a file with that name already exists — restore is purely additive,
-    /// it never overwrites anything already on this phone.
-    static func importFile(from sourceURL: URL, category: String, filename: String) throws {
+    /// it never overwrites anything already on this phone. Returns whether a
+    /// copy actually happened, so callers can tell "brought a missing file
+    /// back" apart from "already had it."
+    @discardableResult
+    static func importFile(from sourceURL: URL, category: String, filename: String) throws -> Bool {
         guard let destFolder = documentsRootURL()?.appendingPathComponent(category, isDirectory: true) else {
             throw LocalStoreError.appGroupUnavailable
         }
         try FileManager.default.createDirectory(at: destFolder, withIntermediateDirectories: true)
         let destURL = destFolder.appendingPathComponent(filename)
-        guard !FileManager.default.fileExists(atPath: destURL.path) else { return }
+        guard !FileManager.default.fileExists(atPath: destURL.path) else { return false }
         try FileManager.default.copyItem(at: sourceURL, to: destURL)
+        return true
     }
 
     /// Appends rows from a restored backup's CSV that aren't already present

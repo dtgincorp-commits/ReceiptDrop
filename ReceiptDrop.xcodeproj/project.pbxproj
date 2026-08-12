@@ -44,6 +44,7 @@
 		849150F0B742BED665DFDD9E /* ReceiptSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */; };
 		91B1D508C2908A0EB0045532 /* CategoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820F21560AF35EFF72979693 /* CategoryStore.swift */; };
 		92B9B6475BC80D6F58BD16D1 /* TorchPreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF53CB390C89FC9984BDC13 /* TorchPreferenceStore.swift */; };
+		94C1488C8061205BFD249837 /* LocalReceiptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */; };
 		986877CE36E68C3BF767AAD1 /* EditReceiptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2487A2052B551FC00FDF8D17 /* EditReceiptView.swift */; };
 		989C15E2F6780A8C9541AE6B /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86375C2C83E8E61C3F858C9B /* KeychainHelper.swift */; };
 		9B6EF7B44DF6ABBE6B508386 /* BatchSubmissionRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50557937A6FFA7EE5E0A83CD /* BatchSubmissionRunner.swift */; };
@@ -139,6 +140,7 @@
 		60DE60441FC6CA5A44E28DEF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReceiptStore.swift; sourceTree = "<group>"; };
 		67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptSubmitView.swift; sourceTree = "<group>"; };
+		692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReceiptStoreTests.swift; sourceTree = "<group>"; };
 		6B9C7F659B17F23A554F8347 /* SpendingInsightsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingInsightsService.swift; sourceTree = "<group>"; };
 		6CEFB96E5673FBC20796DFAE /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		7B3295A349899BF8290F0B97 /* ScannedTextSubmitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannedTextSubmitView.swift; sourceTree = "<group>"; };
@@ -183,6 +185,7 @@
 			isa = PBXGroup;
 			children = (
 				35A1A78E48AAD20590B47E39 /* ExtractionLogicTests.swift */,
+				692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */,
 			);
 			path = ReceiptDropTests;
 			sourceTree = "<group>";
@@ -468,6 +471,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E1B43E5E39B38CC08C3A7824 /* ExtractionLogicTests.swift in Sources */,
+				94C1488C8061205BFD249837 /* LocalReceiptStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
