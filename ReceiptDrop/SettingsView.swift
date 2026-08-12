@@ -690,6 +690,9 @@ struct ArchiveBackupView: View {
                 await MainActor.run {
                     isWorking = false
                     var message = "Restored \(summary.receiptsRestored) receipt\(summary.receiptsRestored == 1 ? "" : "s") (\(summary.receiptsSkipped) already present)."
+                    if summary.photosReattached > 0 {
+                        message += " Reattached \(summary.photosReattached) missing photo\(summary.photosReattached == 1 ? "" : "s") to receipts already on this phone."
+                    }
                     if !summary.duplicatePairs.isEmpty {
                         message += " Found \(summary.duplicatePairs.count) possible duplicate\(summary.duplicatePairs.count == 1 ? "" : "s")."
                     }

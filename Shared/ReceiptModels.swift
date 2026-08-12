@@ -526,13 +526,36 @@ enum BackupSettings {
         set { defaults.set(newValue.rawValue, forKey: AppConstants.DefaultsKeys.backupReminderFrequency) }
     }
 
-    /// True if a reminder is due: frequency isn't Off, at least one backup
-    /// has ever been made (no nagging a user who's never backed up once —
-    /// that's a decision to surface once, on the Archive & Backup screen
-    /// itself, not a repeated interruption), and enough days have passed.
+
+    /// True if a *reminder alert* is due: frequency isn't Off, at least one
+    /// backup has ever been made (no nagging a user who's never backed up
+    /// once — that's a decision to surface once, on the Archive & Backup
+    /// screen itself, not a repeated interruption), and enough days have
+    /// passed.
     static func isReminderDue() -> Bool {
         guard let days = reminderFrequency.intervalDays, let lastBackupDate else { return false }
         return Date().timeIntervalSince(lastBackupDate) >= Double(days) * 86400
+    }
+
+    /// True if an *automatic, silent* backup should run (see
+    /// `AutoBackupService`). Deliberately looser than `isReminderDue()` in
+    /// exactly one case: a user who has never backed up.
+    ///
+    /// The "never nag someone who's never backed up" rule above is right for
+    /// an alert, but applying it to the silent backup created a trap — with
+    /// no `lastBackupDate`, no auto-backup ran, which meant `lastBackupDate`
+    /// stayed nil forever. Auto-backup could never bootstrap itself, so
+    /// anyone who didn't manually find "Backup Now" had *zero* backups
+    /// indefinitely, while receipts are (by default) excluded from iCloud —
+    /// i.e. a lost phone lost everything. Nothing is nagged here because
+    /// there's no UI at all, so the reasoning simply doesn't transfer.
+    ///
+    /// Still gated on actually having receipts, preserving the original
+    /// intent of not spending a backup slot on an empty app.
+    static func isAutoBackupDue() -> Bool {
+        guard reminderFrequency.intervalDays != nil else { return false }
+        guard lastBackupDate != nil else { return !SubmissionStore.loadHistory().isEmpty }
+        return isReminderDue()
     }
 }
 
@@ -701,6 +724,12 @@ struct RestoreSummary {
     /// already on this phone matching one just restored. Never
     /// auto-resolved — see `DuplicateReviewView`.
     var duplicatePairs: [DuplicateDetectionService.Pair] = []
+    /// Photos reattached to receipts that were already in the list — the
+    /// device-restore case, where iCloud brought back the ledger (App Group
+    /// history isn't excluded from backup) but not the (deliberately
+    /// excluded) image files. Distinct from `receiptsRestored`, which only
+    /// counts entries new to history.
+    var photosReattached = 0
 }
 
 /// Restores a full backup zip (from `ArchiveBackupService.buildFullBackup`).
@@ -794,13 +823,24 @@ enum RestoreService {
         let existingIDs = Set(SubmissionStore.loadHistory().map { $0.id })
         let newEntries = backupEntries.filter { !existingIDs.contains($0.id) }
 
-        for entry in newEntries {
+        // Copy files for EVERY entry in the backup, not just new ones — an
+        // entry can already be in history (its metadata rode along in an
+        // iCloud device backup, since only the receipt image folders are
+        // excluded from that, not the App Group history list) while its
+        // photo is still missing (the excluded folder came back empty).
+        // `importFile` no-ops when the destination already exists, so this
+        // is safe: receipts that still have their photo are untouched, and
+        // this only ever fills in what's actually missing.
+        var photosReattached = 0
+        for entry in backupEntries {
             let sourceCategory = sourceCategories[entry.id] ?? entry.category
+            let isReattach = existingIDs.contains(entry.id)
             for filename in [entry.receiptLink] + entry.extraFiles {
                 guard !filename.isEmpty, !SubmissionPipeline.isPlaceholderLabel(filename) else { continue }
                 let sourceURL = contentRoot.appendingPathComponent(sourceCategory).appendingPathComponent(filename)
                 guard FileManager.default.fileExists(atPath: sourceURL.path) else { continue }
-                try? LocalReceiptStore.importFile(from: sourceURL, category: entry.category, filename: filename)
+                let copied = (try? LocalReceiptStore.importFile(from: sourceURL, category: entry.category, filename: filename)) ?? false
+                if copied && isReattach { photosReattached += 1 }
             }
         }
 
@@ -822,7 +862,7 @@ enum RestoreService {
 
         return RestoreSummary(
             receiptsRestored: restoredCount, receiptsSkipped: backupEntries.count - restoredCount,
-            duplicatePairs: duplicatePairs)
+            duplicatePairs: duplicatePairs, photosReattached: photosReattached)
     }
 
     /// Categories/descriptions merge in regardless (additive, never clobbers
