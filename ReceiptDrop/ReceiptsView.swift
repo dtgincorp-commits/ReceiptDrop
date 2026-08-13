@@ -543,16 +543,22 @@ struct ReceiptsView: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        if ExtractionSettings.aiConfigured {
-                            showBillCapture = true
-                        } else {
-                            showBillCaptureAIInvite = true
+                    // Hidden entirely for providers whose itemization isn't
+                    // good enough to offer (currently Apple On-Device) —
+                    // better than letting someone run it and conclude the
+                    // feature is broken. See `supportsBillItemization`.
+                    if ExtractionSettings.provider.supportsBillItemization {
+                        Button {
+                            if ExtractionSettings.aiConfigured {
+                                showBillCapture = true
+                            } else {
+                                showBillCaptureAIInvite = true
+                            }
+                        } label: {
+                            Image(systemName: "doc.text.magnifyingglass")
                         }
-                    } label: {
-                        Image(systemName: "doc.text.magnifyingglass")
+                        .accessibilityLabel("Check a Bill")
                     }
-                    .accessibilityLabel("Check a Bill")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -560,7 +566,7 @@ struct ReceiptsView: View {
                             Button {
                                 newReceiptSource = .scanDocument
                             } label: {
-                                Label("Scan Documents", systemImage: "doc.text.viewfinder")
+                                Label("Scan Receipt", systemImage: "doc.text.viewfinder")
                             }
                             Button {
                                 newReceiptSource = .camera

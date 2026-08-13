@@ -211,6 +211,7 @@ struct SubmissionPipeline {
                            newAmount: String, newComments: String,
                            newVendorType: String? = nil,
                            newPhoto: (data: Data, kind: ReceiptKind)? = nil,
+                           deletePhoto: Bool = false,
                            newExtraPhotos: [(data: Data, kind: ReceiptKind)] = [],
                            removedExtraFiles: [String] = []) throws -> HistoryEntry {
         var finalFilename = old.receiptLink
@@ -221,6 +222,16 @@ struct SubmissionPipeline {
                let oldURL = LocalReceiptStore.existingFileURL(category: old.category, filename: old.receiptLink) {
                 try? FileManager.default.removeItem(at: oldURL)
             }
+        } else if deletePhoto {
+            // Same placeholder a manually-entered receipt gets — the row
+            // still reads correctly (vendor/date/amount stand on their own),
+            // it just has no photo backing it, same as if it had been typed
+            // in rather than scanned.
+            if !isPlaceholderLabel(old.receiptLink),
+               let oldURL = LocalReceiptStore.existingFileURL(category: old.category, filename: old.receiptLink) {
+                try? FileManager.default.removeItem(at: oldURL)
+            }
+            finalFilename = Self.manualEntryLabel
         } else if !isPlaceholderLabel(old.receiptLink), old.category != newCategory {
             try LocalReceiptStore.moveFile(filename: old.receiptLink, from: old.category, to: newCategory)
         }

@@ -50,6 +50,7 @@ enum AppConstants {
         static let lastBackupDate = "lastBackupDate"
         static let backupReminderFrequency = "backupReminderFrequency"
         static let hasCompletedAISetup = "hasCompletedAISetup"  // guided Connect-AI wizard shown/skipped
+        static let appTextSize = "appTextSize"                  // per-app text size override; see AppTextSize
     }
 
     /// Date format written to the Work_Date column.

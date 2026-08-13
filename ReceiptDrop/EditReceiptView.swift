@@ -31,6 +31,12 @@ struct EditReceiptView: View {
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var newPhotoData: Data?
     @State private var newPhotoImage: UIImage?
+    @State private var newPhotoKind: ReceiptKind = .image
+    @State private var deletePhoto = false
+    @State private var showDeletePhotoConfirm = false
+    @State private var showCamera = false
+    @State private var showDocumentScanner = false
+    @State private var showFileImporter = false
 
     @State private var extraPickerItems: [PhotosPickerItem] = []
     @State private var remainingExtraFiles: [String]
@@ -156,9 +162,37 @@ struct EditReceiptView: View {
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let image = UIImage(data: data) {
-                    newPhotoData = data
-                    newPhotoImage = image
+                    applyNewPhoto(data: data, image: image, kind: .image)
                 }
+            }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraCaptureView { image in
+                showCamera = false
+                if let image, let jpeg = image.jpegData(compressionQuality: 0.85) {
+                    applyNewPhoto(data: jpeg, image: image, kind: .image)
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .fullScreenCover(isPresented: $showDocumentScanner) {
+            DocumentScannerView { image in
+                showDocumentScanner = false
+                if let image, let jpeg = image.jpegData(compressionQuality: 0.85) {
+                    applyNewPhoto(data: jpeg, image: image, kind: .image)
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .image]) { result in
+            guard case .success(let url) = result,
+                  url.startAccessingSecurityScopedResource() else { return }
+            defer { url.stopAccessingSecurityScopedResource() }
+            guard let data = try? Data(contentsOf: url) else { return }
+            if url.pathExtension.lowercased() == "pdf" {
+                applyNewPhoto(data: data, image: pdfThumbnail(data), kind: .pdf)
+            } else if let image = UIImage(data: data) {
+                applyNewPhoto(data: data, image: image, kind: .image)
             }
         }
         .onChange(of: extraPickerItems) { items in
@@ -218,6 +252,9 @@ struct EditReceiptView: View {
                         .scaledToFit()
                         .frame(maxHeight: 180)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else if deletePhoto {
+                    Label("No photo attached", systemImage: "doc.text")
+                        .foregroundStyle(.secondary)
                 } else if let existingImage {
                     Image(uiImage: existingImage)
                         .resizable()
@@ -230,9 +267,48 @@ struct EditReceiptView: View {
                 }
                 Spacer()
             }
-            PhotosPicker(isPlaceholder ? "Add Photo" : "Replace Photo",
-                        selection: $photoPickerItem, matching: .images)
+            Menu {
+                Button {
+                    showDocumentScanner = true
+                } label: {
+                    Label("Scan Receipt", systemImage: "doc.text.viewfinder")
+                }
+                Button {
+                    showCamera = true
+                } label: {
+                    Label("Take Photo", systemImage: "camera")
+                }
+                PhotosPicker(selection: $photoPickerItem, matching: .images) {
+                    Label("Choose from Library", systemImage: "photo.on.rectangle")
+                }
+                Button {
+                    showFileImporter = true
+                } label: {
+                    Label("Choose File", systemImage: "folder")
+                }
+            } label: {
+                Text((isPlaceholder || deletePhoto) ? "Add Photo" : "Replace Photo")
+            }
+            .disabled(isSaving)
+            if !isPlaceholder && !deletePhoto {
+                Button(role: .destructive) {
+                    showDeletePhotoConfirm = true
+                } label: {
+                    Text("Delete Photo")
+                }
                 .disabled(isSaving)
+            }
+        }
+        .alert("Delete this photo?", isPresented: $showDeletePhotoConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                deletePhoto = true
+                photoPickerItem = nil
+                newPhotoData = nil
+                newPhotoImage = nil
+            }
+        } message: {
+            Text("The vendor, date, and amount are kept — only the photo is removed. Takes effect once you save.")
         }
     }
 
@@ -304,6 +380,16 @@ struct EditReceiptView: View {
         return UIImage(data: data)
     }
 
+    /// Shared by every capture source (scan, camera, library, file) so
+    /// picking a replacement always supersedes a pending deletion and the
+    /// kind (image vs. PDF) is tracked correctly through to `save()`.
+    private func applyNewPhoto(data: Data, image: UIImage?, kind: ReceiptKind) {
+        deletePhoto = false
+        newPhotoData = data
+        newPhotoImage = image
+        newPhotoKind = kind
+    }
+
     private func save() {
         guard !selectedCategory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             message = "Please pick a category before saving."
@@ -314,8 +400,12 @@ struct EditReceiptView: View {
             .map { String($0) } ?? amount
 
         var newPhoto: (data: Data, kind: ReceiptKind)?
-        if let newPhotoData, let jpeg = UIImage(data: newPhotoData)?.jpegData(compressionQuality: 0.85) {
-            newPhoto = (jpeg, .image)
+        if let newPhotoData {
+            if newPhotoKind == .pdf {
+                newPhoto = (newPhotoData, .pdf)
+            } else if let jpeg = UIImage(data: newPhotoData)?.jpegData(compressionQuality: 0.85) {
+                newPhoto = (jpeg, .image)
+            }
         }
 
         message = nil
@@ -338,6 +428,7 @@ struct EditReceiptView: View {
                     newComments: comments.trimmingCharacters(in: .whitespacesAndNewlines),
                     newVendorType: selectedVendorType,
                     newPhoto: newPhoto,
+                    deletePhoto: deletePhoto,
                     newExtraPhotos: newExtraPhotos,
                     removedExtraFiles: removedExtras)
                 LocalReceiptStore.drainSpoolIntoDocuments()

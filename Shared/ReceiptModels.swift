@@ -191,6 +191,31 @@ struct ExtractedReceipt {
         if amount.isEmpty || Double(amount) == nil || Double(amount) == 0 {
             needsReview = true
             if reason.isEmpty { reason = "Amount missing or unreadable" }
+        } else if let sourceText, let amountValue = Double(amount) {
+            // Cross-check against what's actually printed — a model asked
+            // for a grand total that's blank on the receipt (tip line never
+            // filled in, no total written) can fabricate a plausible-looking
+            // number rather than returning empty, the same failure mode
+            // ReceiptDateDetector catches for dates. Confirmed real case: a
+            // receipt with a blank TOTAL AMOUNT line and only "$66.23"
+            // printed came back with $142.51 saved.
+            //
+            // Unlike the date check, this never auto-corrects: a receipt has
+            // many numbers (line items, subtotal, tax, tip, card digits),
+            // so guessing which one is "the" total risks writing a
+            // different wrong figure into a tax record. Flag only.
+            //
+            // An empty detector result means "this receipt's amount format
+            // wasn't recognized," not "the model invented it" — same
+            // reasoning as the date guardrail's empty-detector case.
+            let printed = ReceiptAmountDetector.amounts(in: sourceText)
+            let normalizedAmount = String(format: "%.2f", amountValue)
+            if !printed.isEmpty && !printed.contains(normalizedAmount) {
+                needsReview = true
+                if reason.isEmpty {
+                    reason = "Amount $\(amount) isn't printed on this receipt — please check it."
+                }
+            }
         }
         // Accept any format receipts actually use (M/d/yy, MM/dd/yyyy, …), not
         // just yyyy-MM-dd — otherwise a correctly-read date in the receipt's
@@ -362,6 +387,23 @@ enum ExtractionProvider: String, Codable, CaseIterable, Identifiable {
         guard self == .appleOnDevice else { return true }
         if #available(iOS 26.0, *) { return true }
         return false
+    }
+
+    /// Whether this provider produces bill itemization good enough to put in
+    /// front of a user. Every provider *can* run `BillItemizationService`,
+    /// but Apple's small on-device model isn't accurate enough on real bills
+    /// to be worth offering — it has a 4,096-token context and no
+    /// receipt-specific training, so complex multi-item bills come back
+    /// unreliable (the same limitation documented in
+    /// `FoundationModelsService.itemizeBill`). Rather than let someone hit
+    /// that and conclude the feature is broken, the Check a Bill entry point
+    /// is hidden entirely while this provider is selected.
+    ///
+    /// Deliberately keyed off the provider, not the device: a recent iPhone
+    /// that *can* run Apple On-Device hits the same accuracy problem, and an
+    /// older iPhone can't select it in the first place.
+    var supportsBillItemization: Bool {
+        self != .appleOnDevice
     }
 }
 

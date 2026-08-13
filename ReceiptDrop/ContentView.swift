@@ -5,6 +5,12 @@ struct ContentView: View {
     @State private var selectedTab = 0
     @State private var showBackupReminder = false
     @State private var showConnectAI = false
+    // @AppStorage against the App Group suite (not the default store) so
+    // this reads/writes the same value SettingsView's picker does, with
+    // SwiftUI's normal live-update behavior — changing it in Settings
+    // redraws here immediately, no relaunch needed.
+    @AppStorage(AppConstants.DefaultsKeys.appTextSize, store: UserDefaults(suiteName: AppConstants.appGroupID))
+    private var appTextSize: AppTextSize = .system
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -22,6 +28,12 @@ struct ContentView: View {
                 .tag(3)
         }
         .tint(Theme.skyBlue)
+        // Applied once at the root — sheets/full-screen covers presented
+        // from anywhere in this tree (Edit Receipt, the submit screen,
+        // Connect AI) inherit it as part of the normal environment.
+        // `.system` applies no modifier at all, so iOS's own Text Size /
+        // accessibility setting flows through completely untouched.
+        .modifier(OptionalDynamicTypeSize(size: appTextSize.dynamicTypeSize))
         // Receipts saved by the share extension land in the App Group spool;
         // drain them into Documents (visible in Files) whenever we foreground.
         .onAppear {
@@ -56,6 +68,22 @@ struct ContentView: View {
             return
         }
         showConnectAI = true
+    }
+}
+
+/// Applies a `DynamicTypeSize` override only when one is given — `nil`
+/// (the `.system` case of `AppTextSize`) must leave iOS's own Text Size /
+/// accessibility setting completely untouched rather than pinning to some
+/// default, which is why this isn't just `.dynamicTypeSize(size ?? .large)`.
+private struct OptionalDynamicTypeSize: ViewModifier {
+    let size: DynamicTypeSize?
+
+    func body(content: Content) -> some View {
+        if let size {
+            content.dynamicTypeSize(size)
+        } else {
+            content
+        }
     }
 }
 
@@ -211,6 +239,7 @@ private struct QueueEntryDetailView: View {
     @State private var image: UIImage?
     @State private var isPDF = false
     @State private var showDeleteConfirm = false
+    @State private var showPhotoViewer = false
 
     var body: some View {
         Form {
@@ -218,11 +247,22 @@ private struct QueueEntryDetailView: View {
                 HStack {
                     Spacer()
                     if let image {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 320)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        // Tappable: a queued receipt is exactly the case where
+                        // the user needs a close look — deciding whether it's
+                        // worth retrying, or reading a total off a dim/angled
+                        // shot. Reuses the same viewer as Bill Breakdown, so
+                        // pinch-zoom plus the Enhanced/Cropped renderings for
+                        // faded thermal paper come along for free.
+                        Button {
+                            showPhotoViewer = true
+                        } label: {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 320)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
                     } else if isPDF {
                         Label("PDF attached", systemImage: "doc.fill")
                             .foregroundStyle(.secondary)
@@ -231,6 +271,10 @@ private struct QueueEntryDetailView: View {
                             .frame(height: 120)
                     }
                     Spacer()
+                }
+            } footer: {
+                if image != nil {
+                    Text("Tap the photo to zoom in.")
                 }
             }
 
@@ -279,6 +323,13 @@ private struct QueueEntryDetailView: View {
             }
         } message: {
             Text("The photo won't be submitted or saved anywhere — this can't be undone.")
+        }
+        .fullScreenCover(isPresented: $showPhotoViewer) {
+            // Read the bytes fresh rather than re-encoding `image` — the
+            // viewer's Enhanced/Cropped modes work off the original file.
+            if let data = SubmissionStore.attachmentData(for: entry) {
+                BillPhotoViewerView(photoData: data, onDone: { showPhotoViewer = false })
+            }
         }
         .onAppear(perform: loadPreview)
     }

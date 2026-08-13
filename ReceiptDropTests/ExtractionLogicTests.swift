@@ -290,6 +290,133 @@ final class ExtractionLogicTests: XCTestCase {
         XCTAssertEqual(r.workDate, recentDate)
         XCTAssertFalse(r.needsReview)
     }
+
+    // MARK: - ReceiptAmountDetector
+
+    // Same offset as `recentDate` (3 days ago), formatted the way this
+    // receipt prints it — keeps the fixture's printed date in sync with
+    // `recentDate` no matter when the suite actually runs, so the (separate,
+    // already-tested) date guardrail never has a reason to fire in these
+    // amount-focused tests. A literal hardcoded date here previously caused
+    // exactly that: it silently drifted out of sync with `recentDate` and
+    // tripped the date cross-check for reasons unrelated to what the test
+    // was actually checking.
+    private var naanAndKabobDateString: String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MM/dd/yyyy"
+        return f.string(from: Calendar.current.date(byAdding: .day, value: -3, to: Date())!)
+    }
+
+    // The real receipt text from the Naan and Kabob bug report — a blank
+    // "TOTAL AMOUNT" line (tip never filled in) with only $66.23 printed.
+    // Sequence/batch/invoice numbers are included deliberately: they must
+    // NOT be picked up as amounts (see ReceiptAmountDetector's "looks like
+    // money" requirement).
+    private var naanAndKabobText: String {
+        """
+        NAAN AND KABOB LLC
+        416 E 1ST ST
+        TUSTIN, CA 92780
+        \(naanAndKabobDateString)            13:30:03
+        CREDIT CARD
+        VISA SALE
+        Card #: XXXXXXXXXXXX4316
+        Chip Card: CHASE VISA
+        AID: A0000000031010
+        SEQ #: 15
+        Batch #: 972
+        INVOICE: 17
+        Approval Code: 00093G
+        Entry Method: Chip Read
+        Mode: Issuer
+        PRE-TIP AMT              $66.23
+        TIP
+        TOTAL AMOUNT
+        CUSTOMER COPY
+        """
+    }
+
+    func testAmountDetectorFindsPrintedAmount() {
+        let amounts = ReceiptAmountDetector.amounts(in: naanAndKabobText)
+        XCTAssertTrue(amounts.contains("66.23"))
+    }
+
+    func testAmountDetectorDoesNotContainFabricatedAmount() {
+        let amounts = ReceiptAmountDetector.amounts(in: naanAndKabobText)
+        XCTAssertFalse(amounts.contains("142.51"))
+    }
+
+    func testAmountDetectorIgnoresBareIntegers() {
+        // SEQ #: 15, Batch #: 972, INVOICE: 17 — none of these are money,
+        // and must not create false-negative risk for a fabricated amount
+        // that happens to collide with one of them.
+        let amounts = ReceiptAmountDetector.amounts(in: naanAndKabobText)
+        XCTAssertFalse(amounts.contains("15.00"))
+        XCTAssertFalse(amounts.contains("972.00"))
+        XCTAssertFalse(amounts.contains("17.00"))
+    }
+
+    // MARK: - ExtractedReceipt.build amount cross-check (sourceText)
+
+    func testPrintedAmountNotFlagged() {
+        let r = ExtractedReceipt.build(
+            vendor: "Naan and Kabob", rawWorkDate: recentDate, amount: "66.23",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: naanAndKabobText)
+        XCTAssertEqual(r.amount, "66.23")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testFabricatedAmountIsFlaggedNotCorrected() {
+        // The actual bug: model returns a plausible-looking total that
+        // appears nowhere on the receipt. Unlike the date guardrail, this
+        // must NOT auto-correct — the amount stays exactly as reported,
+        // just flagged, since a receipt has too many numbers to safely
+        // guess which one is "the" total.
+        let r = ExtractedReceipt.build(
+            vendor: "Naan and Kabob", rawWorkDate: recentDate, amount: "142.51",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: naanAndKabobText)
+        XCTAssertEqual(r.amount, "142.51", "amount must be left unchanged — flag only, never auto-correct")
+        XCTAssertTrue(r.needsReview)
+        XCTAssertTrue(r.reviewReason.contains("142.51"))
+    }
+
+    func testAmountNormalizationMatchesTrailingZero() {
+        let r = ExtractedReceipt.build(
+            vendor: "Some Shop", rawWorkDate: recentDate, amount: "245.6",
+            comments: "", rawVendorType: "retail",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: "Total    $245.60")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testNoDetectableAmountLeavesModelAnswerAlone() {
+        // Detector finds nothing (unusual/unsupported format) — that means
+        // "can't verify," not "the model is wrong." Punishing correct reads
+        // on unusual receipts would be worse than not checking at all.
+        let r = ExtractedReceipt.build(
+            vendor: "Some Shop", rawWorkDate: recentDate, amount: "10.00",
+            comments: "", rawVendorType: "retail",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: "no currency-shaped text here at all")
+        XCTAssertEqual(r.amount, "10.00")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testNilSourceTextSkipsAmountCrossCheck() {
+        // Regression guard: omitting sourceText entirely must behave
+        // identically to before this change — no amount cross-check at all.
+        let r = ExtractedReceipt.build(
+            vendor: "Naan and Kabob", rawWorkDate: recentDate, amount: "142.51",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertEqual(r.amount, "142.51")
+        XCTAssertFalse(r.needsReview)
+    }
 }
 
 private extension DateFormatter {

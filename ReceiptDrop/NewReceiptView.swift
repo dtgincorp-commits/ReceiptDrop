@@ -177,7 +177,7 @@ struct NewReceiptView: View {
 /// VisionKit's document scanner — auto-detects edges, crops, and corrects
 /// perspective, giving a cleaner scan than a plain camera photo. Only the
 /// first page is used (the app submits one receipt at a time).
-private struct DocumentScannerView: UIViewControllerRepresentable {
+struct DocumentScannerView: UIViewControllerRepresentable {
     let onScan: (UIImage?) -> Void
 
     func makeUIViewController(context: Context) -> VNDocumentCameraViewController {
@@ -211,7 +211,7 @@ private struct DocumentScannerView: UIViewControllerRepresentable {
 }
 
 /// UIKit camera wrapped for SwiftUI. iOS 16 has no SwiftUI-native camera API.
-private struct CameraCaptureView: UIViewControllerRepresentable {
+struct CameraCaptureView: UIViewControllerRepresentable {
     let onCapture: (UIImage?) -> Void
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
