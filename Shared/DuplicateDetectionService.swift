@@ -24,6 +24,14 @@ import Foundation
 ///    distinctly rather than "likely," with the label reflecting exactly
 ///    which field(s) actually differ.
 ///
+///    One exception relaxes the date part of (2): if the two amounts differ
+///    by a plausible tip (see `isTipShaped`), the dates don't have to be
+///    close at all. That covers the same bill entered twice — once before
+///    the tip was written in, once after — where the work date on one copy
+///    was read wrong and landed outside the window. Vendor still gates it,
+///    so the date requirement is waived only in this specific, narrow case
+///    rather than loosened generally.
+///
 /// Amount comparisons throughout are numeric, not exact-string — "245.60"
 /// and "245.6" are the same amount, but different extraction passes don't
 /// always agree on trailing-zero formatting.
@@ -45,6 +53,7 @@ enum DuplicateDetectionService {
             case possibleDifferentAmount = "Possible Duplicate — Different Amount (check tax/tip)"
             case possibleDifferentDate = "Possible Duplicate — Check the Date"
             case possibleDifferentDateAndAmount = "Possible Duplicate — Check the Date and Amount"
+            case possibleTipAdded = "Possible Duplicate — One May Include Tip"
         }
     }
 
@@ -59,6 +68,28 @@ enum DuplicateDetectionService {
     /// enough to catch an AI defaulting to "today" when the real date was a
     /// day or two earlier, without pairing up unrelated visits weeks apart.
     private static let nearbyDateWindow: TimeInterval = 3 * 24 * 60 * 60
+
+    /// Ratio band for "these are the same bill, one of them tipped." Covers
+    /// the realistic US restaurant range — 10%, 15%, 18%, 20%, 25% all land
+    /// inside it, and the 1.30 ceiling absorbs a generous tipper or a tip
+    /// calculated on the tax-inclusive total. Deliberately not wider:
+    /// past ~30% this starts colliding with genuinely separate visits to the
+    /// same restaurant (a $100 dinner and a $140 dinner are 40% apart and
+    /// are not the same bill).
+    private static let tipRatioRange: ClosedRange<Double> = 1.10...1.30
+
+    /// True when the two amounts differ by a plausible tip. Direction is
+    /// deliberately NOT constrained to "the later receipt is the larger one":
+    /// in the real case this was built for, the *earlier* work date carried
+    /// the with-tip total ($342.39 on Jul 26) and the later one the pre-tip
+    /// total ($297.39 on Jul 30) — a direction rule would have rejected the
+    /// actual duplicate it exists to catch. Ordering of scans and dates is
+    /// too unreliable here; the ratio itself is the signal.
+    private static func isTipShaped(_ a: String, _ b: String) -> Bool {
+        guard let x = Double(a), let y = Double(b), x > 0, y > 0 else { return false }
+        let ratio = max(x, y) / min(x, y)
+        return tipRatioRange.contains(ratio)
+    }
 
     static func findPairs(in entries: [HistoryEntry]) -> [Pair] {
         var dated: [String: [HistoryEntry]] = [:]
@@ -106,9 +137,23 @@ enum DuplicateDetectionService {
                 let sameDate = a.workDate == b.workDate
                 let sameAmount = normalizedAmountKey(a.amount) == normalizedAmountKey(b.amount)
                 if sameDate && sameAmount { continue } // Signal 1 already covers this exact case
-                guard abs(dateA.timeIntervalSince(dateB)) <= nearbyDateWindow else { continue }
+                // The date requirement stands as before, with one specific
+                // exception: a tip-shaped amount difference is strong enough
+                // evidence on its own that the dates needn't be close. This
+                // is what catches the same bill re-entered with the tip
+                // filled in, where the work date on one copy was simply read
+                // wrong (a 4-day gap, one day past the window). Kept as one
+                // merged condition rather than a separate pass so a pair
+                // that satisfies both can't be flagged twice.
+                let datesClose = abs(dateA.timeIntervalSince(dateB)) <= nearbyDateWindow
+                let tipShaped = isTipShaped(a.amount, b.amount)
+                guard datesClose || tipShaped else { continue }
                 guard BillEvalScorer.namesMatch(a.vendor, b.vendor) else { continue }
-                let confidence: Pair.Confidence = sameDate ? .possibleDifferentAmount
+                // Tip takes priority over the generic labels — it explains
+                // *why* the amounts differ, which is more actionable than
+                // just reporting that they do.
+                let confidence: Pair.Confidence = tipShaped ? .possibleTipAdded
+                    : sameDate ? .possibleDifferentAmount
                     : sameAmount ? .possibleDifferentDate
                     : .possibleDifferentDateAndAmount
                 pairs.append(Pair(id: "\(a.id)-\(b.id)", first: a, second: b, confidence: confidence))

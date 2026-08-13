@@ -417,6 +417,71 @@ final class ExtractionLogicTests: XCTestCase {
         XCTAssertEqual(r.amount, "142.51")
         XCTAssertFalse(r.needsReview)
     }
+
+    // MARK: - Duplicate detection: tip-shaped amounts waive the date window
+
+    private func entry(_ vendor: String, _ date: String, _ amount: String) -> HistoryEntry {
+        HistoryEntry(category: "DTG", vendor: vendor, workDate: date, amount: amount,
+                     receiptLink: "\(UUID().uuidString).jpg", timestamp: Date())
+    }
+
+    func testTipShapedPairFlaggedDespiteDateGapBeyondWindow() {
+        // The real Water Grill case: same bill entered twice, once pre-tip
+        // and once with tip, and the work date on one copy was read wrong —
+        // landing 4 days apart, one day past the 3-day window. Neither the
+        // same-date nor the nearby-date rule catches this; the tip ratio
+        // (297.39 → 342.39 = +15.13%) is what does.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Water Grill South Coast Plaza", "2026-07-26", "342.39"),
+            entry("Water Grill South Coast Plaza", "2026-07-30", "297.39"),
+        ])
+        XCTAssertEqual(pairs.count, 1)
+        XCTAssertEqual(pairs.first?.confidence, .possibleTipAdded)
+    }
+
+    func testTipShapedPairFlaggedRegardlessOfWhichDateIsLarger() {
+        // Direction is deliberately unconstrained — in the real case the
+        // EARLIER date carried the with-tip total, so a "later receipt must
+        // be the larger one" rule would have rejected a true duplicate.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Water Grill", "2026-07-26", "297.39"),
+            entry("Water Grill", "2026-07-30", "342.39"),
+        ])
+        XCTAssertEqual(pairs.count, 1)
+        XCTAssertEqual(pairs.first?.confidence, .possibleTipAdded)
+    }
+
+    func testNonTipRatioBeyondDateWindowStillNotFlagged() {
+        // 40% apart is a separate visit, not a tip — the date window must
+        // still apply here, or this change would loosen detection generally
+        // instead of only for the tip case.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Water Grill", "2026-07-26", "100.00"),
+            entry("Water Grill", "2026-07-30", "140.00"),
+        ])
+        XCTAssertTrue(pairs.isEmpty)
+    }
+
+    func testTipShapedPairWithDifferentVendorNotFlagged() {
+        // Vendor still gates it — two unrelated businesses whose totals
+        // happen to sit ~15% apart are not the same bill.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Water Grill", "2026-07-26", "342.39"),
+            entry("Zabb Thai Cuisine", "2026-07-30", "297.39"),
+        ])
+        XCTAssertTrue(pairs.isEmpty)
+    }
+
+    func testTipShapedPairIsFlaggedOnceNotTwice() {
+        // Within the date window AND tip-shaped — satisfies both conditions,
+        // must still produce exactly one pair, not a duplicate entry in the
+        // review list.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Water Grill", "2026-07-26", "342.39"),
+            entry("Water Grill", "2026-07-27", "297.39"),
+        ])
+        XCTAssertEqual(pairs.count, 1)
+    }
 }
 
 private extension DateFormatter {
