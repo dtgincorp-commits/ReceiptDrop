@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -33,9 +33,11 @@
 		48B4716DBEE24027E4094340 /* ClaudeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7730A1380B462CC48DB1C5E /* ClaudeService.swift */; };
 		53A231EDE5EC0E17EDAF8BC0 /* BillModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE72A7EE2EB472CB550F4F88 /* BillModels.swift */; };
 		54EBDEACA67CDD0340D4C3E1 /* SubmissionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57FF61EB58699460FE16D612 /* SubmissionStore.swift */; };
+		54ED10E6932E78F13E41BA9E /* AppCurrency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */; };
 		565E406ADD2728D9A3D43D98 /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2941693C5D3EECC412C2593 /* AppConstants.swift */; };
 		58168498563928C083F7B003 /* ConnectAIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B5E0049BD90BDFDE54268AE /* ConnectAIView.swift */; };
 		5D8E7EE90D784CEE0BFCB5F7 /* BillPhotoViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D324D5EAA6CF8E1542B4DEE2 /* BillPhotoViewerView.swift */; };
+		71CCDF38BD3109B77E790035 /* AppCurrency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */; };
 		77684F15B8C98AF84E326C8A /* ReceiptModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */; };
 		77B47008DA30372897F64B0C /* SubmissionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */; };
 		77C0989788E93F755A1953BF /* ReceiptCropService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052B9FD37DCB668BAE4A85FC /* ReceiptCropService.swift */; };
@@ -124,7 +126,7 @@
 		2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptDateDetector.swift; sourceTree = "<group>"; };
 		21D87B0E04C004C048B153C0 /* NewReceiptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewReceiptView.swift; sourceTree = "<group>"; };
 		2487A2052B551FC00FDF8D17 /* EditReceiptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditReceiptView.swift; sourceTree = "<group>"; };
-		24F99E4477C2AFEDD8DC698B /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		24F99E4477C2AFEDD8DC698B /* ShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		2BA4083781DB6C6A6F55D792 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptModels.swift; sourceTree = "<group>"; };
 		3126EACE7989CA12C3083A98 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -148,13 +150,14 @@
 		692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReceiptStoreTests.swift; sourceTree = "<group>"; };
 		6B9C7F659B17F23A554F8347 /* SpendingInsightsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingInsightsService.swift; sourceTree = "<group>"; };
 		6CEFB96E5673FBC20796DFAE /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCurrency.swift; sourceTree = "<group>"; };
 		7B3295A349899BF8290F0B97 /* ScannedTextSubmitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannedTextSubmitView.swift; sourceTree = "<group>"; };
 		820F21560AF35EFF72979693 /* CategoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryStore.swift; sourceTree = "<group>"; };
 		821135EAEB594F15E8ECCC57 /* DuplicateDetectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateDetectionService.swift; sourceTree = "<group>"; };
 		86375C2C83E8E61C3F858C9B /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		874DB9B5F6B131E4EF1B14AB /* FoundationModelsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelsService.swift; sourceTree = "<group>"; };
 		95B580A99D583CAAF76374FD /* ManualReceiptEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualReceiptEntryView.swift; sourceTree = "<group>"; };
-		9E9676D03C5C8CD8922DCCCB /* ReceiptDrop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ReceiptDrop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9E9676D03C5C8CD8922DCCCB /* ReceiptDrop.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ReceiptDrop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A390548284FDD4A341F7ABF5 /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		A7730A1380B462CC48DB1C5E /* ClaudeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeService.swift; sourceTree = "<group>"; };
 		A9E51159281ABA1A7AF432D8 /* ReceiptPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptPreviewView.swift; sourceTree = "<group>"; };
@@ -223,6 +226,7 @@
 			children = (
 				BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */,
 				E2941693C5D3EECC412C2593 /* AppConstants.swift */,
+				75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */,
 				65429EAA84DE433AE5FE8369 /* AppTextSize.swift */,
 				0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */,
 				50557937A6FFA7EE5E0A83CD /* BatchSubmissionRunner.swift */,
@@ -360,7 +364,6 @@
 				};
 			};
 			buildConfigurationList = 42022B79418640C684641B2A /* Build configuration list for PBXProject "ReceiptDrop" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -368,6 +371,8 @@
 				en,
 			);
 			mainGroup = A89798D37D65AA8A1ADB81E3;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
 			productRefGroup = 6CD442EA577FD2892FF72245 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -397,6 +402,7 @@
 			files = (
 				1BEBCD8888AB65FF0B4D5827 /* APIKeyTester.swift in Sources */,
 				7BEB3A1247963FEF61B950FE /* AppConstants.swift in Sources */,
+				71CCDF38BD3109B77E790035 /* AppCurrency.swift in Sources */,
 				A933026D14369CB556BD7573 /* AppTextSize.swift in Sources */,
 				16A31AF37D41B42F94982675 /* AutoBackupService.swift in Sources */,
 				E7AED0646507150C7FAAFA65 /* AzureDocumentIntelligenceService.swift in Sources */,
@@ -450,6 +456,7 @@
 			files = (
 				438C22CA72F62D6792A44725 /* APIKeyTester.swift in Sources */,
 				565E406ADD2728D9A3D43D98 /* AppConstants.swift in Sources */,
+				54ED10E6932E78F13E41BA9E /* AppCurrency.swift in Sources */,
 				7DC9169DF1AABEE1E48F39A9 /* AppTextSize.swift in Sources */,
 				0A932F628E1DA811D4270E99 /* AzureDocumentIntelligenceService.swift in Sources */,
 				401A2E4BB076015C80CB489B /* BatchSubmissionRunner.swift in Sources */,
@@ -522,7 +529,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
-				DEVELOPMENT_TEAM = PF88NMMJH9;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -539,7 +545,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
-				DEVELOPMENT_TEAM = PF88NMMJH9;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -622,7 +627,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ReceiptDrop/ReceiptDrop.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = PF88NMMJH9;
 				INFOPLIST_FILE = ReceiptDrop/Info.plist;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -641,7 +645,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ReceiptDrop/ReceiptDrop.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = PF88NMMJH9;
 				INFOPLIST_FILE = ReceiptDrop/Info.plist;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (

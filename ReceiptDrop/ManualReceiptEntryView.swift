@@ -16,6 +16,11 @@ struct ManualReceiptEntryView: View {
     @State private var message: String?
     @State private var isDuplicate = false
 
+    // Same App Group store + key SettingsView writes, so the symbol shown
+    // here always matches whatever the user picked.
+    @AppStorage(AppConstants.DefaultsKeys.appCurrency, store: UserDefaults(suiteName: AppConstants.appGroupID))
+    private var appCurrency: AppCurrency = .auto
+
     private var canSave: Bool {
         !vendor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && Double(amount.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
@@ -34,7 +39,7 @@ struct ManualReceiptEntryView: View {
                 Section("Details") {
                     TextField("Merchant / Vendor", text: $vendor)
                     HStack {
-                        Text("$")
+                        Text(appCurrency.symbol)
                         TextField("Amount", text: $amount)
                             .keyboardType(.decimalPad)
                     }

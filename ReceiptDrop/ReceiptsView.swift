@@ -28,6 +28,10 @@ struct ReceiptsView: View {
     /// Persists across launches — whether the tree groups by the date the
     /// receipt was scanned or the date printed on the receipt itself.
     @AppStorage("receiptsGroupByWorkDate") private var groupByWorkDate = false
+    // Same App Group store + key SettingsView writes, so the summary total
+    // below always reflects whatever the user picked.
+    @AppStorage(AppConstants.DefaultsKeys.appCurrency, store: UserDefaults(suiteName: AppConstants.appGroupID))
+    private var appCurrency: AppCurrency = .auto
     @State private var editingEntry: HistoryEntry?
     @State private var showCategories = false
     /// Set alongside `showCategories` when reached via "Add Category" (rather
@@ -153,7 +157,10 @@ struct ReceiptsView: View {
     /// are checked before the single-character operators so they aren't
     /// misread as ">"/"<" followed by a stray "=".
     private static func parseAmountComparison(_ query: String) -> (AmountComparison, Double)? {
-        let trimmed = query.replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
+        // Strips any supported symbol, not just "$", so ">₹500" works the
+        // same as ">$500" — independent of the display currency setting,
+        // since a search query's symbol is whatever the user typed.
+        let trimmed = AppCurrency.stripKnownSymbols(from: query).trimmingCharacters(in: .whitespaces)
         let operators: [(String, AmountComparison)] = [
             (">=", .greaterThanOrEqual), ("<=", .lessThanOrEqual),
             (">", .greaterThan), ("<", .lessThan),
@@ -285,17 +292,24 @@ struct ReceiptsView: View {
         filteredEntries.reduce(0.0) { $0 + (Double($1.amount) ?? 0) }
     }
 
-    private static func currencyString(_ value: Double) -> String {
+    /// `currencyCode` is `nil` for `.auto`, which leaves the formatter's
+    /// locale-derived default in place — the existing behaviour, unchanged.
+    /// A non-nil code overrides just the currency shown, independent of the
+    /// device's region.
+    private static func currencyString(_ value: Double, currencyCode: String?) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.maximumFractionDigits = 0
+        if let currencyCode {
+            formatter.currencyCode = currencyCode
+        }
         return formatter.string(from: NSNumber(value: value)) ?? "$\(Int(value))"
     }
 
     @ViewBuilder
     private var summaryHeader: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(Self.currencyString(summaryTotal))
+            Text(Self.currencyString(summaryTotal, currencyCode: appCurrency.currencyCode))
                 .font(.system(size: 22, weight: .bold, design: .rounded))
             Text("· \(filteredEntries.count) receipt\(filteredEntries.count == 1 ? "" : "s")")
                 .font(.caption)

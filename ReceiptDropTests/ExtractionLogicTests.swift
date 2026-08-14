@@ -350,11 +350,70 @@ final class ExtractionLogicTests: XCTestCase {
     func testAmountDetectorIgnoresBareIntegers() {
         // SEQ #: 15, Batch #: 972, INVOICE: 17 — none of these are money,
         // and must not create false-negative risk for a fabricated amount
-        // that happens to collide with one of them.
+        // that happens to collide with one of them. This is the property
+        // most at risk from loosening the regex to be locale-agnostic
+        // (Part 4 of the currency-setting plan) — must still hold after
+        // that change.
         let amounts = ReceiptAmountDetector.amounts(in: naanAndKabobText)
         XCTAssertFalse(amounts.contains("15.00"))
         XCTAssertFalse(amounts.contains("972.00"))
         XCTAssertFalse(amounts.contains("17.00"))
+    }
+
+    // MARK: - ReceiptAmountDetector — locale-agnostic separator normalization
+    //
+    // A receipt's printed number format depends on where the *receipt* was
+    // printed, not on the phone's region or the user's AppCurrency display
+    // setting — these tests call `separatorNormalized` directly with no
+    // locale or currency setting involved, matching that design.
+
+    func testSeparatorNormalizationEuropeanStyle() {
+        // European: "." groups, "," is the decimal separator.
+        XCTAssertEqual(ReceiptAmountDetector.separatorNormalized("1.234,56"), 1234.56)
+    }
+
+    func testSeparatorNormalizationUSStyle() {
+        // US: "," groups, "." is the decimal separator.
+        XCTAssertEqual(ReceiptAmountDetector.separatorNormalized("1,234.56"), 1234.56)
+    }
+
+    func testSeparatorNormalizationIndianLakhGrouping() {
+        XCTAssertEqual(ReceiptAmountDetector.separatorNormalized("1,23,456.78"), 123456.78)
+    }
+
+    func testSeparatorNormalizationRepeatedPeriodGrouping() {
+        // Only one kind of separator, appearing more than once — can only
+        // be grouping.
+        XCTAssertEqual(ReceiptAmountDetector.separatorNormalized("1.234.567"), 1234567)
+    }
+
+    func testSeparatorNormalizationSingleCommaAsDecimal() {
+        // One comma, two digits after it — decimal, not grouping.
+        XCTAssertEqual(ReceiptAmountDetector.separatorNormalized("342,39"), 342.39)
+    }
+
+    func testSeparatorNormalizationSingleCommaAsGrouping() {
+        // One comma, three digits after it — grouping.
+        XCTAssertEqual(ReceiptAmountDetector.separatorNormalized("1,234"), 1234)
+    }
+
+    func testSeparatorNormalizationSinglePeriodAsDecimal() {
+        XCTAssertEqual(ReceiptAmountDetector.separatorNormalized("12.5"), 12.5)
+    }
+
+    func testSeparatorNormalizationAmbiguousSinglePeriodTreatedAsGrouping() {
+        // The one genuinely ambiguous case: could be €1,234 (grouping) or
+        // $1.234 (three decimal places). Treated as grouping — three
+        // decimal places on a receipt total is far rarer than European
+        // thousands grouping.
+        XCTAssertEqual(ReceiptAmountDetector.separatorNormalized("1.234"), 1234)
+    }
+
+    func testAmountDetectorFindsSymbolPrefixedAmountsForEverySupportedCurrency() {
+        for (symbol, expected) in [("$", "66.23"), ("€", "66.23"), ("£", "66.23"), ("₹", "66.23"), ("¥", "66.23")] {
+            let amounts = ReceiptAmountDetector.amounts(in: "Total \(symbol)66.23")
+            XCTAssertTrue(amounts.contains(expected), "expected to detect \(symbol)66.23")
+        }
     }
 
     // MARK: - ExtractedReceipt.build amount cross-check (sourceText)

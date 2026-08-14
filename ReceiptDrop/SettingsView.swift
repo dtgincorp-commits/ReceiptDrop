@@ -14,6 +14,8 @@ struct SettingsView: View {
     // updates live across both without any extra plumbing.
     @AppStorage(AppConstants.DefaultsKeys.appTextSize, store: UserDefaults(suiteName: AppConstants.appGroupID))
     private var appTextSize: AppTextSize = .system
+    @AppStorage(AppConstants.DefaultsKeys.appCurrency, store: UserDefaults(suiteName: AppConstants.appGroupID))
+    private var appCurrency: AppCurrency = .auto
 
     var body: some View {
         NavigationStack {
@@ -142,6 +144,19 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                 } footer: {
                     Text("Changes text size in this app only. \"System\" follows your iPhone's Text Size setting (Settings → Display & Brightness). Choosing a specific size overrides it — including any accessibility text size you've set. Bill Breakdown has its own separate text size control.")
+                }
+
+                Section {
+                    // Default (wheel/menu) picker style, not .segmented —
+                    // eight options don't fit a segmented control the way
+                    // Text Size's four short labels do.
+                    Picker("Currency", selection: $appCurrency) {
+                        ForEach(AppCurrency.allCases) { currency in
+                            Text(currency.displayName).tag(currency)
+                        }
+                    }
+                } footer: {
+                    Text("Changes how amounts are displayed only — it doesn't convert between currencies or change any already-saved amount. \"Automatic\" follows your iPhone's region setting, same as before this setting existed.")
                 }
 
                 Section {
