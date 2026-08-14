@@ -543,16 +543,22 @@ struct ReceiptsView: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        if ExtractionSettings.aiConfigured {
-                            showBillCapture = true
-                        } else {
-                            showBillCaptureAIInvite = true
+                    // Hidden entirely for providers whose itemization isn't
+                    // good enough to offer (currently Apple On-Device) —
+                    // better than letting someone run it and conclude the
+                    // feature is broken. See `supportsBillItemization`.
+                    if ExtractionSettings.provider.supportsBillItemization {
+                        Button {
+                            if ExtractionSettings.aiConfigured {
+                                showBillCapture = true
+                            } else {
+                                showBillCaptureAIInvite = true
+                            }
+                        } label: {
+                            Image(systemName: "doc.text.magnifyingglass")
                         }
-                    } label: {
-                        Image(systemName: "doc.text.magnifyingglass")
+                        .accessibilityLabel("Check a Bill")
                     }
-                    .accessibilityLabel("Check a Bill")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
@@ -560,7 +566,7 @@ struct ReceiptsView: View {
                             Button {
                                 newReceiptSource = .scanDocument
                             } label: {
-                                Label("Scan Documents", systemImage: "doc.text.viewfinder")
+                                Label("Scan Receipt", systemImage: "doc.text.viewfinder")
                             }
                             Button {
                                 newReceiptSource = .camera
@@ -1088,6 +1094,16 @@ private struct ReceiptRow: View {
     @State private var missingFileAlert = false
     @State private var missingCSVAlert = false
 
+    // Scale with the ambient text-size setting (System default, or the
+    // AppTextSize override applied at the TabView root) rather than staying
+    // fixed at 6pt regardless — plain Dynamic Type only scales text itself,
+    // so without this the row's own chrome would stay exactly as tall at
+    // Small as at Large, and the text-size picker would barely change how
+    // many receipts fit on screen. At Medium (the default) these evaluate to
+    // exactly 6, unchanged from before.
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing: CGFloat = 6
+    @ScaledMetric(relativeTo: .subheadline) private var verticalPadding: CGFloat = 6
+
     private var isManualEntry: Bool { entry.receiptLink == SubmissionPipeline.manualEntryLabel }
     private var isScannedText: Bool { entry.receiptLink == SubmissionPipeline.scannedTextLabel }
     private var hasPrimaryFile: Bool {
@@ -1098,8 +1114,46 @@ private struct ReceiptRow: View {
     /// primary photo) if extras were attached after the fact via Edit.
     private var hasFile: Bool { hasPrimaryFile || !entry.extraFiles.isEmpty }
 
+    /// Same three mutually-exclusive cases and paperclip-count logic as
+    /// before (manual entries and scanned-text entries count only their
+    /// extras; a receipt with a real primary file counts extras + 1) — just
+    /// placed inline in the main row instead of claiming a full line of its
+    /// own. Icon sizing/color per case is unchanged too, including
+    /// `doc.text.magnifyingglass` deliberately having no `.font()` override
+    /// (renders at the default, slightly larger icon size).
+    @ViewBuilder
+    private var sourceIndicator: some View {
+        if isManualEntry {
+            if !entry.extraFiles.isEmpty {
+                Label("\(entry.extraFiles.count)", systemImage: "paperclip")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Image(systemName: "pencil")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        } else if isScannedText {
+            if !entry.extraFiles.isEmpty {
+                Label("\(entry.extraFiles.count)", systemImage: "paperclip")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Image(systemName: "text.viewfinder")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        } else if hasFile {
+            if !entry.extraFiles.isEmpty {
+                Label("\(entry.extraFiles.count + 1)", systemImage: "paperclip")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Image(systemName: "doc.text.magnifyingglass")
+                .foregroundStyle(Theme.skyBlue)
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: rowSpacing) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Button {
                     openCategoryCSV()
@@ -1153,6 +1207,13 @@ private struct ReceiptRow: View {
                     }
                     .frame(width: 18, height: 18)
                 }
+                // Folded into the main line rather than a line of its own —
+                // it's purely an affordance (the whole row is already
+                // tappable), not information that needs its own vertical
+                // space. This is what actually shrinks row height; the
+                // text-size setting alone couldn't, since Dynamic Type only
+                // scales text, not a whole extra line.
+                sourceIndicator
                 if !entry.amount.isEmpty {
                     Text("$\(entry.amount)")
                         .font(.subheadline.weight(.bold))
@@ -1166,47 +1227,8 @@ private struct ReceiptRow: View {
                         .foregroundStyle(.orange)
                 }
             }
-            if isManualEntry {
-                // Icon-only rather than a text label — the icon already
-                // carries the meaning once you know the app; quieter, less
-                // visual noise competing with the vendor/amount line above.
-                HStack {
-                    Spacer()
-                    if !entry.extraFiles.isEmpty {
-                        Label("\(entry.extraFiles.count)", systemImage: "paperclip")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    Image(systemName: "pencil")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            } else if isScannedText {
-                HStack {
-                    Spacer()
-                    if !entry.extraFiles.isEmpty {
-                        Label("\(entry.extraFiles.count)", systemImage: "paperclip")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    Image(systemName: "text.viewfinder")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            } else if hasFile {
-                HStack {
-                    Spacer()
-                    if !entry.extraFiles.isEmpty {
-                        Label("\(entry.extraFiles.count + 1)", systemImage: "paperclip")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .foregroundStyle(Theme.skyBlue)
-                }
-            }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, verticalPadding)
         .contentShape(Rectangle())
         .onTapGesture {
             guard hasFile else { return }

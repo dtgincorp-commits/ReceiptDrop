@@ -13,6 +13,7 @@
 		0A932F628E1DA811D4270E99 /* AzureDocumentIntelligenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */; };
 		10EBDAD489DA8B06819F4551 /* BillReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEC8FCD6E9B669200EEEC134 /* BillReviewView.swift */; };
 		12E106F5E07CA03FD1D96A9D /* DuplicateDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 821135EAEB594F15E8ECCC57 /* DuplicateDetectionService.swift */; };
+		144D08E0FF0AFFC096A58B8E /* ReceiptAmountDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = E09FF1A61ACC24D913C73900 /* ReceiptAmountDetector.swift */; };
 		167A6DAFB1FCB380DC1D043D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60DE60441FC6CA5A44E28DEF /* SettingsView.swift */; };
 		16A31AF37D41B42F94982675 /* AutoBackupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32F2DD659E3FF9FED54431B /* AutoBackupService.swift */; };
 		1BEBCD8888AB65FF0B4D5827 /* APIKeyTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */; };
@@ -41,7 +42,9 @@
 		7A5B93EE1382D214EF45A12F /* CategoryMergeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B53F75D6339B27D330F62AF5 /* CategoryMergeService.swift */; };
 		7BEB3A1247963FEF61B950FE /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2941693C5D3EECC412C2593 /* AppConstants.swift */; };
 		7DA993E96E2763FBAB9BB3A0 /* ReceiptPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E51159281ABA1A7AF432D8 /* ReceiptPreviewView.swift */; };
+		7DC9169DF1AABEE1E48F39A9 /* AppTextSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65429EAA84DE433AE5FE8369 /* AppTextSize.swift */; };
 		849150F0B742BED665DFDD9E /* ReceiptSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */; };
+		8D9FC56A37C5FD5F392B6BCA /* ReceiptAmountDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = E09FF1A61ACC24D913C73900 /* ReceiptAmountDetector.swift */; };
 		91B1D508C2908A0EB0045532 /* CategoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820F21560AF35EFF72979693 /* CategoryStore.swift */; };
 		92B9B6475BC80D6F58BD16D1 /* TorchPreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF53CB390C89FC9984BDC13 /* TorchPreferenceStore.swift */; };
 		94C1488C8061205BFD249837 /* LocalReceiptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */; };
@@ -53,6 +56,7 @@
 		A24E47ED8C486ABC29BFD3D7 /* ReceiptDateDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */; };
 		A76915423C9B86D56642BCC6 /* CategoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820F21560AF35EFF72979693 /* CategoryStore.swift */; };
 		A8528D576C6CA7C4D0A6B021 /* BatchReceiptSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E03290EC439773D6E6E44782 /* BatchReceiptSubmitView.swift */; };
+		A933026D14369CB556BD7573 /* AppTextSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65429EAA84DE433AE5FE8369 /* AppTextSize.swift */; };
 		ADDC7BC434839EA099ADC4D5 /* ReceiptModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */; };
 		AE18599D98AAD1E3BB514884 /* SubmissionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57FF61EB58699460FE16D612 /* SubmissionStore.swift */; };
 		B1A7EBA870C0366E61928410 /* DuplicateReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE82950D18F3776A7AFFCC5B /* DuplicateReviewView.swift */; };
@@ -139,6 +143,7 @@
 		5CFF6F9F94C524551A1A7102 /* InsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsView.swift; sourceTree = "<group>"; };
 		60DE60441FC6CA5A44E28DEF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReceiptStore.swift; sourceTree = "<group>"; };
+		65429EAA84DE433AE5FE8369 /* AppTextSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTextSize.swift; sourceTree = "<group>"; };
 		67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptSubmitView.swift; sourceTree = "<group>"; };
 		692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReceiptStoreTests.swift; sourceTree = "<group>"; };
 		6B9C7F659B17F23A554F8347 /* SpendingInsightsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingInsightsService.swift; sourceTree = "<group>"; };
@@ -164,6 +169,7 @@
 		D82B6FF53C985F3570C022F3 /* ReceiptDrop.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ReceiptDrop.entitlements; sourceTree = "<group>"; };
 		E03258CA24E3618F36E11AE7 /* BillCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillCaptureView.swift; sourceTree = "<group>"; };
 		E03290EC439773D6E6E44782 /* BatchReceiptSubmitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchReceiptSubmitView.swift; sourceTree = "<group>"; };
+		E09FF1A61ACC24D913C73900 /* ReceiptAmountDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptAmountDetector.swift; sourceTree = "<group>"; };
 		E2941693C5D3EECC412C2593 /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
 		E32F2DD659E3FF9FED54431B /* AutoBackupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoBackupService.swift; sourceTree = "<group>"; };
 		EE72A7EE2EB472CB550F4F88 /* BillModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillModels.swift; sourceTree = "<group>"; };
@@ -217,6 +223,7 @@
 			children = (
 				BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */,
 				E2941693C5D3EECC412C2593 /* AppConstants.swift */,
+				65429EAA84DE433AE5FE8369 /* AppTextSize.swift */,
 				0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */,
 				50557937A6FFA7EE5E0A83CD /* BatchSubmissionRunner.swift */,
 				525C3226B85E765DA6EC3B6C /* BillEvalHarness.swift */,
@@ -230,6 +237,7 @@
 				86375C2C83E8E61C3F858C9B /* KeychainHelper.swift */,
 				6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */,
 				4C55D1066ECBE9ED09826A40 /* QuickSendContactStore.swift */,
+				E09FF1A61ACC24D913C73900 /* ReceiptAmountDetector.swift */,
 				2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */,
 				2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */,
 				67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */,
@@ -391,6 +399,7 @@
 			files = (
 				1BEBCD8888AB65FF0B4D5827 /* APIKeyTester.swift in Sources */,
 				7BEB3A1247963FEF61B950FE /* AppConstants.swift in Sources */,
+				A933026D14369CB556BD7573 /* AppTextSize.swift in Sources */,
 				16A31AF37D41B42F94982675 /* AutoBackupService.swift in Sources */,
 				E7AED0646507150C7FAAFA65 /* AzureDocumentIntelligenceService.swift in Sources */,
 				A8528D576C6CA7C4D0A6B021 /* BatchReceiptSubmitView.swift in Sources */,
@@ -419,6 +428,7 @@
 				D3368E8055B39FE47AA6A0A5 /* ManualReceiptEntryView.swift in Sources */,
 				CF5DC508A191029FC0DEA65B /* NewReceiptView.swift in Sources */,
 				FEE021180D225DB68B1FCF3D /* QuickSendContactStore.swift in Sources */,
+				144D08E0FF0AFFC096A58B8E /* ReceiptAmountDetector.swift in Sources */,
 				77C0989788E93F755A1953BF /* ReceiptCropService.swift in Sources */,
 				A24E47ED8C486ABC29BFD3D7 /* ReceiptDateDetector.swift in Sources */,
 				209B3D7E78931388864C1CC5 /* ReceiptDropApp.swift in Sources */,
@@ -442,6 +452,7 @@
 			files = (
 				438C22CA72F62D6792A44725 /* APIKeyTester.swift in Sources */,
 				565E406ADD2728D9A3D43D98 /* AppConstants.swift in Sources */,
+				7DC9169DF1AABEE1E48F39A9 /* AppTextSize.swift in Sources */,
 				0A932F628E1DA811D4270E99 /* AzureDocumentIntelligenceService.swift in Sources */,
 				401A2E4BB076015C80CB489B /* BatchSubmissionRunner.swift in Sources */,
 				C32FDB83FC26419198E81434 /* BillEvalHarness.swift in Sources */,
@@ -455,6 +466,7 @@
 				C2D72AFC0FBB745AFE861F5D /* KeychainHelper.swift in Sources */,
 				D1BAED8453DC3C6D5675D660 /* LocalReceiptStore.swift in Sources */,
 				0369C28D357DC89548A9CF71 /* QuickSendContactStore.swift in Sources */,
+				8D9FC56A37C5FD5F392B6BCA /* ReceiptAmountDetector.swift in Sources */,
 				00B6687EE07E1D652C3B3F18 /* ReceiptDateDetector.swift in Sources */,
 				ADDC7BC434839EA099ADC4D5 /* ReceiptModels.swift in Sources */,
 				B311E2C1168EE57DB4DE55D2 /* ReceiptSubmitView.swift in Sources */,

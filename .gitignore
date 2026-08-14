@@ -3,3 +3,4 @@ xcuserdata/
 DerivedData/
 *.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 build/
+test-receipts/

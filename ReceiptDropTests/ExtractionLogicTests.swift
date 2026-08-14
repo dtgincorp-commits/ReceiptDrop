@@ -290,6 +290,198 @@ final class ExtractionLogicTests: XCTestCase {
         XCTAssertEqual(r.workDate, recentDate)
         XCTAssertFalse(r.needsReview)
     }
+
+    // MARK: - ReceiptAmountDetector
+
+    // Same offset as `recentDate` (3 days ago), formatted the way this
+    // receipt prints it — keeps the fixture's printed date in sync with
+    // `recentDate` no matter when the suite actually runs, so the (separate,
+    // already-tested) date guardrail never has a reason to fire in these
+    // amount-focused tests. A literal hardcoded date here previously caused
+    // exactly that: it silently drifted out of sync with `recentDate` and
+    // tripped the date cross-check for reasons unrelated to what the test
+    // was actually checking.
+    private var naanAndKabobDateString: String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MM/dd/yyyy"
+        return f.string(from: Calendar.current.date(byAdding: .day, value: -3, to: Date())!)
+    }
+
+    // The real receipt text from the Naan and Kabob bug report — a blank
+    // "TOTAL AMOUNT" line (tip never filled in) with only $66.23 printed.
+    // Sequence/batch/invoice numbers are included deliberately: they must
+    // NOT be picked up as amounts (see ReceiptAmountDetector's "looks like
+    // money" requirement).
+    private var naanAndKabobText: String {
+        """
+        NAAN AND KABOB LLC
+        416 E 1ST ST
+        TUSTIN, CA 92780
+        \(naanAndKabobDateString)            13:30:03
+        CREDIT CARD
+        VISA SALE
+        Card #: XXXXXXXXXXXX4316
+        Chip Card: CHASE VISA
+        AID: A0000000031010
+        SEQ #: 15
+        Batch #: 972
+        INVOICE: 17
+        Approval Code: 00093G
+        Entry Method: Chip Read
+        Mode: Issuer
+        PRE-TIP AMT              $66.23
+        TIP
+        TOTAL AMOUNT
+        CUSTOMER COPY
+        """
+    }
+
+    func testAmountDetectorFindsPrintedAmount() {
+        let amounts = ReceiptAmountDetector.amounts(in: naanAndKabobText)
+        XCTAssertTrue(amounts.contains("66.23"))
+    }
+
+    func testAmountDetectorDoesNotContainFabricatedAmount() {
+        let amounts = ReceiptAmountDetector.amounts(in: naanAndKabobText)
+        XCTAssertFalse(amounts.contains("142.51"))
+    }
+
+    func testAmountDetectorIgnoresBareIntegers() {
+        // SEQ #: 15, Batch #: 972, INVOICE: 17 — none of these are money,
+        // and must not create false-negative risk for a fabricated amount
+        // that happens to collide with one of them.
+        let amounts = ReceiptAmountDetector.amounts(in: naanAndKabobText)
+        XCTAssertFalse(amounts.contains("15.00"))
+        XCTAssertFalse(amounts.contains("972.00"))
+        XCTAssertFalse(amounts.contains("17.00"))
+    }
+
+    // MARK: - ExtractedReceipt.build amount cross-check (sourceText)
+
+    func testPrintedAmountNotFlagged() {
+        let r = ExtractedReceipt.build(
+            vendor: "Naan and Kabob", rawWorkDate: recentDate, amount: "66.23",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: naanAndKabobText)
+        XCTAssertEqual(r.amount, "66.23")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testFabricatedAmountIsFlaggedNotCorrected() {
+        // The actual bug: model returns a plausible-looking total that
+        // appears nowhere on the receipt. Unlike the date guardrail, this
+        // must NOT auto-correct — the amount stays exactly as reported,
+        // just flagged, since a receipt has too many numbers to safely
+        // guess which one is "the" total.
+        let r = ExtractedReceipt.build(
+            vendor: "Naan and Kabob", rawWorkDate: recentDate, amount: "142.51",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: naanAndKabobText)
+        XCTAssertEqual(r.amount, "142.51", "amount must be left unchanged — flag only, never auto-correct")
+        XCTAssertTrue(r.needsReview)
+        XCTAssertTrue(r.reviewReason.contains("142.51"))
+    }
+
+    func testAmountNormalizationMatchesTrailingZero() {
+        let r = ExtractedReceipt.build(
+            vendor: "Some Shop", rawWorkDate: recentDate, amount: "245.6",
+            comments: "", rawVendorType: "retail",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: "Total    $245.60")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testNoDetectableAmountLeavesModelAnswerAlone() {
+        // Detector finds nothing (unusual/unsupported format) — that means
+        // "can't verify," not "the model is wrong." Punishing correct reads
+        // on unusual receipts would be worse than not checking at all.
+        let r = ExtractedReceipt.build(
+            vendor: "Some Shop", rawWorkDate: recentDate, amount: "10.00",
+            comments: "", rawVendorType: "retail",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: "no currency-shaped text here at all")
+        XCTAssertEqual(r.amount, "10.00")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testNilSourceTextSkipsAmountCrossCheck() {
+        // Regression guard: omitting sourceText entirely must behave
+        // identically to before this change — no amount cross-check at all.
+        let r = ExtractedReceipt.build(
+            vendor: "Naan and Kabob", rawWorkDate: recentDate, amount: "142.51",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertEqual(r.amount, "142.51")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    // MARK: - Duplicate detection: tip-shaped amounts waive the date window
+
+    private func entry(_ vendor: String, _ date: String, _ amount: String) -> HistoryEntry {
+        HistoryEntry(category: "DTG", vendor: vendor, workDate: date, amount: amount,
+                     receiptLink: "\(UUID().uuidString).jpg", timestamp: Date())
+    }
+
+    func testTipShapedPairFlaggedDespiteDateGapBeyondWindow() {
+        // The real Water Grill case: same bill entered twice, once pre-tip
+        // and once with tip, and the work date on one copy was read wrong —
+        // landing 4 days apart, one day past the 3-day window. Neither the
+        // same-date nor the nearby-date rule catches this; the tip ratio
+        // (297.39 → 342.39 = +15.13%) is what does.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Water Grill South Coast Plaza", "2026-07-26", "342.39"),
+            entry("Water Grill South Coast Plaza", "2026-07-30", "297.39"),
+        ])
+        XCTAssertEqual(pairs.count, 1)
+        XCTAssertEqual(pairs.first?.confidence, .possibleTipAdded)
+    }
+
+    func testTipShapedPairFlaggedRegardlessOfWhichDateIsLarger() {
+        // Direction is deliberately unconstrained — in the real case the
+        // EARLIER date carried the with-tip total, so a "later receipt must
+        // be the larger one" rule would have rejected a true duplicate.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Water Grill", "2026-07-26", "297.39"),
+            entry("Water Grill", "2026-07-30", "342.39"),
+        ])
+        XCTAssertEqual(pairs.count, 1)
+        XCTAssertEqual(pairs.first?.confidence, .possibleTipAdded)
+    }
+
+    func testNonTipRatioBeyondDateWindowStillNotFlagged() {
+        // 40% apart is a separate visit, not a tip — the date window must
+        // still apply here, or this change would loosen detection generally
+        // instead of only for the tip case.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Water Grill", "2026-07-26", "100.00"),
+            entry("Water Grill", "2026-07-30", "140.00"),
+        ])
+        XCTAssertTrue(pairs.isEmpty)
+    }
+
+    func testTipShapedPairWithDifferentVendorNotFlagged() {
+        // Vendor still gates it — two unrelated businesses whose totals
+        // happen to sit ~15% apart are not the same bill.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Water Grill", "2026-07-26", "342.39"),
+            entry("Zabb Thai Cuisine", "2026-07-30", "297.39"),
+        ])
+        XCTAssertTrue(pairs.isEmpty)
+    }
+
+    func testTipShapedPairIsFlaggedOnceNotTwice() {
+        // Within the date window AND tip-shaped — satisfies both conditions,
+        // must still produce exactly one pair, not a duplicate entry in the
+        // review list.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Water Grill", "2026-07-26", "342.39"),
+            entry("Water Grill", "2026-07-27", "297.39"),
+        ])
+        XCTAssertEqual(pairs.count, 1)
+    }
 }
 
 private extension DateFormatter {

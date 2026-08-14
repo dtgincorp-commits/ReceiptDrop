@@ -4,7 +4,7 @@ import Foundation
 enum AppConstants {
     /// App Group — shares UserDefaults, files, and Keychain items
     /// between the main app and the share extension.
-    static let appGroupID = "group.com.nicknagpal.receiptdrop"
+    static let appGroupID = "group.com.dtgincorp.receiptdrop"
 
     /// Claude model used for receipt extraction. Haiku-class is fast and
     /// cheap and is sufficient for reading receipts. Change here if needed.
@@ -50,6 +50,7 @@ enum AppConstants {
         static let lastBackupDate = "lastBackupDate"
         static let backupReminderFrequency = "backupReminderFrequency"
         static let hasCompletedAISetup = "hasCompletedAISetup"  // guided Connect-AI wizard shown/skipped
+        static let appTextSize = "appTextSize"                  // per-app text size override; see AppTextSize
     }
 
     /// Date format written to the Work_Date column.

@@ -9,6 +9,11 @@ struct SettingsView: View {
     @State private var classifyMessage: String?
     @State private var classifyError: String?
     @State private var showConnectAI = false
+    // Same App Group store + key ContentView reads, so this picker and the
+    // app-wide override it controls always agree — SwiftUI's @AppStorage
+    // updates live across both without any extra plumbing.
+    @AppStorage(AppConstants.DefaultsKeys.appTextSize, store: UserDefaults(suiteName: AppConstants.appGroupID))
+    private var appTextSize: AppTextSize = .system
 
     var body: some View {
         NavigationStack {
@@ -126,6 +131,17 @@ struct SettingsView: View {
                     }
                 } footer: {
                     Text("Categories: add or remove categories, open their CSV logs, and run maintenance. Archive & Backup: export receipts by period, or back up everything.")
+                }
+
+                Section {
+                    Picker("Text Size", selection: $appTextSize) {
+                        ForEach(AppTextSize.allCases) { size in
+                            Text(size.displayName).tag(size)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } footer: {
+                    Text("Changes text size in this app only. \"System\" follows your iPhone's Text Size setting (Settings → Display & Brightness). Choosing a specific size overrides it — including any accessibility text size you've set. Bill Breakdown has its own separate text size control.")
                 }
 
                 Section {

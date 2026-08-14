@@ -38,6 +38,11 @@ struct ReceiptSubmitView: View {
     @State private var pendingDateEntry: HistoryEntry?
     @State private var pickedDate = Date()
 
+    /// The just-saved entry whose amount didn't match anything printed on
+    /// the receipt — held so the `.needsAmount` nudge can update it.
+    @State private var pendingAmountEntry: HistoryEntry?
+    @State private var pickedAmount: String = ""
+
     /// Suffix common to both review-reason variants `ExtractedReceipt.build`
     /// writes when the date couldn't be parsed — "Date unreadable, defaulted
     /// to today" (nothing was returned) and "Couldn't parse date: \"...\" —
@@ -47,6 +52,12 @@ struct ReceiptSubmitView: View {
     /// for library images, where retaking a photo isn't an option.
     private static let unreadableDateReasonSuffix = "defaulted to today"
 
+    /// Marker substring of the review reason `ExtractedReceipt.build` writes
+    /// when the reported amount doesn't appear anywhere on the receipt (see
+    /// `ReceiptAmountDetector`) — matched the same way as the date suffix
+    /// above, so this stays correct if the exact wording ever changes.
+    private static let amountNotPrintedMarker = "isn't printed on this receipt"
+
     /// Drives the Submit section's UI while the pipeline runs.
     private enum SubmitState: Equatable {
         case idle
@@ -54,6 +65,7 @@ struct ReceiptSubmitView: View {
         case success
         case queued
         case needsDate
+        case needsAmount
     }
 
     private var controlsDisabled: Bool {
@@ -90,6 +102,26 @@ struct ReceiptSubmitView: View {
                 }
 
                 if !ExtractionSettings.aiConfigured {
+                    // Deliberately a visible banner, not just footer text —
+                    // a caveat printed under four fields is easy to scroll
+                    // past, and the whole point is that nothing here has
+                    // been read by an AI, so every value needs a human's
+                    // eyes before it becomes a tax record.
+                    Section {
+                        Label {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("No AI connected — please check these details")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Nothing here was read by an AI. Anything filled in below was found by simple on-device text matching and may be wrong or missing — compare it against the receipt before saving.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+
                     Section {
                         TextField("Merchant / Vendor", text: $manualVendor)
                             .disabled(controlsDisabled)
@@ -107,7 +139,7 @@ struct ReceiptSubmitView: View {
                     } header: {
                         Text("Details")
                     } footer: {
-                        Text("Connect an AI in Settings to fill these in automatically from the photo next time.")
+                        Text("Connect an AI in Settings to read receipts automatically instead of entering them by hand.")
                     }
                 }
 
@@ -195,6 +227,32 @@ struct ReceiptSubmitView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+        case .needsAmount:
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Couldn't read the amount on this receipt", systemImage: "exclamationmark.circle")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text("The amount saved doesn't appear on the receipt. Check it below, or take a clearer photo — Scan Receipt usually reads far better than Take Photo.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("$")
+                    TextField("Amount", text: $pickedAmount)
+                        .keyboardType(.decimalPad)
+                }
+                Button {
+                    saveAmountAndFinish()
+                } label: {
+                    HStack { Spacer(); Text("Save Amount").bold(); Spacer() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(Double(pickedAmount.trimmingCharacters(in: .whitespaces)) == nil)
+                Button("Skip for now — it stays flagged for review") {
+                    onComplete()
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         case .queued:
             Button {
                 onComplete()
@@ -224,6 +282,24 @@ struct ReceiptSubmitView: View {
             newCategory: entry.category, newVendor: entry.vendor,
             newWorkDate: LocalReceiptStore.dateString(pickedDate),
             newAmount: entry.amount, newComments: existingComments,
+            newVendorType: entry.vendorType)
+        onComplete()
+    }
+
+    /// Applies the user-corrected amount to the just-saved entry, same
+    /// pattern as `saveDateAndFinish()`.
+    private func saveAmountAndFinish() {
+        guard let entry = pendingAmountEntry else { onComplete(); return }
+        let existingComments = LocalReceiptStore.comments(
+            category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
+            amount: entry.amount, receiptFilename: entry.receiptLink)
+        let normalizedAmount = Double(pickedAmount.trimmingCharacters(in: .whitespaces))
+            .map { String($0) } ?? entry.amount
+        _ = try? SubmissionPipeline.updateEntry(
+            old: entry,
+            newCategory: entry.category, newVendor: entry.vendor,
+            newWorkDate: entry.workDate,
+            newAmount: normalizedAmount, newComments: existingComments,
             newVendorType: entry.vendorType)
         onComplete()
     }
@@ -263,6 +339,11 @@ struct ReceiptSubmitView: View {
                     pendingDateEntry = entry
                     pickedDate = Date()
                     submitState = .needsDate
+                } else if entry.verificationStatus == .needsReview,
+                          entry.reviewReason.contains(Self.amountNotPrintedMarker) {
+                    pendingAmountEntry = entry
+                    pickedAmount = entry.amount
+                    submitState = .needsAmount
                 } else {
                     submitState = .success
                     try? await Task.sleep(nanoseconds: 800_000_000)
