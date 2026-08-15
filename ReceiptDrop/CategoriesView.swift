@@ -13,6 +13,7 @@ struct CategoriesView: View {
 
     @StateObject private var categoryStore = CategoryStore.shared
     @State private var newCategory = ""
+    @State private var addCategoryError: String?
     @FocusState private var newCategoryFieldFocused: Bool
 
     var body: some View {
@@ -37,17 +38,14 @@ struct CategoriesView: View {
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
                         .focused($newCategoryFieldFocused)
-                        .onSubmit {
-                            categoryStore.add(newCategory)
-                            newCategory = ""
-                        }
-                    Button {
-                        categoryStore.add(newCategory)
-                        newCategory = ""
-                    } label: {
+                        .onSubmit(addCategory)
+                    Button(action: addCategory) {
                         Image(systemName: "plus.circle.fill")
                     }
                     .disabled(newCategory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                if let addCategoryError {
+                    Text(addCategoryError).font(.caption).foregroundStyle(.red)
                 }
             } header: {
                 Text("Categories")
@@ -61,6 +59,18 @@ struct CategoriesView: View {
             if focusNewCategoryOnAppear {
                 newCategoryFieldFocused = true
             }
+        }
+        .onChange(of: newCategory) { _ in addCategoryError = nil }
+    }
+
+    private func addCategory() {
+        let trimmed = newCategory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if categoryStore.add(trimmed) {
+            newCategory = ""
+            addCategoryError = nil
+        } else {
+            addCategoryError = "\"\(trimmed.uppercased())\" already exists."
         }
     }
 
@@ -87,9 +97,17 @@ struct CategoryDetailView: View {
     @State private var mergeError: String?
     @State private var duplicatePairs: [DuplicateDetectionService.Pair] = []
 
+    @State private var renameInput = ""
+    @State private var showRenameConfirm = false
+    @State private var isRenaming = false
+    @State private var renameError: String?
+
+    @Environment(\.dismiss) private var dismiss
+
     init(category: String) {
         self.category = category
         _descriptionInput = State(initialValue: CategoryStore.shared.description(for: category))
+        _renameInput = State(initialValue: category)
     }
 
     private var entries: [HistoryEntry] {
@@ -156,6 +174,31 @@ struct CategoryDetailView: View {
                 Text("Wipes and regenerates \(category)'s CSV log strictly from what's shown on the Receipts screen — fixes stray or duplicate rows. Comments on existing rows come back blank (they're only stored in the CSV); new receipts keep their Comments as usual. Other categories aren't affected.")
             }
 
+            Section {
+                TextField("Category name", text: $renameInput)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .disabled(isRenaming)
+                Button {
+                    showRenameConfirm = true
+                } label: {
+                    HStack {
+                        Spacer()
+                        if isRenaming { ProgressView() } else { Text("Rename") }
+                        Spacer()
+                    }
+                }
+                .disabled(isRenaming || renameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || renameInput.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(category) == .orderedSame)
+                if let renameError {
+                    Text(renameError).font(.caption).foregroundStyle(.red)
+                }
+            } header: {
+                Text("Rename")
+            } footer: {
+                Text("Renames \(category) and moves its files to match — a full backup is made first. To combine it into an existing category instead, use Merge below.")
+            }
+
             if otherCategories.count > 0 {
                 Section {
                     Picker("Merge Into", selection: $mergeDestination) {
@@ -217,6 +260,12 @@ struct CategoryDetailView: View {
         } message: {
             Text("A full backup will be made first. Then all \(entries.count) receipt\(entries.count == 1 ? "" : "s") in \(category) will move into \(mergeDestination ?? ""), and \(category) will be removed from your category list. This can only be undone by restoring that backup.")
         }
+        .alert("Rename \(category)?", isPresented: $showRenameConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Back Up, Then Rename", role: .destructive) { rename() }
+        } message: {
+            Text("A full backup will be made first. Then all \(entries.count) receipt\(entries.count == 1 ? "" : "s") in \(category) will move to \(renameInput.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()). This can only be undone by restoring that backup.")
+        }
     }
 
     private var otherCategories: [String] {
@@ -243,6 +292,28 @@ struct CategoryDetailView: View {
                 await MainActor.run {
                     isMerging = false
                     mergeError = "Backup failed, so nothing was merged: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    /// On success, pops back to the category list rather than staying on
+    /// this screen under a stale title — `category` is a `let` set once at
+    /// init, so this view has no way to reflect the new name in place, and
+    /// the category no longer exists under the old one once the rename
+    /// completes.
+    private func rename() {
+        renameError = nil
+        isRenaming = true
+        let target = renameInput
+        Task {
+            do {
+                _ = try CategoryRenameService.rename(category, to: target)
+                await MainActor.run { dismiss() }
+            } catch {
+                await MainActor.run {
+                    isRenaming = false
+                    renameError = error.localizedDescription
                 }
             }
         }

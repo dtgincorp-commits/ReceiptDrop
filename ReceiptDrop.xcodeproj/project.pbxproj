@@ -60,6 +60,7 @@
 		9FFCC53F9104DE83324DD46A /* BatchReceiptSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B5CC0C2403B122863DCF1E3 /* BatchReceiptSubmitView.swift */; };
 		A138BC54F5D082BCBFFCD53F /* SpendingInsightsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B9C7F659B17F23A554F8347 /* SpendingInsightsService.swift */; };
 		A24E47ED8C486ABC29BFD3D7 /* ReceiptDateDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */; };
+		A674F3ACE99C34781C6FEC45 /* CategoryRenameService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 069D9E5F65259C3310655504 /* CategoryRenameService.swift */; };
 		A76915423C9B86D56642BCC6 /* CategoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820F21560AF35EFF72979693 /* CategoryStore.swift */; };
 		A933026D14369CB556BD7573 /* AppTextSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65429EAA84DE433AE5FE8369 /* AppTextSize.swift */; };
 		ADDC7BC434839EA099ADC4D5 /* ReceiptModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */; };
@@ -73,6 +74,7 @@
 		C2D72AFC0FBB745AFE861F5D /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86375C2C83E8E61C3F858C9B /* KeychainHelper.swift */; };
 		C32FDB83FC26419198E81434 /* BillEvalHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 525C3226B85E765DA6EC3B6C /* BillEvalHarness.swift */; };
 		C4F8FCDA1B735A3B5E8B03A7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CEFB96E5673FBC20796DFAE /* ContentView.swift */; };
+		C8788FFE4E479DE4B65B431B /* CategoryRenameService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 069D9E5F65259C3310655504 /* CategoryRenameService.swift */; };
 		CF06EAD2DC7F665E546AF5DB /* CategoriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40594EEE43B6E118DC837A56 /* CategoriesView.swift */; };
 		CF5DC508A191029FC0DEA65B /* NewReceiptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D87B0E04C004C048B153C0 /* NewReceiptView.swift */; };
 		D103EE8EA7FB89F874E54221 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A93982D67223B82A377969E /* ShareViewController.swift */; };
@@ -123,6 +125,7 @@
 
 /* Begin PBXFileReference section */
 		052B9FD37DCB668BAE4A85FC /* ReceiptCropService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCropService.swift; sourceTree = "<group>"; };
+		069D9E5F65259C3310655504 /* CategoryRenameService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryRenameService.swift; sourceTree = "<group>"; };
 		096738F483C15B82B353EC44 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0BF53CB390C89FC9984BDC13 /* TorchPreferenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorchPreferenceStore.swift; sourceTree = "<group>"; };
 		0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AzureDocumentIntelligenceService.swift; sourceTree = "<group>"; };
@@ -242,6 +245,7 @@
 				59F671CC05560D0329CB8D2F /* BillItemizationService.swift */,
 				EE72A7EE2EB472CB550F4F88 /* BillModels.swift */,
 				B53F75D6339B27D330F62AF5 /* CategoryMergeService.swift */,
+				069D9E5F65259C3310655504 /* CategoryRenameService.swift */,
 				820F21560AF35EFF72979693 /* CategoryStore.swift */,
 				A7730A1380B462CC48DB1C5E /* ClaudeService.swift */,
 				821135EAEB594F15E8ECCC57 /* DuplicateDetectionService.swift */,
@@ -426,6 +430,7 @@
 				10EBDAD489DA8B06819F4551 /* BillReviewView.swift in Sources */,
 				CF06EAD2DC7F665E546AF5DB /* CategoriesView.swift in Sources */,
 				38789BB5235E9A416422F54C /* CategoryMergeService.swift in Sources */,
+				A674F3ACE99C34781C6FEC45 /* CategoryRenameService.swift in Sources */,
 				A76915423C9B86D56642BCC6 /* CategoryStore.swift in Sources */,
 				48B4716DBEE24027E4094340 /* ClaudeService.swift in Sources */,
 				58168498563928C083F7B003 /* ConnectAIView.swift in Sources */,
@@ -475,6 +480,7 @@
 				9BBA3B009C6F0F4AC8066DFD /* BillItemizationService.swift in Sources */,
 				53A231EDE5EC0E17EDAF8BC0 /* BillModels.swift in Sources */,
 				7A5B93EE1382D214EF45A12F /* CategoryMergeService.swift in Sources */,
+				C8788FFE4E479DE4B65B431B /* CategoryRenameService.swift in Sources */,
 				91B1D508C2908A0EB0045532 /* CategoryStore.swift in Sources */,
 				2CAE2204791C62216D81F2DE /* ClaudeService.swift in Sources */,
 				B2B5F969AB26FADF24B4F76C /* DuplicateDetectionService.swift in Sources */,

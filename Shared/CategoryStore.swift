@@ -30,7 +30,16 @@ final class CategoryStore: ObservableObject {
         }
     }
 
-    func add(_ name: String) {
+    /// Returns whether `name` was actually added — `false` for an empty name
+    /// or one that already exists (case-insensitively). Restore and other
+    /// bulk callers rely on that being a silent no-op rather than an error
+    /// (re-adding an already-present category on every restore is normal,
+    /// expected behavior, not something to surface); the interactive "Add
+    /// Category" UI is the one place the return value matters, so it can
+    /// show "already exists" instead of silently clearing the text field as
+    /// if the category had been created.
+    @discardableResult
+    func add(_ name: String) -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         // Case-insensitive on purpose: `trimmed` is always uppercase, but
         // existing entries aren't guaranteed to be — the hardcoded
@@ -40,9 +49,10 @@ final class CategoryStore: ObservableObject {
         // manifest) silently create a second "SAMPLE CATEGORY" duplicate.
         guard !trimmed.isEmpty,
               !categories.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame })
-        else { return }
+        else { return false }
         categories.append(trimmed)
         persist()
+        return true
     }
 
     func remove(at offsets: IndexSet) {
