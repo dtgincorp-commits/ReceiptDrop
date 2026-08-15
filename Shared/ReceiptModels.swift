@@ -915,11 +915,22 @@ enum RestoreService {
             let liveEntry = existingByID[entry.id]
             let isReattach = liveEntry != nil
             let expectedFilenames = liveEntry.map { [$0.receiptLink] + $0.extraFiles } ?? ([entry.receiptLink] + entry.extraFiles)
+            // Destination category comes from the LIVE entry too, not the
+            // backup's snapshot — same reasoning as `expectedFilenames`
+            // above. A receipt renamed/merged into a different category
+            // *after* the backup was taken still says the OLD category in
+            // that snapshot; using it here would silently copy the file
+            // into a folder the entry no longer lives in, creating an
+            // orphaned duplicate with the same filename — which then
+            // collides the next time something tries to move a real file
+            // into that category (`moveFile`'s destination check fails on
+            // "an item with the same name already exists").
+            let destinationCategory = liveEntry?.category ?? entry.category
             for filename in expectedFilenames {
                 guard !filename.isEmpty, !SubmissionPipeline.isPlaceholderLabel(filename) else { continue }
                 let sourceURL = contentRoot.appendingPathComponent(sourceCategory).appendingPathComponent(filename)
                 guard FileManager.default.fileExists(atPath: sourceURL.path) else { continue }
-                let copied = (try? LocalReceiptStore.importFile(from: sourceURL, category: entry.category, filename: filename)) ?? false
+                let copied = (try? LocalReceiptStore.importFile(from: sourceURL, category: destinationCategory, filename: filename)) ?? false
                 if copied && isReattach { photosReattached += 1 }
             }
         }
