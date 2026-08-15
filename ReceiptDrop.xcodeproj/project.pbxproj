@@ -19,6 +19,7 @@
 		16A31AF37D41B42F94982675 /* AutoBackupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32F2DD659E3FF9FED54431B /* AutoBackupService.swift */; };
 		1BEBCD8888AB65FF0B4D5827 /* APIKeyTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */; };
 		209B3D7E78931388864C1CC5 /* ReceiptDropApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399D1B3777B6FF27E193E2F1 /* ReceiptDropApp.swift */; };
+		22031BFF337270977E620A55 /* CategoryDeleteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF380D2280F12372F67471C0 /* CategoryDeleteService.swift */; };
 		222AB11BDCCC95A76EEE9A7A /* BillModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE72A7EE2EB472CB550F4F88 /* BillModels.swift */; };
 		22D8A781125DF11A585649F7 /* BillItemizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F671CC05560D0329CB8D2F /* BillItemizationService.swift */; };
 		2758563DD364D2869806A2C4 /* TorchPreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF53CB390C89FC9984BDC13 /* TorchPreferenceStore.swift */; };
@@ -31,6 +32,7 @@
 		401A2E4BB076015C80CB489B /* BatchSubmissionRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50557937A6FFA7EE5E0A83CD /* BatchSubmissionRunner.swift */; };
 		438C22CA72F62D6792A44725 /* APIKeyTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */; };
 		47A0F236D3B5AA0B3B86D7B1 /* FoundationModelsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874DB9B5F6B131E4EF1B14AB /* FoundationModelsService.swift */; };
+		47A99C2F4083B3B48436F481 /* CategoryDeleteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF380D2280F12372F67471C0 /* CategoryDeleteService.swift */; };
 		48B4716DBEE24027E4094340 /* ClaudeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7730A1380B462CC48DB1C5E /* ClaudeService.swift */; };
 		53A231EDE5EC0E17EDAF8BC0 /* BillModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE72A7EE2EB472CB550F4F88 /* BillModels.swift */; };
 		54EBDEACA67CDD0340D4C3E1 /* SubmissionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57FF61EB58699460FE16D612 /* SubmissionStore.swift */; };
@@ -176,6 +178,7 @@
 		BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyTester.swift; sourceTree = "<group>"; };
 		C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubmissionPipeline.swift; sourceTree = "<group>"; };
 		CEC8FCD6E9B669200EEEC134 /* BillReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillReviewView.swift; sourceTree = "<group>"; };
+		CF380D2280F12372F67471C0 /* CategoryDeleteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryDeleteService.swift; sourceTree = "<group>"; };
 		D324D5EAA6CF8E1542B4DEE2 /* BillPhotoViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillPhotoViewerView.swift; sourceTree = "<group>"; };
 		D65E49DF78FE2F53DF54D1FB /* ShareSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheetView.swift; sourceTree = "<group>"; };
 		D7CE5CF9262C43188D5295AB /* BillEvalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillEvalView.swift; sourceTree = "<group>"; };
@@ -244,6 +247,7 @@
 				525C3226B85E765DA6EC3B6C /* BillEvalHarness.swift */,
 				59F671CC05560D0329CB8D2F /* BillItemizationService.swift */,
 				EE72A7EE2EB472CB550F4F88 /* BillModels.swift */,
+				CF380D2280F12372F67471C0 /* CategoryDeleteService.swift */,
 				B53F75D6339B27D330F62AF5 /* CategoryMergeService.swift */,
 				069D9E5F65259C3310655504 /* CategoryRenameService.swift */,
 				820F21560AF35EFF72979693 /* CategoryStore.swift */,
@@ -429,6 +433,7 @@
 				5D8E7EE90D784CEE0BFCB5F7 /* BillPhotoViewerView.swift in Sources */,
 				10EBDAD489DA8B06819F4551 /* BillReviewView.swift in Sources */,
 				CF06EAD2DC7F665E546AF5DB /* CategoriesView.swift in Sources */,
+				47A99C2F4083B3B48436F481 /* CategoryDeleteService.swift in Sources */,
 				38789BB5235E9A416422F54C /* CategoryMergeService.swift in Sources */,
 				A674F3ACE99C34781C6FEC45 /* CategoryRenameService.swift in Sources */,
 				A76915423C9B86D56642BCC6 /* CategoryStore.swift in Sources */,
@@ -479,6 +484,7 @@
 				C32FDB83FC26419198E81434 /* BillEvalHarness.swift in Sources */,
 				9BBA3B009C6F0F4AC8066DFD /* BillItemizationService.swift in Sources */,
 				53A231EDE5EC0E17EDAF8BC0 /* BillModels.swift in Sources */,
+				22031BFF337270977E620A55 /* CategoryDeleteService.swift in Sources */,
 				7A5B93EE1382D214EF45A12F /* CategoryMergeService.swift in Sources */,
 				C8788FFE4E479DE4B65B431B /* CategoryRenameService.swift in Sources */,
 				91B1D508C2908A0EB0045532 /* CategoryStore.swift in Sources */,

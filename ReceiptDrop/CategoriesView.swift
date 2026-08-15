@@ -16,6 +16,17 @@ struct CategoriesView: View {
     @State private var addCategoryError: String?
     @FocusState private var newCategoryFieldFocused: Bool
 
+    /// Set when a swipe-to-delete lands on a category that still has
+    /// receipts — deletion then goes through a confirmation offering both
+    /// meanings of "delete a category" (drop the label, or destroy the
+    /// receipts too) instead of silently picking one. Empty categories skip
+    /// all of this and delete immediately; there's nothing to warn about.
+    @State private var pendingDelete: (name: String, receiptCount: Int)?
+    @State private var showDeleteOptions = false
+    @State private var isDeletingCategory = false
+    @State private var deleteMessage: String?
+    @State private var deleteError: String?
+
     var body: some View {
         Form {
             Section {
@@ -31,7 +42,7 @@ struct CategoriesView: View {
                         }
                     }
                 }
-                .onDelete { categoryStore.remove(at: $0) }
+                .onDelete(perform: confirmDelete)
 
                 HStack {
                     TextField("New category", text: $newCategory)
@@ -47,6 +58,15 @@ struct CategoriesView: View {
                 if let addCategoryError {
                     Text(addCategoryError).font(.caption).foregroundStyle(.red)
                 }
+                if isDeletingCategory {
+                    HStack { ProgressView(); Text("Backing up, then deleting…").font(.caption) }
+                }
+                if let deleteMessage {
+                    Text(deleteMessage).font(.caption).foregroundStyle(.secondary)
+                }
+                if let deleteError {
+                    Text(deleteError).font(.caption).foregroundStyle(.red)
+                }
             } header: {
                 Text("Categories")
             } footer: {
@@ -61,6 +81,74 @@ struct CategoriesView: View {
             }
         }
         .onChange(of: newCategory) { _ in addCategoryError = nil }
+        .confirmationDialog(
+            "Delete \(pendingDelete?.name ?? "")?",
+            isPresented: $showDeleteOptions,
+            titleVisibility: .visible
+        ) {
+            if let pendingDelete {
+                Button("Delete Category and \(pendingDelete.receiptCount) Receipt\(pendingDelete.receiptCount == 1 ? "" : "s")", role: .destructive) {
+                    deleteWithReceipts(pendingDelete.name)
+                }
+                Button("Delete Category Only") {
+                    deleteCategoryOnly(pendingDelete.name)
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            if let pendingDelete {
+                Text("""
+                    \(pendingDelete.name) has \(pendingDelete.receiptCount) receipt\(pendingDelete.receiptCount == 1 ? "" : "s").
+
+                    Delete Category Only removes just the label — the receipts stay in your history and still show under All, but with no filter for this category.
+
+                    Deleting the receipts too can't be undone except by restoring the full backup that's made first.
+                    """)
+            }
+        }
+    }
+
+    /// Categories with no receipts delete straight away — the confirmation
+    /// exists to disambiguate what should happen to receipts, so with none
+    /// there's nothing to ask about.
+    private func confirmDelete(at offsets: IndexSet) {
+        deleteMessage = nil
+        deleteError = nil
+        guard let index = offsets.first else { return }
+        let name = categoryStore.categories[index]
+        let count = receiptCount(for: name)
+        guard count > 0 else {
+            categoryStore.remove(at: offsets)
+            return
+        }
+        pendingDelete = (name: name, receiptCount: count)
+        showDeleteOptions = true
+    }
+
+    private func deleteCategoryOnly(_ name: String) {
+        categoryStore.remove(named: name)
+        deleteMessage = "Removed \(name) from the list. Its receipts are still in your history, under All."
+        pendingDelete = nil
+    }
+
+    private func deleteWithReceipts(_ name: String) {
+        isDeletingCategory = true
+        Task {
+            do {
+                let summary = try CategoryDeleteService.deleteWithReceipts(name)
+                await MainActor.run {
+                    isDeletingCategory = false
+                    pendingDelete = nil
+                    deleteMessage = "Backed up to Files → On My iPhone → Receipt Drop → Backups → \(summary.backupFilename). Deleted \(name) and \(summary.receiptsDeleted) receipt\(summary.receiptsDeleted == 1 ? "" : "s")."
+                }
+            } catch {
+                await MainActor.run {
+                    isDeletingCategory = false
+                    pendingDelete = nil
+                    deleteError = "Backup failed, so nothing was deleted: \(error.localizedDescription)"
+                }
+            }
+        }
     }
 
     private func addCategory() {
@@ -74,8 +162,14 @@ struct CategoriesView: View {
         }
     }
 
+    /// Case-insensitive, matching the Receipts screen's category filter and
+    /// the merge/rename/delete services. Matters more than cosmetically
+    /// here: this count decides whether a swipe-to-delete asks about
+    /// receipts at all, so undercounting mixed-case ones would silently
+    /// orphan exactly the receipts the confirmation exists to protect.
     private func receiptCount(for category: String) -> Int {
-        SubmissionStore.loadHistory().filter { $0.category == category }.count
+        SubmissionStore.loadHistory()
+            .filter { $0.category.caseInsensitiveCompare(category) == .orderedSame }.count
     }
 }
 
@@ -117,8 +211,13 @@ struct CategoryDetailView: View {
         _renameInput = State(initialValue: category)
     }
 
+    /// Case-insensitive, matching `CategoriesView.receiptCount` and the
+    /// merge/rename services — this count appears in the rename and merge
+    /// confirmations, which would otherwise understate how much is about to
+    /// move.
     private var entries: [HistoryEntry] {
-        SubmissionStore.loadHistory().filter { $0.category == category }
+        SubmissionStore.loadHistory()
+            .filter { $0.category.caseInsensitiveCompare(category) == .orderedSame }
     }
 
     var body: some View {
