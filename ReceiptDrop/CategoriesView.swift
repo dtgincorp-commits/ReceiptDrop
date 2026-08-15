@@ -13,7 +13,19 @@ struct CategoriesView: View {
 
     @StateObject private var categoryStore = CategoryStore.shared
     @State private var newCategory = ""
+    @State private var addCategoryError: String?
     @FocusState private var newCategoryFieldFocused: Bool
+
+    /// Set when a swipe-to-delete lands on a category that still has
+    /// receipts — deletion then goes through a confirmation offering both
+    /// meanings of "delete a category" (drop the label, or destroy the
+    /// receipts too) instead of silently picking one. Empty categories skip
+    /// all of this and delete immediately; there's nothing to warn about.
+    @State private var pendingDelete: (name: String, receiptCount: Int)?
+    @State private var showDeleteOptions = false
+    @State private var isDeletingCategory = false
+    @State private var deleteMessage: String?
+    @State private var deleteError: String?
 
     var body: some View {
         Form {
@@ -30,24 +42,30 @@ struct CategoriesView: View {
                         }
                     }
                 }
-                .onDelete { categoryStore.remove(at: $0) }
+                .onDelete(perform: confirmDelete)
 
                 HStack {
                     TextField("New category", text: $newCategory)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
                         .focused($newCategoryFieldFocused)
-                        .onSubmit {
-                            categoryStore.add(newCategory)
-                            newCategory = ""
-                        }
-                    Button {
-                        categoryStore.add(newCategory)
-                        newCategory = ""
-                    } label: {
+                        .onSubmit(addCategory)
+                    Button(action: addCategory) {
                         Image(systemName: "plus.circle.fill")
                     }
                     .disabled(newCategory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                if let addCategoryError {
+                    Text(addCategoryError).font(.caption).foregroundStyle(.red)
+                }
+                if isDeletingCategory {
+                    HStack { ProgressView(); Text("Backing up, then deleting…").font(.caption) }
+                }
+                if let deleteMessage {
+                    Text(deleteMessage).font(.caption).foregroundStyle(.secondary)
+                }
+                if let deleteError {
+                    Text(deleteError).font(.caption).foregroundStyle(.red)
                 }
             } header: {
                 Text("Categories")
@@ -62,10 +80,96 @@ struct CategoriesView: View {
                 newCategoryFieldFocused = true
             }
         }
+        .onChange(of: newCategory) { _ in addCategoryError = nil }
+        .confirmationDialog(
+            "Delete \(pendingDelete?.name ?? "")?",
+            isPresented: $showDeleteOptions,
+            titleVisibility: .visible
+        ) {
+            if let pendingDelete {
+                Button("Delete Category and \(pendingDelete.receiptCount) Receipt\(pendingDelete.receiptCount == 1 ? "" : "s")", role: .destructive) {
+                    deleteWithReceipts(pendingDelete.name)
+                }
+                Button("Delete Category Only") {
+                    deleteCategoryOnly(pendingDelete.name)
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            if let pendingDelete {
+                Text("""
+                    \(pendingDelete.name) has \(pendingDelete.receiptCount) receipt\(pendingDelete.receiptCount == 1 ? "" : "s").
+
+                    Delete Category Only removes just the label — the receipts stay in your history and still show under All, but with no filter for this category.
+
+                    Deleting the receipts too can't be undone except by restoring the full backup that's made first.
+                    """)
+            }
+        }
     }
 
+    /// Categories with no receipts delete straight away — the confirmation
+    /// exists to disambiguate what should happen to receipts, so with none
+    /// there's nothing to ask about.
+    private func confirmDelete(at offsets: IndexSet) {
+        deleteMessage = nil
+        deleteError = nil
+        guard let index = offsets.first else { return }
+        let name = categoryStore.categories[index]
+        let count = receiptCount(for: name)
+        guard count > 0 else {
+            categoryStore.remove(at: offsets)
+            return
+        }
+        pendingDelete = (name: name, receiptCount: count)
+        showDeleteOptions = true
+    }
+
+    private func deleteCategoryOnly(_ name: String) {
+        categoryStore.remove(named: name)
+        deleteMessage = "Removed \(name) from the list. Its receipts are still in your history, under All."
+        pendingDelete = nil
+    }
+
+    private func deleteWithReceipts(_ name: String) {
+        isDeletingCategory = true
+        Task {
+            do {
+                let summary = try CategoryDeleteService.deleteWithReceipts(name)
+                await MainActor.run {
+                    isDeletingCategory = false
+                    pendingDelete = nil
+                    deleteMessage = "Backed up to Files → On My iPhone → Receipt Drop → Backups → \(summary.backupFilename). Deleted \(name) and \(summary.receiptsDeleted) receipt\(summary.receiptsDeleted == 1 ? "" : "s")."
+                }
+            } catch {
+                await MainActor.run {
+                    isDeletingCategory = false
+                    pendingDelete = nil
+                    deleteError = "Backup failed, so nothing was deleted: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func addCategory() {
+        let trimmed = newCategory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if categoryStore.add(trimmed) {
+            newCategory = ""
+            addCategoryError = nil
+        } else {
+            addCategoryError = "\"\(trimmed.uppercased())\" already exists."
+        }
+    }
+
+    /// Case-insensitive, matching the Receipts screen's category filter and
+    /// the merge/rename/delete services. Matters more than cosmetically
+    /// here: this count decides whether a swipe-to-delete asks about
+    /// receipts at all, so undercounting mixed-case ones would silently
+    /// orphan exactly the receipts the confirmation exists to protect.
     private func receiptCount(for category: String) -> Int {
-        SubmissionStore.loadHistory().filter { $0.category == category }.count
+        SubmissionStore.loadHistory()
+            .filter { $0.category.caseInsensitiveCompare(category) == .orderedSame }.count
     }
 }
 
@@ -87,13 +191,33 @@ struct CategoryDetailView: View {
     @State private var mergeError: String?
     @State private var duplicatePairs: [DuplicateDetectionService.Pair] = []
 
+    @State private var renameInput = ""
+    @State private var showRenameConfirm = false
+    @State private var isRenaming = false
+    @State private var renameError: String?
+    /// Separate from `showRenameConfirm`: tapping the title is a quick path
+    /// that combines "type the new name" and "confirm" into one alert
+    /// (matching the Files/Photos app "Rename" pattern), rather than
+    /// scrolling to the Rename section's own text field first. Both paths
+    /// share `renameInput` and `rename()` — this is a second entry point
+    /// into the same flow, not a separate one.
+    @State private var showQuickRenameAlert = false
+
+    @Environment(\.dismiss) private var dismiss
+
     init(category: String) {
         self.category = category
         _descriptionInput = State(initialValue: CategoryStore.shared.description(for: category))
+        _renameInput = State(initialValue: category)
     }
 
+    /// Case-insensitive, matching `CategoriesView.receiptCount` and the
+    /// merge/rename services — this count appears in the rename and merge
+    /// confirmations, which would otherwise understate how much is about to
+    /// move.
     private var entries: [HistoryEntry] {
-        SubmissionStore.loadHistory().filter { $0.category == category }
+        SubmissionStore.loadHistory()
+            .filter { $0.category.caseInsensitiveCompare(category) == .orderedSame }
     }
 
     var body: some View {
@@ -156,6 +280,31 @@ struct CategoryDetailView: View {
                 Text("Wipes and regenerates \(category)'s CSV log strictly from what's shown on the Receipts screen — fixes stray or duplicate rows. Comments on existing rows come back blank (they're only stored in the CSV); new receipts keep their Comments as usual. Other categories aren't affected.")
             }
 
+            Section {
+                TextField("Category name", text: $renameInput)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .disabled(isRenaming)
+                Button {
+                    showRenameConfirm = true
+                } label: {
+                    HStack {
+                        Spacer()
+                        if isRenaming { ProgressView() } else { Text("Rename") }
+                        Spacer()
+                    }
+                }
+                .disabled(isRenaming || renameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || renameInput.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(category) == .orderedSame)
+                if let renameError {
+                    Text(renameError).font(.caption).foregroundStyle(.red)
+                }
+            } header: {
+                Text("Rename")
+            } footer: {
+                Text("Renames \(category) and moves its files to match — a full backup is made first. To combine it into an existing category instead, use Merge below. You can also rename by tapping \(category) at the top of this screen.")
+            }
+
             if otherCategories.count > 0 {
                 Section {
                     Picker("Merge Into", selection: $mergeDestination) {
@@ -198,6 +347,31 @@ struct CategoryDetailView: View {
         }
         .navigationTitle(category)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Button {
+                    renameInput = category
+                    showQuickRenameAlert = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(category).font(.headline).foregroundStyle(.primary)
+                        Image(systemName: "pencil").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(isRenaming)
+            }
+        }
+        .alert("Rename Category", isPresented: $showQuickRenameAlert) {
+            TextField("Category name", text: $renameInput)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") { rename() }
+                .disabled(renameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || renameInput.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(category) == .orderedSame)
+        } message: {
+            Text("Moves all \(entries.count) receipt\(entries.count == 1 ? "" : "s") in \(category) to the new name. A full backup is made first.")
+        }
         .alert("Rebuild \(category)'s log?", isPresented: $showRebuildConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Rebuild", role: .destructive) { rebuild() }
@@ -216,6 +390,12 @@ struct CategoryDetailView: View {
             }
         } message: {
             Text("A full backup will be made first. Then all \(entries.count) receipt\(entries.count == 1 ? "" : "s") in \(category) will move into \(mergeDestination ?? ""), and \(category) will be removed from your category list. This can only be undone by restoring that backup.")
+        }
+        .alert("Rename \(category)?", isPresented: $showRenameConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Back Up, Then Rename", role: .destructive) { rename() }
+        } message: {
+            Text("A full backup will be made first. Then all \(entries.count) receipt\(entries.count == 1 ? "" : "s") in \(category) will move to \(renameInput.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()). This can only be undone by restoring that backup.")
         }
     }
 
@@ -243,6 +423,28 @@ struct CategoryDetailView: View {
                 await MainActor.run {
                     isMerging = false
                     mergeError = "Backup failed, so nothing was merged: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    /// On success, pops back to the category list rather than staying on
+    /// this screen under a stale title — `category` is a `let` set once at
+    /// init, so this view has no way to reflect the new name in place, and
+    /// the category no longer exists under the old one once the rename
+    /// completes.
+    private func rename() {
+        renameError = nil
+        isRenaming = true
+        let target = renameInput
+        Task {
+            do {
+                _ = try CategoryRenameService.rename(category, to: target)
+                await MainActor.run { dismiss() }
+            } catch {
+                await MainActor.run {
+                    isRenaming = false
+                    renameError = error.localizedDescription
                 }
             }
         }

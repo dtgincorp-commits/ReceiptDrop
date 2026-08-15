@@ -81,8 +81,16 @@ targets:
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
           NSExtensionAttributes:
             NSExtensionActivationRule:
-              NSExtensionActivationSupportsImageWithMaxCount: 1
-              NSExtensionActivationSupportsFileWithMaxCount: 1
+              # This is the OS-level ceiling iOS uses to decide whether to
+              # offer ReceiptDrop in the share sheet at all — it is enforced
+              # BEFORE the extension process launches, so it can't show any
+              # message of its own. Set generously higher than the in-app
+              # "friendly" batch limit (5, see ExtensionBatchSubmitView) so
+              # that limit's warning actually has a chance to run instead of
+              # ReceiptDrop just silently vanishing from the sheet for a
+              # realistic multi-select, which is the bug this exists to fix.
+              NSExtensionActivationSupportsImageWithMaxCount: 20
+              NSExtensionActivationSupportsFileWithMaxCount: 20
 
   ReceiptDropTests:
     type: bundle.unit-test

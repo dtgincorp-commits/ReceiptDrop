@@ -772,6 +772,15 @@ struct RestoreSummary {
     /// excluded) image files. Distinct from `receiptsRestored`, which only
     /// counts entries new to history.
     var photosReattached = 0
+    /// Category names newly created by this restore — from the backup's
+    /// manifest, or backfilled from the restored entries themselves when the
+    /// manifest didn't list one. Worth surfacing on its own: a category can
+    /// appear here with zero of its receipts actually landing in
+    /// `receiptsRestored` (every entry that would have used it turned out to
+    /// already be present), which would otherwise look like nothing happened
+    /// even though a new, empty category now sits in the list with no
+    /// explanation for why.
+    var categoriesAdded: [String] = []
 }
 
 /// Restores a full backup zip (from `ArchiveBackupService.buildFullBackup`).
@@ -836,8 +845,9 @@ enum RestoreService {
         // Importing into one target category shouldn't also silently create
         // every category name the source phone happened to have — only the
         // one category actually being used should show up here.
+        var categoriesAdded: [String] = []
         if targetCategory == nil {
-            restoreManifest(at: manifestURL, isFreshInstall: SubmissionStore.loadHistory().isEmpty)
+            categoriesAdded += restoreManifest(at: manifestURL, isFreshInstall: SubmissionStore.loadHistory().isEmpty)
         }
 
         let decoder = JSONDecoder()
@@ -862,7 +872,21 @@ enum RestoreService {
             }
         }
 
-        let existingIDs = Set(SubmissionStore.loadHistory().map { $0.id })
+        // Backfill the category list from the entries themselves, not just
+        // the manifest. `restoreManifest` covers the normal case, but it's
+        // skipped entirely for a targeted import, and a hand-edited or
+        // older-format zip can carry entries whose category never appears in
+        // `manifest["categories"]` at all. Either way the receipts would
+        // land in history with no matching filter pill — visible under "All"
+        // and nowhere else. `add` is a no-op for anything already present
+        // (case-insensitively), so this only ever fills real gaps.
+        for category in Set(backupEntries.map(\.category)) where !category.isEmpty {
+            if CategoryStore.shared.add(category) { categoriesAdded.append(category) }
+        }
+
+        let existingEntries = SubmissionStore.loadHistory()
+        let existingByID = Dictionary(uniqueKeysWithValues: existingEntries.map { ($0.id, $0) })
+        let existingIDs = Set(existingByID.keys)
         let newEntries = backupEntries.filter { !existingIDs.contains($0.id) }
 
         // Copy files for EVERY entry in the backup, not just new ones — an
@@ -873,11 +897,25 @@ enum RestoreService {
         // `importFile` no-ops when the destination already exists, so this
         // is safe: receipts that still have their photo are untouched, and
         // this only ever fills in what's actually missing.
+        //
+        // For an entry that already exists on this phone, which filenames
+        // count as "still missing, please restore" comes from the LIVE
+        // entry, not the backup's own copy of it. A backup taken before the
+        // user deliberately deleted a photo (EditReceiptView's Delete
+        // Photo, or removing an extra attachment) still has the real
+        // filename in its snapshot — `mergeHistory` never overwrites an
+        // existing entry, so the deletion stays correct in the visible
+        // list, but without this the file itself would get silently copied
+        // back onto disk as an orphan nothing points to, and
+        // `photosReattached` would claim a recovery that didn't actually
+        // happen from the user's point of view.
         var photosReattached = 0
         for entry in backupEntries {
             let sourceCategory = sourceCategories[entry.id] ?? entry.category
-            let isReattach = existingIDs.contains(entry.id)
-            for filename in [entry.receiptLink] + entry.extraFiles {
+            let liveEntry = existingByID[entry.id]
+            let isReattach = liveEntry != nil
+            let expectedFilenames = liveEntry.map { [$0.receiptLink] + $0.extraFiles } ?? ([entry.receiptLink] + entry.extraFiles)
+            for filename in expectedFilenames {
                 guard !filename.isEmpty, !SubmissionPipeline.isPlaceholderLabel(filename) else { continue }
                 let sourceURL = contentRoot.appendingPathComponent(sourceCategory).appendingPathComponent(filename)
                 guard FileManager.default.fileExists(atPath: sourceURL.path) else { continue }
@@ -904,19 +942,28 @@ enum RestoreService {
 
         return RestoreSummary(
             receiptsRestored: restoredCount, receiptsSkipped: backupEntries.count - restoredCount,
-            duplicatePairs: duplicatePairs, photosReattached: photosReattached)
+            duplicatePairs: duplicatePairs, photosReattached: photosReattached,
+            categoriesAdded: categoriesAdded)
     }
 
     /// Categories/descriptions merge in regardless (additive, never clobbers
     /// an existing description). Extraction provider/mode are only applied
     /// on a fresh install — restoring into an already-configured phone
-    /// should never silently change live settings.
-    private static func restoreManifest(at url: URL, isFreshInstall: Bool) {
+    /// should never silently change live settings. Returns the category
+    /// names actually newly created (not already present, case-insensitively)
+    /// so the caller can tell the user a category appeared, rather than it
+    /// showing up in the list with no explanation — this matters especially
+    /// when that category ends up with zero receipts actually restored into
+    /// it (e.g. every entry that would have used it was already present).
+    private static func restoreManifest(at url: URL, isFreshInstall: Bool) -> [String] {
         guard let data = try? Data(contentsOf: url),
-              let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+              let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
 
+        var added: [String] = []
         if let categories = manifest["categories"] as? [String] {
-            for category in categories { CategoryStore.shared.add(category) }
+            for category in categories where CategoryStore.shared.add(category) {
+                added.append(category)
+            }
         }
         if let descriptions = manifest["categoryDescriptions"] as? [String: String] {
             for (category, description) in descriptions
@@ -924,7 +971,7 @@ enum RestoreService {
                 CategoryStore.shared.setDescription(description, for: category)
             }
         }
-        guard isFreshInstall else { return }
+        guard isFreshInstall else { return added }
         if let providerRaw = manifest["extractionProvider"] as? String,
            let provider = ExtractionProvider(rawValue: providerRaw), provider.isAvailable {
             ExtractionSettings.provider = provider
@@ -933,6 +980,7 @@ enum RestoreService {
            let mode = ExtractionMode(rawValue: modeRaw) {
             ExtractionSettings.mode = mode
         }
+        return added
     }
 }
 
@@ -1005,8 +1053,16 @@ struct HistoryEntry: Codable, Identifiable {
     }
 }
 
-/// A failed submission whose bytes are parked in the App Group container for
-/// a later retry from the main app.
+/// A submission whose bytes are parked in the App Group container
+/// (<container>/PendingReceipts) for the main app to run through
+/// `SubmissionPipeline` later — either because it already failed once
+/// (`isPending == false`, `error` explains why, shown in the Retry Queue's
+/// "Why it failed" section) or because it hasn't been attempted yet
+/// (`isPending == true` — e.g. a multi-photo share extension batch, which
+/// can't safely run the AI round-trip inside the extension's short process
+/// lifetime; see `SubmissionStore.enqueuePending` and
+/// `PendingSubmissionProcessor`). Keeping these distinct means an unstarted
+/// batch item never gets mislabeled as a failure in the UI.
 struct QueueEntry: Codable, Identifiable {
     var id = UUID()
     let category: String
@@ -1014,6 +1070,36 @@ struct QueueEntry: Codable, Identifiable {
     let kind: ReceiptKind
     let error: String
     let timestamp: Date
+    var isPending: Bool = false
+
+    init(id: UUID = UUID(), category: String, filename: String, kind: ReceiptKind,
+         error: String, timestamp: Date, isPending: Bool = false) {
+        self.id = id
+        self.category = category
+        self.filename = filename
+        self.kind = kind
+        self.error = error
+        self.timestamp = timestamp
+        self.isPending = isPending
+    }
+
+    // Custom Decodable so queue entries persisted before `isPending` existed
+    // (App Group UserDefaults) still decode, defaulting to `false` — i.e.
+    // "genuine failure", which is what every existing entry actually is.
+    private enum CodingKeys: String, CodingKey {
+        case id, category, filename, kind, error, timestamp, isPending
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        category = try container.decode(String.self, forKey: .category)
+        filename = try container.decode(String.self, forKey: .filename)
+        kind = try container.decode(ReceiptKind.self, forKey: .kind)
+        error = try container.decode(String.self, forKey: .error)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        isPending = try container.decodeIfPresent(Bool.self, forKey: .isPending) ?? false
+    }
 }
 
 /// One-time (re-runnable) maintenance action: classifies every history entry

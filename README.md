@@ -214,3 +214,34 @@ Open the **Files** app → **On My iPhone** → **ReceiptDrop** → **Receipts**
 pick a category folder. Tap the `_log.csv` file inside to open it in
 **Numbers** for a clean spreadsheet view, or tap a receipt image/PDF to view
 it directly.
+
+## Managing categories
+
+Settings → **Categories** (or "Manage Categories…" from the Receipts sort
+menu) lists every category, its receipt count, and an "Add Category" field.
+Tap a category for its detail screen: description (fed to the AI as
+context), CSV/folder shortcuts, log rebuild, and two structural actions —
+**Rename** and **Merge**.
+
+- **Add** rejects a name that already exists (case-insensitively) rather
+  than silently doing nothing — a red error shows under the field instead of
+  clearing it as if a new category had been created.
+- **Rename** (`Shared/CategoryRenameService.swift`) moves every receipt
+  (file, CSV row, comments) from the current name to a new one and updates
+  the category list to match. Refuses to rename into a name that already
+  exists — that's what Merge is for instead. Backs up first; only proceeds
+  if the backup succeeds.
+- **Merge** (`Shared/CategoryMergeService.swift`) moves every receipt from
+  one category into another, then removes the emptied source category from
+  the list. Same backup-first guarantee as Rename. Built specifically to
+  clean up a case-mismatched pair like "Sample Category" / "SAMPLE
+  CATEGORY" — see the next paragraph — but works for any two categories.
+
+**Why case-mismatched categories can exist at all:** `CategoryStore.add`
+uppercases every name it creates, but a receipt's own `category` field keeps
+whatever casing it had when saved. Restoring an older backup (or one from
+before this uppercasing existed) can recreate a category whose name doesn't
+match the case of the receipts sitting under it — the receipt list's
+category filter and both actions above compare names case-insensitively
+specifically to route around this, but the underlying mismatch is still
+worth cleaning up with Rename or Merge when you spot it.

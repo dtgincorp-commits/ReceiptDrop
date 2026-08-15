@@ -414,10 +414,9 @@ struct FoundationModelsService: ReceiptExtractor {
             // Tip/percentage suggestion: "20% is", "15% tip", "18%", etc.
             guard row.leftText.range(of: #"^\d+(\.\d+)?\s*%"#, options: .regularExpression) == nil else { return nil }
 
-            let price = row.rightText
-                .trimmingCharacters(in: .whitespaces)
-                .replacingOccurrences(of: "$", with: "")
-                .trimmingCharacters(in: .whitespaces)
+            let price = AppCurrency.stripKnownSymbols(
+                from: row.rightText.trimmingCharacters(in: .whitespaces)
+            ).trimmingCharacters(in: .whitespaces)
             guard Double(price) != nil else { return nil }
             return (name: row.leftText.trimmingCharacters(in: .whitespacesAndNewlines),
                     quantity: "1",

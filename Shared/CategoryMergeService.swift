@@ -36,16 +36,30 @@ enum CategoryMergeService {
     /// empty leftover folder is harmless, whereas deleting the wrong folder
     /// on a bad category-name match would not be.
     static func merge(from source: String, into destination: String) throws -> MergeSummary {
-        guard source != destination else { throw MergeError.sameCategory }
+        guard source.caseInsensitiveCompare(destination) != .orderedSame else { throw MergeError.sameCategory }
 
         let backupURL = try ArchiveBackupService.buildFullBackup()
 
-        let entries = SubmissionStore.loadHistory().filter { $0.category == source }
-        let comments = LocalReceiptStore.commentsByReceipt(categories: [source])
+        // Case-insensitive match: `source` is one entry from CategoryStore's
+        // list (always uppercase), but a receipt's own `category` string can
+        // still be whatever it was when saved — e.g. a pre-uppercasing
+        // "Sample Category" restored alongside a "SAMPLE CATEGORY" list
+        // entry (see CategoryStore.add). An exact match here found zero
+        // entries in exactly that case and reported success anyway, leaving
+        // every mixed-case receipt behind. `commentsByReceipt` and the CSV
+        // merge loop below already key off each entry's own `category`
+        // value rather than the literal `source` string, so they don't need
+        // the same fix — only this initial filter did.
+        let entries = SubmissionStore.loadHistory().filter { $0.category.caseInsensitiveCompare(source) == .orderedSame }
+        let comments = LocalReceiptStore.commentsByReceipt(categories: Array(Set(entries.map(\.category))))
 
         for entry in entries {
+            // Keyed by `entry.category` (its real, possibly-mismatched-case
+            // value), matching how `commentsByReceipt` built the map above —
+            // not `source`, which can differ in case from what's actually
+            // stored on some entries.
             let key = LocalReceiptStore.commentsKey(
-                category: source, vendor: entry.vendor, workDate: entry.workDate,
+                category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
                 amount: entry.amount, receiptFilename: entry.receiptLink)
             _ = try SubmissionPipeline.updateEntry(
                 old: entry, newCategory: destination, newVendor: entry.vendor,

@@ -23,6 +23,11 @@ struct EditReceiptView: View {
     @State private var message: String?
     @State private var isSaving = false
 
+    // Same App Group store + key SettingsView writes, so the symbol shown
+    // here always matches whatever the user picked.
+    @AppStorage(AppConstants.DefaultsKeys.appCurrency, store: UserDefaults(suiteName: AppConstants.appGroupID))
+    private var appCurrency: AppCurrency = .auto
+
     /// Sentinel tags for the picker's action rows — never real stored
     /// values, just triggers for the text-entry prompt / management sheet.
     private static let addCustomTypeTag = "__add_custom_type__"
@@ -78,7 +83,7 @@ struct EditReceiptView: View {
                 Section("Details") {
                     TextField("Merchant / Vendor", text: $vendor).disabled(isSaving)
                     HStack {
-                        Text("$")
+                        Text(appCurrency.symbol)
                         TextField("Amount", text: $amount)
                             .keyboardType(.decimalPad)
                     }

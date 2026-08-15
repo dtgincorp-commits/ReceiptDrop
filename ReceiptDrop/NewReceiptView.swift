@@ -34,6 +34,20 @@ struct NewReceiptView: View {
     @State private var attachment: SharedAttachment?
     @State private var batchAttachments: [SharedAttachment]?
     @State private var scannedText: String?
+    @State private var pendingBatchAttachments: [SharedAttachment] = []
+    @State private var showBatchConfirm = false
+
+    /// Hard cap passed to `PhotosPicker` itself — its own "N of 20 selected"
+    /// UI stops the user from over-selecting in the first place. Was 0
+    /// (PhotosPicker's documented value for "no limit"): a user could select
+    /// e.g. 200 photos and every one would fire its own AI extraction call
+    /// with no confirmation shown at any point.
+    private static let photoPickerMaxSelection = 20
+    /// Above this count, confirm before committing to the batch — matches
+    /// the share extension's friendly limit (ExtensionBatchSubmitView) for
+    /// consistency, though this path has no OS-level ceiling to work around
+    /// and so just needs the one confirmation step, not two tiers.
+    private static let batchConfirmThreshold = 5
 
     var body: some View {
         Group {
@@ -100,7 +114,7 @@ struct NewReceiptView: View {
             .ignoresSafeArea()
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItems,
-                      maxSelectionCount: 0, matching: .images)
+                      maxSelectionCount: Self.photoPickerMaxSelection, matching: .images)
         .onChange(of: photoPickerItems) { items in
             guard !items.isEmpty else { return }
             Task {
@@ -117,10 +131,28 @@ struct NewReceiptView: View {
                 }
                 if loaded.count == 1 {
                     attachment = loaded[0]
+                } else if loaded.count > Self.batchConfirmThreshold {
+                    // Large-ish batch: confirm before committing, since each
+                    // photo fires its own AI extraction call once
+                    // BatchReceiptSubmitView's "Submit All" is tapped.
+                    pendingBatchAttachments = loaded
+                    showBatchConfirm = true
                 } else {
                     batchAttachments = loaded
                 }
             }
+        }
+        .alert("Submit \(pendingBatchAttachments.count) receipts?", isPresented: $showBatchConfirm) {
+            Button("Cancel", role: .cancel) {
+                pendingBatchAttachments = []
+                dismiss()
+            }
+            Button("Continue") {
+                batchAttachments = pendingBatchAttachments
+                pendingBatchAttachments = []
+            }
+        } message: {
+            Text("This will make \(pendingBatchAttachments.count) AI requests, one per photo.")
         }
         .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf, .image]) { result in
             switch result {

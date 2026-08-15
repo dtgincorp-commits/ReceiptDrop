@@ -38,6 +38,12 @@ struct ReceiptSubmitView: View {
     @State private var pendingDateEntry: HistoryEntry?
     @State private var pickedDate = Date()
 
+    // Same App Group store + key SettingsView writes, so the symbol shown
+    // here always matches whatever the user picked — shared with the share
+    // extension since this view is too.
+    @AppStorage(AppConstants.DefaultsKeys.appCurrency, store: UserDefaults(suiteName: AppConstants.appGroupID))
+    private var appCurrency: AppCurrency = .auto
+
     /// The just-saved entry whose amount didn't match anything printed on
     /// the receipt — held so the `.needsAmount` nudge can update it.
     @State private var pendingAmountEntry: HistoryEntry?
@@ -126,7 +132,7 @@ struct ReceiptSubmitView: View {
                         TextField("Merchant / Vendor", text: $manualVendor)
                             .disabled(controlsDisabled)
                         HStack {
-                            Text("$")
+                            Text(appCurrency.symbol)
                             TextField("Amount", text: $manualAmount)
                                 .keyboardType(.decimalPad)
                                 .disabled(controlsDisabled)
@@ -236,7 +242,7 @@ struct ReceiptSubmitView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
-                    Text("$")
+                    Text(appCurrency.symbol)
                     TextField("Amount", text: $pickedAmount)
                         .keyboardType(.decimalPad)
                 }
