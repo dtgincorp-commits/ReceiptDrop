@@ -96,7 +96,17 @@ struct ReceiptsView: View {
 
     private var filteredEntries: [HistoryEntry] {
         guard let filterCategory else { return entries }
-        return entries.filter { $0.category == filterCategory }
+        // Case-insensitive on purpose. `CategoryStore.add` uppercases every
+        // name it stores, but a receipt's own `category` string is whatever
+        // it was when the receipt was saved — and restore writes entries
+        // back verbatim while feeding their category names through `add`
+        // (see `ReceiptModels.restore` / `restoreManifest`). A backup
+        // containing "Sample Category" therefore produces an uppercased
+        // "SAMPLE CATEGORY" pill with mixed-case receipts hiding behind it,
+        // which an exact `==` here rendered permanently unreachable — the
+        // pill showed "No Receipts" while the same receipts were plainly
+        // visible under "All".
+        return entries.filter { $0.category.caseInsensitiveCompare(filterCategory) == .orderedSame }
     }
 
     private var needsReviewEntries: [HistoryEntry] {

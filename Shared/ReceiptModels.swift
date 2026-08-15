@@ -862,6 +862,18 @@ enum RestoreService {
             }
         }
 
+        // Backfill the category list from the entries themselves, not just
+        // the manifest. `restoreManifest` covers the normal case, but it's
+        // skipped entirely for a targeted import, and a hand-edited or
+        // older-format zip can carry entries whose category never appears in
+        // `manifest["categories"]` at all. Either way the receipts would
+        // land in history with no matching filter pill — visible under "All"
+        // and nowhere else. `add` is a no-op for anything already present
+        // (case-insensitively), so this only ever fills real gaps.
+        for category in Set(backupEntries.map(\.category)) where !category.isEmpty {
+            CategoryStore.shared.add(category)
+        }
+
         let existingIDs = Set(SubmissionStore.loadHistory().map { $0.id })
         let newEntries = backupEntries.filter { !existingIDs.contains($0.id) }
 
