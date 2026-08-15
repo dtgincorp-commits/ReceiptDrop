@@ -727,6 +727,15 @@ struct ArchiveBackupView: View {
                     if !summary.duplicatePairs.isEmpty {
                         message += " Found \(summary.duplicatePairs.count) possible duplicate\(summary.duplicatePairs.count == 1 ? "" : "s")."
                     }
+                    // Called out explicitly rather than left implicit: a
+                    // category can appear here with 0 receipts landing in it
+                    // (every entry that would have used it was already
+                    // present) — without this, that reads as "nothing
+                    // happened" even though a new category now sits in the
+                    // list with no other explanation for why it showed up.
+                    if !summary.categoriesAdded.isEmpty {
+                        message += " Added categor\(summary.categoriesAdded.count == 1 ? "y" : "ies"): \(summary.categoriesAdded.joined(separator: ", "))."
+                    }
                     restoreMessage = message
                     localBackups = LocalReceiptStore.listBackups()
                     if !summary.duplicatePairs.isEmpty {
