@@ -40,6 +40,7 @@
 		565E406ADD2728D9A3D43D98 /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2941693C5D3EECC412C2593 /* AppConstants.swift */; };
 		58168498563928C083F7B003 /* ConnectAIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B5E0049BD90BDFDE54268AE /* ConnectAIView.swift */; };
 		5D8E7EE90D784CEE0BFCB5F7 /* BillPhotoViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D324D5EAA6CF8E1542B4DEE2 /* BillPhotoViewerView.swift */; };
+		5FCEF3B0A481F744472916B3 /* AdaptiveCategoryPickerStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07BDF38B71C73D066236EEB8 /* AdaptiveCategoryPickerStyle.swift */; };
 		71CCDF38BD3109B77E790035 /* AppCurrency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */; };
 		77684F15B8C98AF84E326C8A /* ReceiptModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */; };
 		77B47008DA30372897F64B0C /* SubmissionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */; };
@@ -54,6 +55,7 @@
 		91B1D508C2908A0EB0045532 /* CategoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820F21560AF35EFF72979693 /* CategoryStore.swift */; };
 		92B9B6475BC80D6F58BD16D1 /* TorchPreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF53CB390C89FC9984BDC13 /* TorchPreferenceStore.swift */; };
 		94C1488C8061205BFD249837 /* LocalReceiptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */; };
+		96C6718D9DF2BB43D9402C98 /* AdaptiveCategoryPickerStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07BDF38B71C73D066236EEB8 /* AdaptiveCategoryPickerStyle.swift */; };
 		986877CE36E68C3BF767AAD1 /* EditReceiptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2487A2052B551FC00FDF8D17 /* EditReceiptView.swift */; };
 		989C15E2F6780A8C9541AE6B /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86375C2C83E8E61C3F858C9B /* KeychainHelper.swift */; };
 		9B6EF7B44DF6ABBE6B508386 /* BatchSubmissionRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50557937A6FFA7EE5E0A83CD /* BatchSubmissionRunner.swift */; };
@@ -128,6 +130,7 @@
 /* Begin PBXFileReference section */
 		052B9FD37DCB668BAE4A85FC /* ReceiptCropService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCropService.swift; sourceTree = "<group>"; };
 		069D9E5F65259C3310655504 /* CategoryRenameService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryRenameService.swift; sourceTree = "<group>"; };
+		07BDF38B71C73D066236EEB8 /* AdaptiveCategoryPickerStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveCategoryPickerStyle.swift; sourceTree = "<group>"; };
 		096738F483C15B82B353EC44 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0BF53CB390C89FC9984BDC13 /* TorchPreferenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorchPreferenceStore.swift; sourceTree = "<group>"; };
 		0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AzureDocumentIntelligenceService.swift; sourceTree = "<group>"; };
@@ -237,6 +240,7 @@
 		CE83CD9A3D49B6FB64882F6E /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				07BDF38B71C73D066236EEB8 /* AdaptiveCategoryPickerStyle.swift */,
 				BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */,
 				E2941693C5D3EECC412C2593 /* AppConstants.swift */,
 				75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */,
@@ -418,6 +422,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1BEBCD8888AB65FF0B4D5827 /* APIKeyTester.swift in Sources */,
+				96C6718D9DF2BB43D9402C98 /* AdaptiveCategoryPickerStyle.swift in Sources */,
 				7BEB3A1247963FEF61B950FE /* AppConstants.swift in Sources */,
 				71CCDF38BD3109B77E790035 /* AppCurrency.swift in Sources */,
 				A933026D14369CB556BD7573 /* AppTextSize.swift in Sources */,
@@ -475,6 +480,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				438C22CA72F62D6792A44725 /* APIKeyTester.swift in Sources */,
+				5FCEF3B0A481F744472916B3 /* AdaptiveCategoryPickerStyle.swift in Sources */,
 				565E406ADD2728D9A3D43D98 /* AppConstants.swift in Sources */,
 				54ED10E6932E78F13E41BA9E /* AppCurrency.swift in Sources */,
 				7DC9169DF1AABEE1E48F39A9 /* AppTextSize.swift in Sources */,

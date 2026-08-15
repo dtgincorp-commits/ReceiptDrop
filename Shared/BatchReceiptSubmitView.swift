@@ -37,7 +37,7 @@ struct BatchReceiptSubmitView: View {
                     Picker("Category", selection: $selectedCategory) {
                         ForEach(categoryStore.categories, id: \.self) { Text($0) }
                     }
-                    .pickerStyle(.segmented)
+                    .adaptiveCategoryPickerStyle(count: categoryStore.categories.count)
                     .disabled(phase != .idle)
                 }
 
