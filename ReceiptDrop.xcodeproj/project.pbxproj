@@ -40,6 +40,7 @@
 		565E406ADD2728D9A3D43D98 /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2941693C5D3EECC412C2593 /* AppConstants.swift */; };
 		58168498563928C083F7B003 /* ConnectAIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B5E0049BD90BDFDE54268AE /* ConnectAIView.swift */; };
 		5D8E7EE90D784CEE0BFCB5F7 /* BillPhotoViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D324D5EAA6CF8E1542B4DEE2 /* BillPhotoViewerView.swift */; };
+		5FCEF3B0A481F744472916B3 /* AdaptiveCategoryPickerStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07BDF38B71C73D066236EEB8 /* AdaptiveCategoryPickerStyle.swift */; };
 		71CCDF38BD3109B77E790035 /* AppCurrency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */; };
 		77684F15B8C98AF84E326C8A /* ReceiptModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */; };
 		77B47008DA30372897F64B0C /* SubmissionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */; };
@@ -54,6 +55,7 @@
 		91B1D508C2908A0EB0045532 /* CategoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820F21560AF35EFF72979693 /* CategoryStore.swift */; };
 		92B9B6475BC80D6F58BD16D1 /* TorchPreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF53CB390C89FC9984BDC13 /* TorchPreferenceStore.swift */; };
 		94C1488C8061205BFD249837 /* LocalReceiptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */; };
+		96C6718D9DF2BB43D9402C98 /* AdaptiveCategoryPickerStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07BDF38B71C73D066236EEB8 /* AdaptiveCategoryPickerStyle.swift */; };
 		986877CE36E68C3BF767AAD1 /* EditReceiptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2487A2052B551FC00FDF8D17 /* EditReceiptView.swift */; };
 		989C15E2F6780A8C9541AE6B /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86375C2C83E8E61C3F858C9B /* KeychainHelper.swift */; };
 		9B6EF7B44DF6ABBE6B508386 /* BatchSubmissionRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50557937A6FFA7EE5E0A83CD /* BatchSubmissionRunner.swift */; };
@@ -75,6 +77,7 @@
 		BF823103E7489F33241DBF6A /* SubmissionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */; };
 		C2D72AFC0FBB745AFE861F5D /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86375C2C83E8E61C3F858C9B /* KeychainHelper.swift */; };
 		C32FDB83FC26419198E81434 /* BillEvalHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 525C3226B85E765DA6EC3B6C /* BillEvalHarness.swift */; };
+		C4E78BEADE759B3127334076 /* SettingsInfoLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE989CFC7987A552BBCBBB3D /* SettingsInfoLink.swift */; };
 		C4F8FCDA1B735A3B5E8B03A7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CEFB96E5673FBC20796DFAE /* ContentView.swift */; };
 		C8788FFE4E479DE4B65B431B /* CategoryRenameService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 069D9E5F65259C3310655504 /* CategoryRenameService.swift */; };
 		CF06EAD2DC7F665E546AF5DB /* CategoriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40594EEE43B6E118DC837A56 /* CategoriesView.swift */; };
@@ -86,6 +89,7 @@
 		DEF3F7AFC83A15F5A809CF52 /* ScannedTextSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B3295A349899BF8290F0B97 /* ScannedTextSubmitView.swift */; };
 		E1B43E5E39B38CC08C3A7824 /* ExtractionLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35A1A78E48AAD20590B47E39 /* ExtractionLogicTests.swift */; };
 		E23F74196CB32223A35D1C70 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 24F99E4477C2AFEDD8DC698B /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E520FAD5D609E53E000FD1CA /* SettingsInfoLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE989CFC7987A552BBCBBB3D /* SettingsInfoLink.swift */; };
 		E7AED0646507150C7FAAFA65 /* AzureDocumentIntelligenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */; };
 		F3BF161A4231487C54B8DB46 /* InsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CFF6F9F94C524551A1A7102 /* InsightsView.swift */; };
 		F4D45048DA00D1430D6B75E3 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3363F7383B194313AE1C80FF /* Theme.swift */; };
@@ -128,6 +132,7 @@
 /* Begin PBXFileReference section */
 		052B9FD37DCB668BAE4A85FC /* ReceiptCropService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCropService.swift; sourceTree = "<group>"; };
 		069D9E5F65259C3310655504 /* CategoryRenameService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryRenameService.swift; sourceTree = "<group>"; };
+		07BDF38B71C73D066236EEB8 /* AdaptiveCategoryPickerStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveCategoryPickerStyle.swift; sourceTree = "<group>"; };
 		096738F483C15B82B353EC44 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0BF53CB390C89FC9984BDC13 /* TorchPreferenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorchPreferenceStore.swift; sourceTree = "<group>"; };
 		0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AzureDocumentIntelligenceService.swift; sourceTree = "<group>"; };
@@ -189,6 +194,7 @@
 		E32F2DD659E3FF9FED54431B /* AutoBackupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoBackupService.swift; sourceTree = "<group>"; };
 		EE72A7EE2EB472CB550F4F88 /* BillModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillModels.swift; sourceTree = "<group>"; };
 		EE82950D18F3776A7AFFCC5B /* DuplicateReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateReviewView.swift; sourceTree = "<group>"; };
+		FE989CFC7987A552BBCBBB3D /* SettingsInfoLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsInfoLink.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -237,6 +243,7 @@
 		CE83CD9A3D49B6FB64882F6E /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				07BDF38B71C73D066236EEB8 /* AdaptiveCategoryPickerStyle.swift */,
 				BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */,
 				E2941693C5D3EECC412C2593 /* AppConstants.swift */,
 				75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */,
@@ -262,6 +269,7 @@
 				2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */,
 				2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */,
 				67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */,
+				FE989CFC7987A552BBCBBB3D /* SettingsInfoLink.swift */,
 				C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */,
 				57FF61EB58699460FE16D612 /* SubmissionStore.swift */,
 				0BF53CB390C89FC9984BDC13 /* TorchPreferenceStore.swift */,
@@ -418,6 +426,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1BEBCD8888AB65FF0B4D5827 /* APIKeyTester.swift in Sources */,
+				96C6718D9DF2BB43D9402C98 /* AdaptiveCategoryPickerStyle.swift in Sources */,
 				7BEB3A1247963FEF61B950FE /* AppConstants.swift in Sources */,
 				71CCDF38BD3109B77E790035 /* AppCurrency.swift in Sources */,
 				A933026D14369CB556BD7573 /* AppTextSize.swift in Sources */,
@@ -461,6 +470,7 @@
 				849150F0B742BED665DFDD9E /* ReceiptSubmitView.swift in Sources */,
 				B1D1A4149D421F8F2BB69B12 /* ReceiptsView.swift in Sources */,
 				DEF3F7AFC83A15F5A809CF52 /* ScannedTextSubmitView.swift in Sources */,
+				C4E78BEADE759B3127334076 /* SettingsInfoLink.swift in Sources */,
 				167A6DAFB1FCB380DC1D043D /* SettingsView.swift in Sources */,
 				A138BC54F5D082BCBFFCD53F /* SpendingInsightsService.swift in Sources */,
 				77B47008DA30372897F64B0C /* SubmissionPipeline.swift in Sources */,
@@ -475,6 +485,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				438C22CA72F62D6792A44725 /* APIKeyTester.swift in Sources */,
+				5FCEF3B0A481F744472916B3 /* AdaptiveCategoryPickerStyle.swift in Sources */,
 				565E406ADD2728D9A3D43D98 /* AppConstants.swift in Sources */,
 				54ED10E6932E78F13E41BA9E /* AppCurrency.swift in Sources */,
 				7DC9169DF1AABEE1E48F39A9 /* AppTextSize.swift in Sources */,
@@ -500,6 +511,7 @@
 				00B6687EE07E1D652C3B3F18 /* ReceiptDateDetector.swift in Sources */,
 				ADDC7BC434839EA099ADC4D5 /* ReceiptModels.swift in Sources */,
 				B311E2C1168EE57DB4DE55D2 /* ReceiptSubmitView.swift in Sources */,
+				E520FAD5D609E53E000FD1CA /* SettingsInfoLink.swift in Sources */,
 				0357085443A9651EF4E77F6E /* ShareSheetView.swift in Sources */,
 				D103EE8EA7FB89F874E54221 /* ShareViewController.swift in Sources */,
 				BF823103E7489F33241DBF6A /* SubmissionPipeline.swift in Sources */,

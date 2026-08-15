@@ -9,6 +9,9 @@ struct SettingsView: View {
     @State private var classifyMessage: String?
     @State private var classifyError: String?
     @State private var showConnectAI = false
+    /// Long-form text moved out of the section footers — see
+    /// `SettingsInfoLink`. Footers keep one sentence; the detail lives here.
+    @State private var infoTopic: SettingsInfoTopic?
     // Same App Group store + key ContentView reads, so this picker and the
     // app-wide override it controls always agree — SwiftUI's @AppStorage
     // updates live across both without any extra plumbing.
@@ -61,12 +64,38 @@ struct SettingsView: View {
                     } label: {
                         Label("Connect AI (Guided Setup)…", systemImage: "wand.and.stars")
                     }
+
+                    SettingsInfoButton(
+                        title: "Receipt Extraction",
+                        detail: """
+                            Extraction Mode
+
+                            "On-Device OCR Text" reads the receipt on your phone for free and sends only the text — faster and cheaper. Hard-to-read receipts automatically retry with the full image.
+
+                            "Full Image" sends the photo itself to the AI provider, which reads harder receipts more reliably.
+
+                            Providers
+
+                            "Apple On-Device" reads receipts entirely on your phone with Apple Intelligence — no API key, and nothing leaves the device. It requires iOS 26 or later on an Apple Intelligence–capable iPhone, with the feature enabled.
+
+                            The other providers (Claude, OpenAI, Gemini, Perplexity, Microsoft Document Intelligence) each need their own API key, entered below.
+
+                            Offline Mode
+
+                            Blocks every cloud provider so nothing is ever sent off the device. Reading and search then require the Apple On-Device provider. Turn it on to verify the app works fully in Airplane Mode.
+                            """,
+                        topic: $infoTopic)
                 } header: {
                     Text("Receipt Extraction")
                 } footer: {
-                    Text("\"On-Device OCR Text\" reads the receipt on your phone for free and sends only the text — faster and cheaper. Hard-to-read receipts automatically retry with the full image. \"Apple On-Device\" reads receipts entirely on your phone with Apple Intelligence — no API key, nothing leaves the device — and requires iOS 26+ on an Apple Intelligence–capable iPhone with the feature enabled.\n\nOffline Mode blocks the cloud providers (Claude, OpenAI, Gemini, Perplexity, Microsoft Document Intelligence) so nothing is ever sent off the device — reading and search then require the Apple On-Device provider. Turn it on to verify the app works fully in Airplane Mode.")
+                    Text("On-Device OCR sends only text — faster and cheaper. Apple On-Device keeps everything on your phone (iOS 26+).")
                 }
 
+                // The visible privacy claim stays a full row rather than
+                // collapsing behind "Learn more" like the other long text —
+                // it's a trust statement people should meet without having
+                // to go looking, and burying it is the wrong direction.
+                // Only its supporting detail moves into the sheet.
                 Section {
                     Label {
                         Text("Keep receipt images on this iPhone only")
@@ -75,8 +104,19 @@ struct SettingsView: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
                     }
+
+                    SettingsInfoButton(
+                        title: "On-Device Storage",
+                        detail: """
+                            Receipt images stay local to this iPhone. The app automatically excludes its receipt storage from iCloud and device backups, so they're never uploaded by a system backup.
+
+                            They live under On My iPhone → ReceiptDrop in the Files app (local storage).
+
+                            To keep them solely on-device, don't manually copy them into iCloud Drive, Photos (with iCloud Photos on), or any other cloud folder.
+                            """,
+                        topic: $infoTopic)
                 } footer: {
-                    Text("Receipt images stay local to this iPhone. The app automatically excludes its receipt storage from iCloud and device backups, so they're never uploaded by a system backup. They live under On My iPhone → ReceiptDrop in the Files app (local storage). To keep them solely on-device, don't manually copy them into iCloud Drive, Photos (with iCloud Photos on), or any other cloud folder.")
+                    Text("Receipt images never leave this iPhone, and are excluded from iCloud and device backups.")
                 }
 
                 // Only the currently selected provider's key field is shown —
@@ -87,25 +127,25 @@ struct SettingsView: View {
                     APIKeySection(
                         title: "Anthropic API Key", placeholder: "sk-ant-…",
                         account: AppConstants.KeychainKeys.anthropicAPIKey,
-                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Anthropic API.",
+                        footer: "Stored in the iOS Keychain. Only ever sent to Anthropic.",
                         testKey: APIKeyTester.testClaudeKey)
                 case .openAI:
                     APIKeySection(
                         title: "OpenAI API Key", placeholder: "sk-…",
                         account: AppConstants.KeychainKeys.openAIAPIKey,
-                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the OpenAI API.",
+                        footer: "Stored in the iOS Keychain. Only ever sent to OpenAI.",
                         testKey: APIKeyTester.testOpenAIKey)
                 case .gemini:
                     APIKeySection(
                         title: "Google Gemini API Key", placeholder: "AIza…",
                         account: AppConstants.KeychainKeys.geminiAPIKey,
-                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Gemini API.",
+                        footer: "Stored in the iOS Keychain. Only ever sent to Gemini.",
                         testKey: APIKeyTester.testGeminiKey)
                 case .perplexity:
                     APIKeySection(
                         title: "Perplexity API Key", placeholder: "pplx-…",
                         account: AppConstants.KeychainKeys.perplexityAPIKey,
-                        footer: "Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call the Perplexity API.",
+                        footer: "Stored in the iOS Keychain. Only ever sent to Perplexity.",
                         testKey: APIKeyTester.testPerplexityKey)
                 case .azureDocumentIntelligence:
                     AzureAPIKeySection()
@@ -116,7 +156,7 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } footer: {
-                        Text("Both receipt reading and natural-language search run on-device. If Apple Intelligence isn't enabled or your device isn't eligible, you'll see an error asking you to enable it or pick another provider.")
+                        Text("Reading and search both run on-device.")
                     }
                 }
 
@@ -131,8 +171,6 @@ struct SettingsView: View {
                     } label: {
                         Label("Archive & Backup", systemImage: "archivebox")
                     }
-                } footer: {
-                    Text("Categories: add or remove categories, open their CSV logs, and run maintenance. Archive & Backup: export receipts by period, or back up everything.")
                 }
 
                 Section {
@@ -143,7 +181,7 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                 } footer: {
-                    Text("Changes text size in this app only. \"System\" follows your iPhone's Text Size setting (Settings → Display & Brightness). Choosing a specific size overrides it — including any accessibility text size you've set. Bill Breakdown has its own separate text size control.")
+                    Text("Applies to this app only. \"System\" follows your iPhone's Text Size setting.")
                 }
 
                 Section {
@@ -156,7 +194,7 @@ struct SettingsView: View {
                         }
                     }
                 } footer: {
-                    Text("Changes how amounts are displayed only — it doesn't convert between currencies or change any already-saved amount. \"Automatic\" follows your iPhone's region setting, same as before this setting existed.")
+                    Text("Display only — no conversion, and saved amounts are unchanged.")
                 }
 
                 Section {
@@ -179,7 +217,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Vendor Types")
                 } footer: {
-                    Text("Receipts get a business type (restaurant, hardware store, etc.) automatically when scanned. Manually-entered receipts and anything saved before this feature don't have one yet — this classifies all of them at once, from vendor name only (no photos re-sent). Safe to run anytime; only untyped receipts are affected.")
+                    Text("Gives older or manually-entered receipts a business type, so they show up in type-based search.")
                 }
             }
             .navigationTitle("Settings")
@@ -191,6 +229,7 @@ struct SettingsView: View {
                     selectedProvider = ExtractionSettings.provider
                 }
             }
+            .settingsInfoSheet(topic: $infoTopic)
         }
     }
 
@@ -454,7 +493,7 @@ private struct AzureAPIKeySection: View {
         } header: {
             Text("Microsoft Document Intelligence")
         } footer: {
-            Text("Stored in the iOS Keychain, shared with the share extension. Never leaves this device except to call your Azure resource. Create a Document Intelligence resource in the Azure portal, then copy its endpoint and key here — the free tier covers 500 pages/month.")
+            Text("Stored in the iOS Keychain. Only ever sent to your Azure resource.")
         }
     }
 
@@ -534,6 +573,8 @@ struct ArchiveBackupView: View {
     /// what they just selected.
     @State private var pendingRestoreURL: URL?
     @State private var restoreDuplicatePairs: [DuplicateDetectionService.Pair] = []
+    /// See `SettingsInfoLink` — long-form detail moved out of the footers.
+    @State private var infoTopic: SettingsInfoTopic?
     @State private var showRestoreDuplicates = false
 
     private enum DeleteScopeKind: String, CaseIterable, Identifiable {
@@ -588,6 +629,7 @@ struct ArchiveBackupView: View {
         }
         .navigationTitle("Archive & Backup")
         .navigationBarTitleDisplayMode(.inline)
+        .settingsInfoSheet(topic: $infoTopic)
         .sheet(item: $shareURL) { wrapper in
             ActivityShareSheet(url: wrapper.url)
         }
@@ -702,10 +744,26 @@ struct ArchiveBackupView: View {
             if let errorMessage {
                 Text(errorMessage).font(.caption).foregroundStyle(.red)
             }
+            SettingsInfoButton(
+                title: "Restore",
+                detail: """
+                    Backups on this phone are stored at Files → On My iPhone → Receipt Drop → Backups. Tap one to restore it. Swipe to delete a backup you no longer need.
+
+                    Restoring is additive: it never overwrites or deletes anything already on this phone, only adds what's missing.
+
+                    "Restore/Select from a Backup Zip" opens the Files picker, for backups saved to iCloud Drive or from another phone — select the .zip file itself, not a folder.
+
+                    When restoring from the Files picker you can import everything into a single category instead of keeping the original ones, which is handy for a backup from another iPhone.
+
+                    Possible duplicates are flagged for review afterward.
+
+                    Your API key is never stored in backups — re-enter it in Settings after restoring on a new phone.
+                    """,
+                topic: $infoTopic)
         } header: {
             Text("Restore")
         } footer: {
-            Text("These backups are stored on this phone at Files → On My iPhone → Receipt Drop → Backups. Tap one to restore it — never overwrites or deletes anything already on this phone, only adds what's missing. Swipe to delete a backup you no longer need. \"Restore/Select from a Backup Zip\" opens the Files picker, for backups saved to iCloud Drive or from another phone — select the .zip file itself, not a folder. When restoring from the Files picker, you can choose to import everything into one category instead of keeping the original ones — handy for a backup from another iPhone. Possible duplicates are flagged for review after restoring. Your API key isn't stored in backups; re-enter it in Settings after restoring on a new phone.")
+            Text("Restoring only adds what's missing — it never overwrites or deletes anything already here.")
         }
     }
 
@@ -802,8 +860,7 @@ struct ArchiveBackupView: View {
             Text("Archive")
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Periods are based on each receipt's work date (falling back to the scan date if missing). Creates a zip of that period's photos, attachments, and a CSV, then lets you save it via AirDrop, iCloud Drive, or Files. Nothing is deleted from the app.")
-                Text("This export can't be restored later — for a zip you can restore (on this phone or another one), use \"Backup Now\" below instead.")
+                Text("Exports a period as a zip to share. Nothing is deleted, and this export can't be restored later — use Backup Now for that.")
                     .font(.caption2)
                     .foregroundStyle(.red)
             }
@@ -837,7 +894,7 @@ struct ArchiveBackupView: View {
         } header: {
             Text("Backup")
         } footer: {
-            Text("Backs up every receipt, photo, and category setting into one zip file. Save it to iCloud Drive or AirDrop it to your Mac so it's recoverable even if this phone is lost — an iPhone backup alone can't restore just this app's files individually. Never includes your API keys.")
+            Text("Backs up everything into one restorable zip. Save it off-device so it survives losing this phone.")
         }
     }
 
@@ -886,7 +943,7 @@ struct ArchiveBackupView: View {
         } header: {
             Text("Delete Receipts")
         } footer: {
-            Text("Permanently deletes every receipt and photo from the selected year or month. A full backup is created automatically first — restore it from the Restore section above if you need anything back. Consider also saving a copy to iCloud Drive or AirDropping it to your Mac, since only the 3 most recent on-device backups are kept, and a later backup can silently push this one out.")
+            Text("Permanently deletes every receipt and photo in the selected period. A full backup is made first — only the 3 most recent are kept on this phone.")
         }
     }
 
