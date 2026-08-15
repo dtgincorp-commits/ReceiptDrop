@@ -36,7 +36,17 @@ enum ReceiptAmountDetector {
         // Code lines) before landing this, and again when generalizing
         // beyond US "$"/"." formatting — the bare-integer rejection must
         // survive that change.
-        let pattern = #"[$€£₹¥]\s*\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d{1,3}(?:[.,]\d{3})*[.,]\d{1,2}"#
+        //
+        // Each grouping cluster after the first digit run is 2 OR 3 digits
+        // (not just 3), so Indian lakh/crore grouping extracts as one token
+        // instead of being split apart: "1,23,456.78" (lakh) and
+        // "1,23,45,678.90" (crore) both group in 2s once past the first
+        // cluster, unlike Western thousands-grouping which is always 3.
+        // Verified against both before landing this, alongside the
+        // bare-integer regression above — a looser grouping count is exactly
+        // the kind of change that could accidentally let a sequence number
+        // through.
+        let pattern = #"[$€£₹¥]\s*\d{1,3}(?:[.,]\d{2,3})*(?:[.,]\d{1,2})?|\d{1,3}(?:[.,]\d{2,3})*[.,]\d{1,2}"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
 
         let fullRange = NSRange(text.startIndex..., in: text)
@@ -67,6 +77,9 @@ enum ReceiptAmountDetector {
             // other is grouping.
             // "1.234,56" -> "1234.56"   ·   "1,234.56" -> "1234.56"
             // "1,23,456.78" -> "123456.78" (lakh grouping)
+            // "1,23,45,678.90" -> "12345678.90" (crore grouping — any number
+            // of grouping separators is fine here, since every one of them
+            // gets stripped regardless of how many 2-digit clusters there are)
             let lastComma = raw.range(of: ",", options: .backwards)!.lowerBound
             let lastPeriod = raw.range(of: ".", options: .backwards)!.lowerBound
             let decimalIsComma = lastComma > lastPeriod
