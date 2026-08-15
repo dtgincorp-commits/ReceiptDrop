@@ -101,6 +101,13 @@ struct CategoryDetailView: View {
     @State private var showRenameConfirm = false
     @State private var isRenaming = false
     @State private var renameError: String?
+    /// Separate from `showRenameConfirm`: tapping the title is a quick path
+    /// that combines "type the new name" and "confirm" into one alert
+    /// (matching the Files/Photos app "Rename" pattern), rather than
+    /// scrolling to the Rename section's own text field first. Both paths
+    /// share `renameInput` and `rename()` — this is a second entry point
+    /// into the same flow, not a separate one.
+    @State private var showQuickRenameAlert = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -196,7 +203,7 @@ struct CategoryDetailView: View {
             } header: {
                 Text("Rename")
             } footer: {
-                Text("Renames \(category) and moves its files to match — a full backup is made first. To combine it into an existing category instead, use Merge below.")
+                Text("Renames \(category) and moves its files to match — a full backup is made first. To combine it into an existing category instead, use Merge below. You can also rename by tapping \(category) at the top of this screen.")
             }
 
             if otherCategories.count > 0 {
@@ -241,6 +248,31 @@ struct CategoryDetailView: View {
         }
         .navigationTitle(category)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Button {
+                    renameInput = category
+                    showQuickRenameAlert = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(category).font(.headline).foregroundStyle(.primary)
+                        Image(systemName: "pencil").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(isRenaming)
+            }
+        }
+        .alert("Rename Category", isPresented: $showQuickRenameAlert) {
+            TextField("Category name", text: $renameInput)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") { rename() }
+                .disabled(renameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || renameInput.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(category) == .orderedSame)
+        } message: {
+            Text("Moves all \(entries.count) receipt\(entries.count == 1 ? "" : "s") in \(category) to the new name. A full backup is made first.")
+        }
         .alert("Rebuild \(category)'s log?", isPresented: $showRebuildConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Rebuild", role: .destructive) { rebuild() }
