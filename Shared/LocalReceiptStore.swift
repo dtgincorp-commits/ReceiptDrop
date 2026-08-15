@@ -174,19 +174,33 @@ enum LocalReceiptStore {
     /// App Group spool in case a share-extension submission hasn't been
     /// drained yet (the app hasn't been opened since).
     static func existingFileURL(category: String, filename: String) -> URL? {
+        allExistingFileURLs(category: category, filename: filename).first
+    }
+
+    /// *Every* copy of `filename` under `category` — Documents first, then
+    /// the App Group spool. Normally there's at most one, but the same name
+    /// can legitimately exist in both at once: the share extension writes to
+    /// the spool and the main app drains it into Documents only when it next
+    /// becomes active, so anything touching files in between sees two.
+    /// Callers that move or delete a receipt's file need all of them —
+    /// acting on just the first (which `existingFileURL` returns) silently
+    /// strands the other as an orphan, and a spool orphan isn't even visible
+    /// in the Files app to clean up by hand.
+    static func allExistingFileURLs(category: String, filename: String) -> [URL] {
+        var urls: [URL] = []
         if let docURL = documentsRootURL()?
             .appendingPathComponent(category, isDirectory: true)
             .appendingPathComponent(filename),
            FileManager.default.fileExists(atPath: docURL.path) {
-            return docURL
+            urls.append(docURL)
         }
         if let spoolURL = spoolRootURL()?
             .appendingPathComponent(category, isDirectory: true)
             .appendingPathComponent(filename),
            FileManager.default.fileExists(atPath: spoolURL.path) {
-            return spoolURL
+            urls.append(spoolURL)
         }
-        return nil
+        return urls
     }
 
     /// Removes a history entry's row from its category's CSV log and deletes
@@ -197,12 +211,18 @@ enum LocalReceiptStore {
         try removeRow(category: category, vendor: vendor, workDate: workDate,
                       amount: amount, receiptFilename: receiptFilename)
 
-        if !receiptFilename.isEmpty, !SubmissionPipeline.isPlaceholderLabel(receiptFilename),
-           let fileURL = existingFileURL(category: category, filename: receiptFilename) {
-            try? FileManager.default.removeItem(at: fileURL)
+        // Every copy, not just the first — a file can sit in both Documents
+        // and the App Group spool at once (see `allExistingFileURLs`), and
+        // removing only one leaves the other as an orphan that a later
+        // spool drain would resurrect into a category the user already
+        // deleted this receipt from.
+        if !receiptFilename.isEmpty, !SubmissionPipeline.isPlaceholderLabel(receiptFilename) {
+            for fileURL in allExistingFileURLs(category: category, filename: receiptFilename) {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
         }
         for extra in extraFiles {
-            if let extraURL = existingFileURL(category: category, filename: extra) {
+            for extraURL in allExistingFileURLs(category: category, filename: extra) {
                 try? FileManager.default.removeItem(at: extraURL)
             }
         }
@@ -291,14 +311,56 @@ enum LocalReceiptStore {
 
     /// Moves a receipt file from one category's folder to another (in
     /// Documents) — used when an edit changes the category but not the photo.
+    /// Moves every copy of the file (see `allExistingFileURLs`) into
+    /// `newCategory`'s Documents folder.
+    ///
+    /// If the destination already holds that filename, the two are compared
+    /// rather than the move just failing. Filenames carry a timestamp plus
+    /// 16 random bits (`fileName(category:kind:)`), so two *different*
+    /// receipts colliding is essentially impossible — a name already sitting
+    /// at the destination is almost always an orphaned duplicate of this
+    /// very file, left behind by something that copied it there without the
+    /// entry ever pointing at it. Identical contents therefore mean the
+    /// destination copy is already correct and the source is the redundant
+    /// one: drop the source and treat the move as done, which quietly
+    /// reconciles the orphan instead of blocking the user's edit forever
+    /// with "an item with the same name already exists."
+    ///
+    /// Genuinely different contents under the same name is a real anomaly
+    /// worth surfacing, so that still throws rather than silently
+    /// overwriting a file that might be someone's only copy of a receipt.
     static func moveFile(filename: String, from oldCategory: String, to newCategory: String) throws {
-        guard let sourceURL = existingFileURL(category: oldCategory, filename: filename) else { return }
+        let sources = allExistingFileURLs(category: oldCategory, filename: filename)
+        guard !sources.isEmpty else { return }
         guard let destFolder = documentsRootURL()?.appendingPathComponent(newCategory, isDirectory: true) else {
             throw LocalStoreError.appGroupUnavailable
         }
         try FileManager.default.createDirectory(at: destFolder, withIntermediateDirectories: true)
         let destURL = destFolder.appendingPathComponent(filename)
-        try FileManager.default.moveItem(at: sourceURL, to: destURL)
+
+        for sourceURL in sources {
+            guard sourceURL.standardizedFileURL != destURL.standardizedFileURL else { continue }
+            if FileManager.default.fileExists(atPath: destURL.path) {
+                guard sameContents(sourceURL, destURL) else {
+                    throw LocalStoreError.conflictingFileAtDestination(
+                        filename: filename, category: newCategory)
+                }
+                try? FileManager.default.removeItem(at: sourceURL)
+            } else {
+                try FileManager.default.moveItem(at: sourceURL, to: destURL)
+            }
+        }
+    }
+
+    /// Byte-for-byte comparison, short-circuited on file size so the common
+    /// "obviously different" case doesn't read two images into memory.
+    private static func sameContents(_ lhs: URL, _ rhs: URL) -> Bool {
+        let sizeOf: (URL) -> Int? = {
+            (try? $0.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        }
+        guard let lhsSize = sizeOf(lhs), let rhsSize = sizeOf(rhs), lhsSize == rhsSize else { return false }
+        guard let lhsData = try? Data(contentsOf: lhs), let rhsData = try? Data(contentsOf: rhs) else { return false }
+        return lhsData == rhsData
     }
 
     /// Wipes and regenerates a category's CSV log strictly from `entries`
@@ -616,11 +678,14 @@ enum LocalReceiptStore {
 enum LocalStoreError: LocalizedError {
     case appGroupUnavailable
     case zipFailed
+    case conflictingFileAtDestination(filename: String, category: String)
 
     var errorDescription: String? {
         switch self {
         case .appGroupUnavailable: return "Couldn't access shared app storage."
         case .zipFailed: return "Couldn't create the zip archive."
+        case let .conflictingFileAtDestination(filename, category):
+            return "\"\(filename)\" already exists in \(category) with different contents, so it wasn't moved. Open the \(category) folder in Files to check which copy to keep."
         }
     }
 }
