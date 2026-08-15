@@ -1005,8 +1005,16 @@ struct HistoryEntry: Codable, Identifiable {
     }
 }
 
-/// A failed submission whose bytes are parked in the App Group container for
-/// a later retry from the main app.
+/// A submission whose bytes are parked in the App Group container
+/// (<container>/PendingReceipts) for the main app to run through
+/// `SubmissionPipeline` later — either because it already failed once
+/// (`isPending == false`, `error` explains why, shown in the Retry Queue's
+/// "Why it failed" section) or because it hasn't been attempted yet
+/// (`isPending == true` — e.g. a multi-photo share extension batch, which
+/// can't safely run the AI round-trip inside the extension's short process
+/// lifetime; see `SubmissionStore.enqueuePending` and
+/// `PendingSubmissionProcessor`). Keeping these distinct means an unstarted
+/// batch item never gets mislabeled as a failure in the UI.
 struct QueueEntry: Codable, Identifiable {
     var id = UUID()
     let category: String
@@ -1014,6 +1022,36 @@ struct QueueEntry: Codable, Identifiable {
     let kind: ReceiptKind
     let error: String
     let timestamp: Date
+    var isPending: Bool = false
+
+    init(id: UUID = UUID(), category: String, filename: String, kind: ReceiptKind,
+         error: String, timestamp: Date, isPending: Bool = false) {
+        self.id = id
+        self.category = category
+        self.filename = filename
+        self.kind = kind
+        self.error = error
+        self.timestamp = timestamp
+        self.isPending = isPending
+    }
+
+    // Custom Decodable so queue entries persisted before `isPending` existed
+    // (App Group UserDefaults) still decode, defaulting to `false` — i.e.
+    // "genuine failure", which is what every existing entry actually is.
+    private enum CodingKeys: String, CodingKey {
+        case id, category, filename, kind, error, timestamp, isPending
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        category = try container.decode(String.self, forKey: .category)
+        filename = try container.decode(String.self, forKey: .filename)
+        kind = try container.decode(ReceiptKind.self, forKey: .kind)
+        error = try container.decode(String.self, forKey: .error)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        isPending = try container.decodeIfPresent(Bool.self, forKey: .isPending) ?? false
+    }
 }
 
 /// One-time (re-runnable) maintenance action: classifies every history entry

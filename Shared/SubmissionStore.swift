@@ -86,20 +86,54 @@ enum SubmissionStore {
         decode([QueueEntry].self, key: AppConstants.DefaultsKeys.retryQueue) ?? []
     }
 
-    /// Persist the attachment bytes to disk and record a queue entry.
+    /// Persist the attachment bytes to disk and record a queue entry for a
+    /// submission that was actually attempted and failed (network error, API
+    /// error, etc.) — `error` is shown to the user as the reason.
     static func enqueue(data: Data, category: String, kind: ReceiptKind, error: String) {
-        let filename = "\(UUID().uuidString).\(kind.fileExtension)"
-        if let url = fileURL(for: filename) {
-            try? FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: url)
-        }
+        let filename = parkFile(data: data, kind: kind)
         var items = loadQueue()
         items.insert(
             QueueEntry(category: category, filename: filename, kind: kind,
                        error: error, timestamp: Date()),
             at: 0)
         encode(items, key: AppConstants.DefaultsKeys.retryQueue)
+    }
+
+    /// Persist the attachment bytes to disk and record a *pending* queue
+    /// entry — for a submission that hasn't been attempted yet, not one that
+    /// failed. Built for the share extension's multi-photo batch path: the
+    /// extension can't safely run `SubmissionPipeline`'s AI round-trip
+    /// itself (see the plan doc's "critical constraint" section — the
+    /// extension process can be killed right after it calls
+    /// `completeRequest`), so it parks the bytes here instead and the main
+    /// app runs them through the pipeline on next launch/foreground via
+    /// `PendingSubmissionProcessor`, exactly like any other queued retry.
+    ///
+    /// Deliberately a separate function from `enqueue` rather than
+    /// `enqueue(..., error: "")` or some neutral placeholder string —
+    /// `error` is user-facing text explaining a real failure, and an
+    /// untried item isn't one. `QueueEntry.isPending` is the actual signal
+    /// the Retry Queue UI uses to tell the two apart.
+    static func enqueuePending(data: Data, category: String, kind: ReceiptKind) {
+        let filename = parkFile(data: data, kind: kind)
+        var items = loadQueue()
+        items.insert(
+            QueueEntry(category: category, filename: filename, kind: kind,
+                       error: "", timestamp: Date(), isPending: true),
+            at: 0)
+        encode(items, key: AppConstants.DefaultsKeys.retryQueue)
+    }
+
+    /// Writes `data` into the App Group's PendingReceipts folder under a
+    /// fresh UUID filename, shared by `enqueue` and `enqueuePending`.
+    private static func parkFile(data: Data, kind: ReceiptKind) -> String {
+        let filename = "\(UUID().uuidString).\(kind.fileExtension)"
+        if let url = fileURL(for: filename) {
+            try? FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: url)
+        }
+        return filename
     }
 
     /// Remove a queue entry and delete its parked file.

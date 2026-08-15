@@ -18,6 +18,10 @@ struct ReceiptDropApp: App {
             switch newPhase {
             case .active:
                 AutoBackupService.runIfDueOnForeground()
+                // Picks up anything the share extension's multi-photo batch
+                // path parked but couldn't safely extract itself (see
+                // PendingSubmissionProcessor / SubmissionStore.enqueuePending).
+                PendingSubmissionProcessor.processPendingIfAny()
             case .background:
                 AutoBackupService.attemptBestEffortBackupOnBackground()
             case .inactive:

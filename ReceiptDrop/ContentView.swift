@@ -104,7 +104,7 @@ struct RetryQueueView: View {
                 if entries.isEmpty {
                     ContentUnavailableCompatView(
                         title: "Queue Empty",
-                        message: "Receipts that fail to upload (no network, API error) will wait here and can be retried."
+                        message: "Receipts that fail to upload (no network, API error), or that a multi-photo share arrived too fast to process, will wait here and can be retried."
                     )
                 } else {
                     List {
@@ -201,7 +201,7 @@ private struct QueueRow: View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.category).font(.headline)
-                Text(entry.error)
+                Text(entry.isPending ? "Waiting to process" : entry.error)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -284,11 +284,22 @@ private struct QueueEntryDetailView: View {
             }
 
             Section {
-                Text(entry.error)
-                    .font(.subheadline)
-                    .foregroundStyle(.red)
+                if entry.isPending {
+                    // Not a failure — this is a batch item the share
+                    // extension parked but couldn't safely run AI extraction
+                    // on itself (see PendingSubmissionProcessor). It'll be
+                    // processed automatically next launch; Retry here just
+                    // runs that same step immediately instead of waiting.
+                    Text("Not processed yet — this will run automatically the next time ReceiptDrop opens, or tap Retry to process it now.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(entry.error)
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                }
             } header: {
-                Text("Why it failed")
+                Text(entry.isPending ? "Status" : "Why it failed")
             }
 
             Section {
