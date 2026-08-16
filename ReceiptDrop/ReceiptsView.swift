@@ -90,6 +90,14 @@ struct ReceiptsView: View {
     /// This is the durable, always-current replacement.
     @State private var duplicatePairs: [DuplicateDetectionService.Pair] = []
 
+    /// Scales the tree's row insets with the ambient text size. `@ScaledMetric`
+    /// reports how far the current size is from the default, so dividing by
+    /// the base recovers a plain multiplier we can apply to each row kind's
+    /// own inset (see `Row.baseVerticalInset`) rather than needing a separate
+    /// `@ScaledMetric` per kind.
+    @ScaledMetric(relativeTo: .subheadline) private var rowInsetUnit: CGFloat = 8
+    private var rowInsetScale: CGFloat { rowInsetUnit / 8 }
+
     private var duplicateEntryIDs: Set<UUID> {
         Set(duplicatePairs.flatMap { [$0.first.id, $0.second.id] })
     }
@@ -473,7 +481,19 @@ struct ReceiptsView: View {
                         categoryPillRow
                         ForEach(flatRows(from: YearGroup.build(from: filteredEntries, groupByWorkDate: groupByWorkDate))) { row in
                             rowView(for: row)
-                                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                // Scaled, not fixed: `listRowInsets` is the
+                                // dominant contributor to row height once the
+                                // text itself is small, so a flat value here
+                                // caps how much density the small text-size
+                                // setting can actually buy — the glyphs
+                                // shrink but the padding around them doesn't.
+                                // `rowInsetScale` is 1.0 at the default text
+                                // size, so this is a no-op there.
+                                .listRowInsets(EdgeInsets(
+                                    top: row.baseVerticalInset * rowInsetScale,
+                                    leading: 16,
+                                    bottom: row.baseVerticalInset * rowInsetScale,
+                                    trailing: 16))
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                     if case .entry(let entry) = row.kind {
                                         Button(role: .destructive) {
@@ -994,6 +1014,22 @@ struct ReceiptsView: View {
             case day(DayGroup)
             case entry(HistoryEntry)
         }
+
+        /// Header rows carry their own font and read as structure, not
+        /// content, so they get tighter vertical insets than receipt rows —
+        /// with the day header (the one repeated most often, once per day
+        /// with receipts) tightest of all. Previously every row shared a
+        /// flat 8pt top/bottom, which meant three stacked headers
+        /// (year → month → day) spent ~48pt of fixed padding before the
+        /// first receipt appeared.
+        var baseVerticalInset: CGFloat {
+            switch kind {
+            case .year: return 6
+            case .month: return 4
+            case .day: return 3
+            case .entry: return 8
+            }
+        }
     }
 }
 
@@ -1021,7 +1057,12 @@ private struct HeaderRow: View {
                 .padding(.leading, CGFloat(level) * 14)
             Spacer()
             Image(systemName: "chevron.down")
-                .font(.caption.weight(.bold))
+                // .caption2 rather than .caption: the chevron sets the row's
+                // minimum height whenever it's taller than the label, which
+                // for the day header (.subheadline) it otherwise is — so the
+                // smallest, most-repeated header row was being held open by
+                // its own disclosure arrow.
+                .font(.caption2.weight(.bold))
                 .foregroundStyle(color)
                 .rotationEffect(.degrees(isExpanded ? 0 : -90))
         }
