@@ -531,6 +531,18 @@ struct ReceiptsView: View {
                         }
                     }
                     .listStyle(.plain)
+                    // The actual density constraint. `List` enforces a 44pt
+                    // minimum row height, which the year/month/day headers
+                    // were sitting exactly at — so trimming their
+                    // `listRowInsets` alone changed nothing, the rows were
+                    // held open by the floor rather than by their padding.
+                    // Lowered to 32pt: still a comfortable tap target for
+                    // the collapse/expand gesture (Apple's 44pt guidance is
+                    // about isolated controls; these are full-width rows),
+                    // while letting the trimmed insets actually take effect.
+                    // Receipt rows are taller than this on their own, so
+                    // they're unaffected.
+                    .environment(\.defaultMinListRowHeight, 32 * rowInsetScale)
                 }
             }
             .navigationTitle("Receipts")
