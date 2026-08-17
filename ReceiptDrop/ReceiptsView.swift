@@ -398,6 +398,72 @@ struct ReceiptsView: View {
         .listRowSeparator(.hidden)
     }
 
+    /// The "add a receipt" choices, shared by the toolbar "+" and the floating
+    /// button so the two can't drift apart.
+    @ViewBuilder
+    private var newReceiptMenuItems: some View {
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            Button {
+                newReceiptSource = .scanDocument
+            } label: {
+                Label("Scan Receipt", systemImage: "doc.text.viewfinder")
+            }
+            Button {
+                newReceiptSource = .camera
+            } label: {
+                Label("Take Photo", systemImage: "camera")
+            }
+            // No non-AI fallback makes sense here — raw scanned
+            // text with nothing to structure it into fields
+            // isn't useful, unlike a photo (which can still be
+            // saved and filled in by hand).
+            if DataScannerViewController.isSupported && DataScannerViewController.isAvailable
+                && ExtractionSettings.aiConfigured {
+                Button {
+                    newReceiptSource = .scanText
+                } label: {
+                    Label("Scan Text", systemImage: "text.viewfinder")
+                }
+            }
+        }
+        Divider()
+        Button {
+            newReceiptSource = .library
+        } label: {
+            Label("Choose from Library", systemImage: "photo.on.rectangle")
+        }
+        Button {
+            newReceiptSource = .file
+        } label: {
+            Label("Choose File", systemImage: "folder")
+        }
+        Button {
+            newReceiptSource = .manual
+        } label: {
+            Label("Enter Manually", systemImage: "pencil")
+        }
+        Divider()
+        Button {
+            focusNewCategoryOnOpen = true
+            showCategories = true
+        } label: {
+            Label("Add Category", systemImage: "folder.badge.plus")
+        }
+    }
+
+    /// The "+" as WhatsApp draws it: a small filled disc pinned in the header
+    /// rather than a floating button. 32pt keeps it in proportion with the
+    /// other toolbar glyphs — the toolbar expands the tappable region past the
+    /// visible circle, so this stays comfortably above the 44pt minimum
+    /// despite the smaller disc.
+    private var newReceiptButtonLabel: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 32, height: 32)
+            .background(Theme.actionBlue, in: Circle())
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -618,56 +684,11 @@ struct ReceiptsView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                            Button {
-                                newReceiptSource = .scanDocument
-                            } label: {
-                                Label("Scan Receipt", systemImage: "doc.text.viewfinder")
-                            }
-                            Button {
-                                newReceiptSource = .camera
-                            } label: {
-                                Label("Take Photo", systemImage: "camera")
-                            }
-                            // No non-AI fallback makes sense here — raw scanned
-                            // text with nothing to structure it into fields
-                            // isn't useful, unlike a photo (which can still be
-                            // saved and filled in by hand).
-                            if DataScannerViewController.isSupported && DataScannerViewController.isAvailable
-                                && ExtractionSettings.aiConfigured {
-                                Button {
-                                    newReceiptSource = .scanText
-                                } label: {
-                                    Label("Scan Text", systemImage: "text.viewfinder")
-                                }
-                            }
-                        }
-                        Divider()
-                        Button {
-                            newReceiptSource = .library
-                        } label: {
-                            Label("Choose from Library", systemImage: "photo.on.rectangle")
-                        }
-                        Button {
-                            newReceiptSource = .file
-                        } label: {
-                            Label("Choose File", systemImage: "folder")
-                        }
-                        Button {
-                            newReceiptSource = .manual
-                        } label: {
-                            Label("Enter Manually", systemImage: "pencil")
-                        }
-                        Divider()
-                        Button {
-                            focusNewCategoryOnOpen = true
-                            showCategories = true
-                        } label: {
-                            Label("Add Category", systemImage: "folder.badge.plus")
-                        }
+                        newReceiptMenuItems
                     } label: {
-                        Label("New Receipt", systemImage: "plus")
+                        newReceiptButtonLabel
                     }
+                    .accessibilityLabel("New Receipt")
                 }
             }
         }
