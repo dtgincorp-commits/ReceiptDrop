@@ -42,6 +42,12 @@ struct EditReceiptView: View {
     @State private var showCamera = false
     @State private var showDocumentScanner = false
     @State private var showFileImporter = false
+    @State private var showPreview = false
+
+    /// Resolved against the entry as saved on disk, so this deliberately
+    /// ignores an unsaved `newPhotoImage` — that one has no file to preview
+    /// yet, and is already shown full-width inline.
+    private var previewURLs: [URL] { ReceiptPreviewSheet.urls(for: entry) }
 
     @State private var extraPickerItems: [PhotosPickerItem] = []
     @State private var remainingExtraFiles: [String]
@@ -171,6 +177,11 @@ struct EditReceiptView: View {
                 }
             }
         }
+        .sheet(isPresented: $showPreview) {
+            if !previewURLs.isEmpty {
+                ReceiptPreviewSheet(entry: entry, urls: previewURLs)
+            }
+        }
         .fullScreenCover(isPresented: $showCamera) {
             CameraCaptureView { image in
                 showCamera = false
@@ -261,13 +272,41 @@ struct EditReceiptView: View {
                     Label("No photo attached", systemImage: "doc.text")
                         .foregroundStyle(.secondary)
                 } else if let existingImage {
-                    Image(uiImage: existingImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 180)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    // Tappable: the inline photo is capped at 180pt, which
+                    // is far too small to actually read a receipt. Opens the
+                    // same Quick Look preview (zoom, pan, share) the
+                    // Receipts list uses, rather than leaving Edit as the one
+                    // screen showing a receipt you can't look at properly.
+                    Button {
+                        showPreview = true
+                    } label: {
+                        Image(uiImage: existingImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 180)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(alignment: .bottomTrailing) {
+                                Image(systemName: "magnifyingglass.circle.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(.white, .black.opacity(0.55))
+                                    .padding(6)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(previewURLs.isEmpty)
+                } else if !isPlaceholder {
+                    // PDFs render no `existingImage`, so this was previously
+                    // a dead label — Quick Look handles PDFs, so it opens the
+                    // same preview rather than being the one attachment type
+                    // with no way to view it.
+                    Button {
+                        showPreview = true
+                    } label: {
+                        Label("PDF attached — tap to view", systemImage: "doc.text")
+                    }
+                    .disabled(previewURLs.isEmpty)
                 } else {
-                    Label(isPlaceholder ? "No photo attached" : "PDF attached", systemImage: "doc.text")
+                    Label("No photo attached", systemImage: "doc.text")
                         .foregroundStyle(.secondary)
                 }
                 Spacer()

@@ -1333,20 +1333,7 @@ private struct ReceiptRow: View {
         }
     }
 
-    /// Primary file first, then any extras, skipping any that can't be found
-    /// (e.g. moved/deleted outside the app) rather than failing the preview.
-    private func previewURLs() -> [URL] {
-        var urls: [URL] = []
-        if let primary = LocalReceiptStore.existingFileURL(category: entry.category, filename: entry.receiptLink) {
-            urls.append(primary)
-        }
-        for extra in entry.extraFiles {
-            if let url = LocalReceiptStore.existingFileURL(category: entry.category, filename: extra) {
-                urls.append(url)
-            }
-        }
-        return urls
-    }
+    private func previewURLs() -> [URL] { ReceiptPreviewSheet.urls(for: entry) }
 
     /// Deep-links into the Files app at this category's CSV log using the
     /// `shareddocuments://` scheme (works for files in the app's own visible
