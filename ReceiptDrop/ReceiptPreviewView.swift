@@ -34,6 +34,26 @@ struct ReceiptPreviewView: UIViewControllerRepresentable {
     }
 }
 
+extension ReceiptPreviewSheet {
+    /// Primary file first, then any extras, skipping any that can't be found
+    /// (e.g. moved or deleted outside the app) rather than failing the whole
+    /// preview. Shared so every screen that opens a receipt resolves its
+    /// files the same way — the Receipts list, Edit, and duplicate review
+    /// all need exactly this and had no business each having their own copy.
+    static func urls(for entry: HistoryEntry) -> [URL] {
+        var urls: [URL] = []
+        if let primary = LocalReceiptStore.existingFileURL(category: entry.category, filename: entry.receiptLink) {
+            urls.append(primary)
+        }
+        for extra in entry.extraFiles {
+            if let url = LocalReceiptStore.existingFileURL(category: entry.category, filename: extra) {
+                urls.append(url)
+            }
+        }
+        return urls
+    }
+}
+
 /// Wraps the Quick Look preview with a fixed bottom bar that summarizes the
 /// receipt (category, vendor, date, amount) and gives an always-visible Done
 /// button — Quick Look on its own doesn't reliably show a way out when it's

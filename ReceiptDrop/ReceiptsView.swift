@@ -90,6 +90,14 @@ struct ReceiptsView: View {
     /// This is the durable, always-current replacement.
     @State private var duplicatePairs: [DuplicateDetectionService.Pair] = []
 
+    /// Scales the tree's row insets with the ambient text size. `@ScaledMetric`
+    /// reports how far the current size is from the default, so dividing by
+    /// the base recovers a plain multiplier we can apply to each row kind's
+    /// own inset (see `Row.baseVerticalInset`) rather than needing a separate
+    /// `@ScaledMetric` per kind.
+    @ScaledMetric(relativeTo: .subheadline) private var rowInsetUnit: CGFloat = 8
+    private var rowInsetScale: CGFloat { rowInsetUnit / 8 }
+
     private var duplicateEntryIDs: Set<UUID> {
         Set(duplicatePairs.flatMap { [$0.first.id, $0.second.id] })
     }
@@ -390,6 +398,72 @@ struct ReceiptsView: View {
         .listRowSeparator(.hidden)
     }
 
+    /// The "add a receipt" choices, shared by the toolbar "+" and the floating
+    /// button so the two can't drift apart.
+    @ViewBuilder
+    private var newReceiptMenuItems: some View {
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            Button {
+                newReceiptSource = .scanDocument
+            } label: {
+                Label("Scan Receipt", systemImage: "doc.text.viewfinder")
+            }
+            Button {
+                newReceiptSource = .camera
+            } label: {
+                Label("Take Photo", systemImage: "camera")
+            }
+            // No non-AI fallback makes sense here — raw scanned
+            // text with nothing to structure it into fields
+            // isn't useful, unlike a photo (which can still be
+            // saved and filled in by hand).
+            if DataScannerViewController.isSupported && DataScannerViewController.isAvailable
+                && ExtractionSettings.aiConfigured {
+                Button {
+                    newReceiptSource = .scanText
+                } label: {
+                    Label("Scan Text", systemImage: "text.viewfinder")
+                }
+            }
+        }
+        Divider()
+        Button {
+            newReceiptSource = .library
+        } label: {
+            Label("Choose from Library", systemImage: "photo.on.rectangle")
+        }
+        Button {
+            newReceiptSource = .file
+        } label: {
+            Label("Choose File", systemImage: "folder")
+        }
+        Button {
+            newReceiptSource = .manual
+        } label: {
+            Label("Enter Manually", systemImage: "pencil")
+        }
+        Divider()
+        Button {
+            focusNewCategoryOnOpen = true
+            showCategories = true
+        } label: {
+            Label("Add Category", systemImage: "folder.badge.plus")
+        }
+    }
+
+    /// The "+" as WhatsApp draws it: a small filled disc pinned in the header
+    /// rather than a floating button. 32pt keeps it in proportion with the
+    /// other toolbar glyphs — the toolbar expands the tappable region past the
+    /// visible circle, so this stays comfortably above the 44pt minimum
+    /// despite the smaller disc.
+    private var newReceiptButtonLabel: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 32, height: 32)
+            .background(Theme.actionBlue, in: Circle())
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -473,7 +547,19 @@ struct ReceiptsView: View {
                         categoryPillRow
                         ForEach(flatRows(from: YearGroup.build(from: filteredEntries, groupByWorkDate: groupByWorkDate))) { row in
                             rowView(for: row)
-                                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                // Scaled, not fixed: `listRowInsets` is the
+                                // dominant contributor to row height once the
+                                // text itself is small, so a flat value here
+                                // caps how much density the small text-size
+                                // setting can actually buy — the glyphs
+                                // shrink but the padding around them doesn't.
+                                // `rowInsetScale` is 1.0 at the default text
+                                // size, so this is a no-op there.
+                                .listRowInsets(EdgeInsets(
+                                    top: row.baseVerticalInset * rowInsetScale,
+                                    leading: 16,
+                                    bottom: row.baseVerticalInset * rowInsetScale,
+                                    trailing: 16))
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                     if case .entry(let entry) = row.kind {
                                         Button(role: .destructive) {
@@ -511,6 +597,18 @@ struct ReceiptsView: View {
                         }
                     }
                     .listStyle(.plain)
+                    // The actual density constraint. `List` enforces a 44pt
+                    // minimum row height, which the year/month/day headers
+                    // were sitting exactly at — so trimming their
+                    // `listRowInsets` alone changed nothing, the rows were
+                    // held open by the floor rather than by their padding.
+                    // Lowered to 32pt: still a comfortable tap target for
+                    // the collapse/expand gesture (Apple's 44pt guidance is
+                    // about isolated controls; these are full-width rows),
+                    // while letting the trimmed insets actually take effect.
+                    // Receipt rows are taller than this on their own, so
+                    // they're unaffected.
+                    .environment(\.defaultMinListRowHeight, 32 * rowInsetScale)
                 }
             }
             .navigationTitle("Receipts")
@@ -586,56 +684,11 @@ struct ReceiptsView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                            Button {
-                                newReceiptSource = .scanDocument
-                            } label: {
-                                Label("Scan Receipt", systemImage: "doc.text.viewfinder")
-                            }
-                            Button {
-                                newReceiptSource = .camera
-                            } label: {
-                                Label("Take Photo", systemImage: "camera")
-                            }
-                            // No non-AI fallback makes sense here — raw scanned
-                            // text with nothing to structure it into fields
-                            // isn't useful, unlike a photo (which can still be
-                            // saved and filled in by hand).
-                            if DataScannerViewController.isSupported && DataScannerViewController.isAvailable
-                                && ExtractionSettings.aiConfigured {
-                                Button {
-                                    newReceiptSource = .scanText
-                                } label: {
-                                    Label("Scan Text", systemImage: "text.viewfinder")
-                                }
-                            }
-                        }
-                        Divider()
-                        Button {
-                            newReceiptSource = .library
-                        } label: {
-                            Label("Choose from Library", systemImage: "photo.on.rectangle")
-                        }
-                        Button {
-                            newReceiptSource = .file
-                        } label: {
-                            Label("Choose File", systemImage: "folder")
-                        }
-                        Button {
-                            newReceiptSource = .manual
-                        } label: {
-                            Label("Enter Manually", systemImage: "pencil")
-                        }
-                        Divider()
-                        Button {
-                            focusNewCategoryOnOpen = true
-                            showCategories = true
-                        } label: {
-                            Label("Add Category", systemImage: "folder.badge.plus")
-                        }
+                        newReceiptMenuItems
                     } label: {
-                        Label("New Receipt", systemImage: "plus")
+                        newReceiptButtonLabel
                     }
+                    .accessibilityLabel("New Receipt")
                 }
             }
         }
@@ -994,6 +1047,26 @@ struct ReceiptsView: View {
             case day(DayGroup)
             case entry(HistoryEntry)
         }
+
+        /// Header rows carry their own font and read as structure, not
+        /// content, so they get tighter vertical insets than receipt rows —
+        /// with the day header (the one repeated most often, once per day
+        /// with receipts) tightest of all. Previously every row shared a
+        /// flat 8pt top/bottom, which meant three stacked headers
+        /// (year → month → day) spent ~48pt of fixed padding before the
+        /// first receipt appeared.
+        var baseVerticalInset: CGFloat {
+            switch kind {
+            case .year: return 6
+            case .month: return 4
+            case .day: return 3
+            // A typical receipt row is a single line of text carrying ~28pt
+            // of padding around it (this inset top and bottom, plus
+            // ReceiptRow's own vertical padding) — two thirds of the row's
+            // height was empty space rather than content.
+            case .entry: return 5
+            }
+        }
     }
 }
 
@@ -1021,7 +1094,12 @@ private struct HeaderRow: View {
                 .padding(.leading, CGFloat(level) * 14)
             Spacer()
             Image(systemName: "chevron.down")
-                .font(.caption.weight(.bold))
+                // .caption2 rather than .caption: the chevron sets the row's
+                // minimum height whenever it's taller than the label, which
+                // for the day header (.subheadline) it otherwise is — so the
+                // smallest, most-repeated header row was being held open by
+                // its own disclosure arrow.
+                .font(.caption2.weight(.bold))
                 .foregroundStyle(color)
                 .rotationEffect(.degrees(isExpanded ? 0 : -90))
         }
@@ -1125,8 +1203,8 @@ private struct ReceiptRow: View {
     // Small as at Large, and the text-size picker would barely change how
     // many receipts fit on screen. At Medium (the default) these evaluate to
     // exactly 6, unchanged from before.
-    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing: CGFloat = 6
-    @ScaledMetric(relativeTo: .subheadline) private var verticalPadding: CGFloat = 6
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing: CGFloat = 4
+    @ScaledMetric(relativeTo: .subheadline) private var verticalPadding: CGFloat = 4
 
     private var isManualEntry: Bool { entry.receiptLink == SubmissionPipeline.manualEntryLabel }
     private var isScannedText: Bool { entry.receiptLink == SubmissionPipeline.scannedTextLabel }
@@ -1280,20 +1358,7 @@ private struct ReceiptRow: View {
         }
     }
 
-    /// Primary file first, then any extras, skipping any that can't be found
-    /// (e.g. moved/deleted outside the app) rather than failing the preview.
-    private func previewURLs() -> [URL] {
-        var urls: [URL] = []
-        if let primary = LocalReceiptStore.existingFileURL(category: entry.category, filename: entry.receiptLink) {
-            urls.append(primary)
-        }
-        for extra in entry.extraFiles {
-            if let url = LocalReceiptStore.existingFileURL(category: entry.category, filename: extra) {
-                urls.append(url)
-            }
-        }
-        return urls
-    }
+    private func previewURLs() -> [URL] { ReceiptPreviewSheet.urls(for: entry) }
 
     /// Deep-links into the Files app at this category's CSV log using the
     /// `shareddocuments://` scheme (works for files in the app's own visible

@@ -20,6 +20,11 @@ struct DuplicateReviewView: View {
     /// a slow delete looked identical to a broken one.
     @State private var deletingIDs: Set<UUID> = []
     @State private var editingEntry: HistoryEntry?
+    /// Tapping a thumbnail opens the full receipt rather than the edit form.
+    /// Deciding which of two near-identical receipts to delete is exactly
+    /// the moment you need to look closely at the actual paper, and the row
+    /// only had a 48pt thumbnail — the rest of the row still opens Edit.
+    @State private var previewEntry: HistoryEntry?
 
     var body: some View {
         Group {
@@ -43,6 +48,12 @@ struct DuplicateReviewView: View {
         }
         .navigationTitle("Possible Duplicates")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $previewEntry) { entry in
+            let urls = ReceiptPreviewSheet.urls(for: entry)
+            if !urls.isEmpty {
+                ReceiptPreviewSheet(entry: entry, urls: urls)
+            }
+        }
         .sheet(item: $editingEntry) { entry in
             EditReceiptView(
                 entry: entry,
@@ -65,7 +76,16 @@ struct DuplicateReviewView: View {
             editingEntry = entry
         } label: {
             HStack(spacing: 12) {
-                thumbnail(for: entry)
+                // Its own button inside the row button, same nesting the
+                // trash button below already relies on — `.borderless` is
+                // what keeps the inner tap from being swallowed by the row.
+                Button {
+                    previewEntry = entry
+                } label: {
+                    thumbnail(for: entry)
+                }
+                .buttonStyle(.borderless)
+                .disabled(ReceiptPreviewSheet.urls(for: entry).isEmpty)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.vendor.isEmpty ? "(no vendor)" : entry.vendor)
                         .font(.subheadline.weight(.semibold))
@@ -105,6 +125,14 @@ struct DuplicateReviewView: View {
                 .scaledToFill()
                 .frame(width: 48, height: 48)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
+                // Without this the thumbnail looks like a static image, and
+                // nothing suggests it opens the full receipt.
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "magnifyingglass.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.white, .black.opacity(0.55))
+                        .padding(2)
+                }
         } else {
             Image(systemName: "doc.text")
                 .foregroundStyle(.secondary)

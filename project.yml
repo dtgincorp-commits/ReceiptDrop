@@ -1,6 +1,6 @@
 name: ReceiptDrop
 options:
-  bundleIdPrefix: com.nicknagpal
+  bundleIdPrefix: com.dtgincorp
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
@@ -30,7 +30,7 @@ targets:
       - target: ShareExtension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.nicknagpal.receiptdrop
+        PRODUCT_BUNDLE_IDENTIFIER: com.dtgincorp.receiptdrop
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Universal (1,2 = iPhone + iPad). UIRequiresFullScreen below opts out
@@ -41,7 +41,7 @@ targets:
       path: ReceiptDrop/ReceiptDrop.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.nicknagpal.receiptdrop
+          - group.com.dtgincorp.receiptdrop
     info:
       path: ReceiptDrop/Info.plist
       properties:
@@ -66,12 +66,12 @@ targets:
       - Shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.nicknagpal.receiptdrop.share
+        PRODUCT_BUNDLE_IDENTIFIER: com.dtgincorp.receiptdrop.share
     entitlements:
       path: ShareExtension/ShareExtension.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.nicknagpal.receiptdrop
+          - group.com.dtgincorp.receiptdrop
     info:
       path: ShareExtension/Info.plist
       properties:
@@ -105,5 +105,5 @@ targets:
       - target: ReceiptDrop
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.nicknagpal.receiptdrop.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.dtgincorp.receiptdrop.tests
         GENERATE_INFOPLIST_FILE: YES
