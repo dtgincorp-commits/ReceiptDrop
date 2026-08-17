@@ -1039,7 +1039,11 @@ struct ReceiptsView: View {
             case .year: return 6
             case .month: return 4
             case .day: return 3
-            case .entry: return 8
+            // A typical receipt row is a single line of text carrying ~28pt
+            // of padding around it (this inset top and bottom, plus
+            // ReceiptRow's own vertical padding) — two thirds of the row's
+            // height was empty space rather than content.
+            case .entry: return 5
             }
         }
     }
@@ -1178,8 +1182,8 @@ private struct ReceiptRow: View {
     // Small as at Large, and the text-size picker would barely change how
     // many receipts fit on screen. At Medium (the default) these evaluate to
     // exactly 6, unchanged from before.
-    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing: CGFloat = 6
-    @ScaledMetric(relativeTo: .subheadline) private var verticalPadding: CGFloat = 6
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing: CGFloat = 4
+    @ScaledMetric(relativeTo: .subheadline) private var verticalPadding: CGFloat = 4
 
     private var isManualEntry: Bool { entry.receiptLink == SubmissionPipeline.manualEntryLabel }
     private var isScannedText: Bool { entry.receiptLink == SubmissionPipeline.scannedTextLabel }
