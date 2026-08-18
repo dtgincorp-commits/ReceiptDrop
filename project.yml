@@ -1,6 +1,6 @@
 name: ReceiptDrop
 options:
-  bundleIdPrefix: com.dtgincorp
+  bundleIdPrefix: com.datatechnologygroup
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
@@ -13,8 +13,13 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     CODE_SIGN_STYLE: Automatic
-    # DEVELOPMENT_TEAM is intentionally unset — select your personal team
-    # in Xcode under Signing & Capabilities for each target.
+    # DATA TECHNOLOGY GROUP INC. — the app's bundle IDs and App Group are
+    # registered under this team and nowhere else, so a build signed by any
+    # other team cannot resolve its entitlements. Pinned here rather than
+    # left to each developer's Xcode selection because that selection lives
+    # only in the generated .pbxproj, and `xcodegen generate` wipes it.
+    # Building requires membership in this team.
+    DEVELOPMENT_TEAM: 9QPSF3ZB76
 
 targets:
   ReceiptDrop:
@@ -30,7 +35,7 @@ targets:
       - target: ShareExtension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.dtgincorp.receiptdrop
+        PRODUCT_BUNDLE_IDENTIFIER: com.datatechnologygroup.receipts4tax
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Universal (1,2 = iPhone + iPad). UIRequiresFullScreen below opts out
@@ -41,11 +46,11 @@ targets:
       path: ReceiptDrop/ReceiptDrop.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.dtgincorp.receiptdrop
+          - group.com.datatechnologygroup.receipts4tax
     info:
       path: ReceiptDrop/Info.plist
       properties:
-        CFBundleDisplayName: Receipt Drop
+        CFBundleDisplayName: Receipts4Tax
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -66,16 +71,16 @@ targets:
       - Shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.dtgincorp.receiptdrop.share
+        PRODUCT_BUNDLE_IDENTIFIER: com.datatechnologygroup.receipts4tax.share
     entitlements:
       path: ShareExtension/ShareExtension.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.dtgincorp.receiptdrop
+          - group.com.datatechnologygroup.receipts4tax
     info:
       path: ShareExtension/Info.plist
       properties:
-        CFBundleDisplayName: Receipt Drop
+        CFBundleDisplayName: Receipts4Tax
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
@@ -105,5 +110,5 @@ targets:
       - target: ReceiptDrop
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.dtgincorp.receiptdrop.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.datatechnologygroup.receipts4tax.tests
         GENERATE_INFOPLIST_FILE: YES

@@ -26,7 +26,7 @@ enum KeychainError: LocalizedError {
 }
 
 enum KeychainHelper {
-    private static let service = "com.dtgincorp.receiptdrop"
+    private static let service = "com.datatechnologygroup.receipts4tax"
 
     /// The shared query targets the App Group's keychain access group so the
     /// main app and share extension see the same items. `includeAccessGroup:
