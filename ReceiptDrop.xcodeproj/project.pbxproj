@@ -73,6 +73,7 @@
 		B1D1A4149D421F8F2BB69B12 /* ReceiptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54DEA5E5F2DDE4AC17C77C9D /* ReceiptsView.swift */; };
 		B2B5F969AB26FADF24B4F76C /* DuplicateDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 821135EAEB594F15E8ECCC57 /* DuplicateDetectionService.swift */; };
 		B311E2C1168EE57DB4DE55D2 /* ReceiptSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */; };
+		B5C60B32F4136D0847F2AE4D /* ManualEntryOCRPrefill.swift in Sources */ = {isa = PBXBuildFile; fileRef = E63868D8B4CCD0380B19A205 /* ManualEntryOCRPrefill.swift */; };
 		BF5C1B36744BA74AB4605245 /* BillEvalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7CE5CF9262C43188D5295AB /* BillEvalView.swift */; };
 		BF823103E7489F33241DBF6A /* SubmissionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */; };
 		C2D72AFC0FBB745AFE861F5D /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86375C2C83E8E61C3F858C9B /* KeychainHelper.swift */; };
@@ -82,6 +83,7 @@
 		C8788FFE4E479DE4B65B431B /* CategoryRenameService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 069D9E5F65259C3310655504 /* CategoryRenameService.swift */; };
 		CF06EAD2DC7F665E546AF5DB /* CategoriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40594EEE43B6E118DC837A56 /* CategoriesView.swift */; };
 		CF5DC508A191029FC0DEA65B /* NewReceiptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D87B0E04C004C048B153C0 /* NewReceiptView.swift */; };
+		CFE53FAC67791495F8559F49 /* ManualEntryOCRPrefill.swift in Sources */ = {isa = PBXBuildFile; fileRef = E63868D8B4CCD0380B19A205 /* ManualEntryOCRPrefill.swift */; };
 		D103EE8EA7FB89F874E54221 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A93982D67223B82A377969E /* ShareViewController.swift */; };
 		D17272B0870CEF10FAE38E2E /* PendingSubmissionProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 963BBE1D80A49FFD5690A813 /* PendingSubmissionProcessor.swift */; };
 		D1BAED8453DC3C6D5675D660 /* LocalReceiptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */; };
@@ -91,6 +93,7 @@
 		E23F74196CB32223A35D1C70 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 24F99E4477C2AFEDD8DC698B /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E520FAD5D609E53E000FD1CA /* SettingsInfoLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE989CFC7987A552BBCBBB3D /* SettingsInfoLink.swift */; };
 		E7AED0646507150C7FAAFA65 /* AzureDocumentIntelligenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */; };
+		F210E6892B5CEBFAC855857E /* ManualEntryOCRPrefillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E9F98C3A8C057A179F0CBE1 /* ManualEntryOCRPrefillTests.swift */; };
 		F3BF161A4231487C54B8DB46 /* InsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CFF6F9F94C524551A1A7102 /* InsightsView.swift */; };
 		F4D45048DA00D1430D6B75E3 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3363F7383B194313AE1C80FF /* Theme.swift */; };
 		FE5FFC1FA2508767E5C0500A /* BillEvalHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 525C3226B85E765DA6EC3B6C /* BillEvalHarness.swift */; };
@@ -138,6 +141,7 @@
 		0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AzureDocumentIntelligenceService.swift; sourceTree = "<group>"; };
 		116177924FC505B45B86141A /* ExtensionBatchSubmitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionBatchSubmitView.swift; sourceTree = "<group>"; };
 		1A93982D67223B82A377969E /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		1E9F98C3A8C057A179F0CBE1 /* ManualEntryOCRPrefillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualEntryOCRPrefillTests.swift; sourceTree = "<group>"; };
 		2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptDateDetector.swift; sourceTree = "<group>"; };
 		21D87B0E04C004C048B153C0 /* NewReceiptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewReceiptView.swift; sourceTree = "<group>"; };
 		2487A2052B551FC00FDF8D17 /* EditReceiptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditReceiptView.swift; sourceTree = "<group>"; };
@@ -192,6 +196,7 @@
 		E09FF1A61ACC24D913C73900 /* ReceiptAmountDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptAmountDetector.swift; sourceTree = "<group>"; };
 		E2941693C5D3EECC412C2593 /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
 		E32F2DD659E3FF9FED54431B /* AutoBackupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoBackupService.swift; sourceTree = "<group>"; };
+		E63868D8B4CCD0380B19A205 /* ManualEntryOCRPrefill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualEntryOCRPrefill.swift; sourceTree = "<group>"; };
 		EE72A7EE2EB472CB550F4F88 /* BillModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillModels.swift; sourceTree = "<group>"; };
 		EE82950D18F3776A7AFFCC5B /* DuplicateReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateReviewView.swift; sourceTree = "<group>"; };
 		FE989CFC7987A552BBCBBB3D /* SettingsInfoLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsInfoLink.swift; sourceTree = "<group>"; };
@@ -213,6 +218,7 @@
 			children = (
 				35A1A78E48AAD20590B47E39 /* ExtractionLogicTests.swift */,
 				692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */,
+				1E9F98C3A8C057A179F0CBE1 /* ManualEntryOCRPrefillTests.swift */,
 			);
 			path = ReceiptDropTests;
 			sourceTree = "<group>";
@@ -263,6 +269,7 @@
 				874DB9B5F6B131E4EF1B14AB /* FoundationModelsService.swift */,
 				86375C2C83E8E61C3F858C9B /* KeychainHelper.swift */,
 				6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */,
+				E63868D8B4CCD0380B19A205 /* ManualEntryOCRPrefill.swift */,
 				963BBE1D80A49FFD5690A813 /* PendingSubmissionProcessor.swift */,
 				4C55D1066ECBE9ED09826A40 /* QuickSendContactStore.swift */,
 				E09FF1A61ACC24D913C73900 /* ReceiptAmountDetector.swift */,
@@ -459,6 +466,7 @@
 				989C15E2F6780A8C9541AE6B /* KeychainHelper.swift in Sources */,
 				31E47729BD1490BD30CC4104 /* LiveTextScannerView.swift in Sources */,
 				379E0098262BB5CF0E978D5D /* LocalReceiptStore.swift in Sources */,
+				CFE53FAC67791495F8559F49 /* ManualEntryOCRPrefill.swift in Sources */,
 				D3368E8055B39FE47AA6A0A5 /* ManualReceiptEntryView.swift in Sources */,
 				CF5DC508A191029FC0DEA65B /* NewReceiptView.swift in Sources */,
 				D17272B0870CEF10FAE38E2E /* PendingSubmissionProcessor.swift in Sources */,
@@ -507,6 +515,7 @@
 				47A0F236D3B5AA0B3B86D7B1 /* FoundationModelsService.swift in Sources */,
 				C2D72AFC0FBB745AFE861F5D /* KeychainHelper.swift in Sources */,
 				D1BAED8453DC3C6D5675D660 /* LocalReceiptStore.swift in Sources */,
+				B5C60B32F4136D0847F2AE4D /* ManualEntryOCRPrefill.swift in Sources */,
 				8993C405D307C9986F22BE26 /* PendingSubmissionProcessor.swift in Sources */,
 				0369C28D357DC89548A9CF71 /* QuickSendContactStore.swift in Sources */,
 				8D9FC56A37C5FD5F392B6BCA /* ReceiptAmountDetector.swift in Sources */,
@@ -528,6 +537,7 @@
 			files = (
 				E1B43E5E39B38CC08C3A7824 /* ExtractionLogicTests.swift in Sources */,
 				94C1488C8061205BFD249837 /* LocalReceiptStoreTests.swift in Sources */,
+				F210E6892B5CEBFAC855857E /* ManualEntryOCRPrefillTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
