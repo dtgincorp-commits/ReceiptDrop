@@ -76,7 +76,7 @@ struct ExtensionBatchSubmitView: View {
                     }
                 }
             }
-            .navigationTitle("ReceiptDrop")
+            .navigationTitle("Receipts4Tax")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

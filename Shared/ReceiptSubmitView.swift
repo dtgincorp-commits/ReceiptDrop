@@ -33,6 +33,12 @@ struct ReceiptSubmitView: View {
     @State private var manualWorkDate: Date = Date()
     @State private var manualComments: String = ""
 
+    /// True while on-device OCR (`prefillManualFieldsFromOCR`) is running,
+    /// so the Details section can show a lightweight spinner instead of
+    /// silently populating fields out from under someone who's already
+    /// started typing.
+    @State private var isPrefillingManualFields = false
+
     /// The just-saved entry whose date couldn't be read — held so the
     /// `.needsDate` nudge can update it once the user sets a date.
     @State private var pendingDateEntry: HistoryEntry?
@@ -118,9 +124,18 @@ struct ReceiptSubmitView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("No AI connected — please check these details")
                                     .font(.subheadline.weight(.semibold))
-                                Text("Nothing here was read by an AI. Anything filled in below was found by simple on-device text matching and may be wrong or missing — compare it against the receipt before saving.")
+                                Text("Nothing here was read by an AI. On-device text recognition (OCR) filled in what it could find below — it may be wrong, mismatched, or missing, so compare every field against the receipt before saving.")
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    // Red, not secondary grey. Verified against
+                                    // a real Home Depot receipt: OCR prefilled
+                                    // the slogan "How doers" as the vendor and
+                                    // a loyalty year-to-date figure ($1,040.81)
+                                    // as the total against a real total of
+                                    // $145.17. Values that wrong, sitting in
+                                    // filled-in fields, read as answers rather
+                                    // than guesses — the warning has to carry
+                                    // more weight than the fields it qualifies.
+                                    .foregroundStyle(.red)
                             }
                         } icon: {
                             Image(systemName: "exclamationmark.triangle.fill")
@@ -143,7 +158,14 @@ struct ReceiptSubmitView: View {
                             .lineLimit(2...4)
                             .disabled(controlsDisabled)
                     } header: {
-                        Text("Details")
+                        HStack {
+                            Text("Details")
+                            if isPrefillingManualFields {
+                                Spacer()
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                        }
                     } footer: {
                         Text("Connect an AI in Settings to read receipts automatically instead of entering them by hand.")
                     }
@@ -166,7 +188,7 @@ struct ReceiptSubmitView: View {
                     }
                 }
             }
-            .navigationTitle("ReceiptDrop")
+            .navigationTitle("Receipts4Tax")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -179,6 +201,87 @@ struct ReceiptSubmitView: View {
             if selectedCategory.isEmpty {
                 selectedCategory = categoryStore.categories.first ?? ""
             }
+        }
+        .task {
+            await prefillManualFieldsFromOCR()
+        }
+    }
+
+    /// Runs on-device OCR (Vision — no network, no AI) and prefills the
+    /// manual vendor/amount/date fields when no AI provider is configured.
+    /// This is what makes the "on-device text recognition" warning above
+    /// literally true instead of aspirational — previously these fields
+    /// were simply left blank (see the bug this fixes: nothing ever ran
+    /// Vision or the detectors for the no-AI path) even though the banner
+    /// already claimed something had been read off the receipt.
+    ///
+    /// Best-effort throughout: any failure — an unreadable image, a PDF
+    /// with no renderable first page, Vision finding no text at all — just
+    /// leaves the corresponding field empty for the user to type by hand.
+    /// This is a convenience prefill, never a requirement to submit, and
+    /// must never block or crash the manual-entry path that exists
+    /// precisely so people without any AI configured can still save a
+    /// receipt.
+    private func prefillManualFieldsFromOCR() async {
+        guard !ExtractionSettings.aiConfigured else { return }
+
+        // Vision reads still-image data. For a PDF, render its first page
+        // to an image first — reusing the thumbnail helper below rather
+        // than `FoundationModelsService.renderPDFPageToPNG`, which is
+        // gated to iOS 26 + the FoundationModels framework and so isn't
+        // available on every deployment target this view ships to.
+        let imageData: Data?
+        switch attachment.kind {
+        case .image:
+            imageData = attachment.data
+        case .pdf:
+            imageData = pdfThumbnail(attachment.data)?.pngData()
+        }
+        guard let imageData else { return }
+
+        isPrefillingManualFields = true
+
+        // Prefer layout-aware text over flat OCR. `VisionOCRService.recognizeText`
+        // joins Vision's raw text observations with no positional information at
+        // all — on a thermal receipt with a wide gap between a label and its
+        // number ("TOTAL" ... "$145.17"), Vision frequently returns those as two
+        // separate observations, so they land on two separate lines. Every
+        // downstream parser that pairs a label with a *trailing* amount on the
+        // same line (`BillTotalsParser`, in particular) then sees an empty
+        // "TOTAL" line and falls through to "largest number on the receipt" —
+        // which picks up loyalty/statement figures that print bigger than the
+        // real total. `recognizeRowsViaRawOCR` reconstructs visual rows from
+        // bounding boxes first and pairs each label with its trailing amount
+        // itself, then `layoutString` renders that back to "LEFT    RIGHT" text,
+        // restoring exactly the same-line pairing the flat path loses. It isn't
+        // gated behind iOS 26/FoundationModels (unlike `recognizeRows`), so it's
+        // usable at this file's iOS 16 deployment target.
+        //
+        // Falls back to the flat OCR text when the layout path finds nothing
+        // (e.g. Vision's document/text request itself fails) so this can only
+        // improve on the previous behavior, never regress it.
+        var text: String?
+        if let rows = try? await VisionLayoutService.recognizeRowsViaRawOCR(in: imageData), !rows.isEmpty {
+            text = VisionLayoutService.layoutString(from: rows)
+        }
+        if text == nil || text?.isEmpty == true {
+            text = try? await VisionOCRService.recognizeText(in: imageData)
+        }
+        isPrefillingManualFields = false
+
+        guard let text, !text.isEmpty else { return }
+
+        // Only fill in fields still at their untouched default — if a fast
+        // typist has already started editing before OCR finishes, don't
+        // stomp on what they typed.
+        if manualAmount.isEmpty, let amount = ManualEntryOCRPrefill.likelyGrandTotal(in: text) {
+            manualAmount = amount
+        }
+        if manualVendor.isEmpty, let vendor = ManualEntryOCRPrefill.likelyVendorLine(in: text) {
+            manualVendor = vendor
+        }
+        if let date = ManualEntryOCRPrefill.likelyReceiptDate(in: text) {
+            manualWorkDate = date
         }
     }
 

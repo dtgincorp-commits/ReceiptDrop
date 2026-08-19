@@ -31,7 +31,7 @@ struct ShareSheetView: View {
                             ProgressView("Loading receipt…")
                         }
                     }
-                    .navigationTitle("ReceiptDrop")
+                    .navigationTitle("Receipts4Tax")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {

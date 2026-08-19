@@ -3,8 +3,10 @@ import Foundation
 
 /// Saves receipts locally instead of to Google Drive/Sheets: each category
 /// gets its own folder plus a CSV log inside it, both visible in the Files
-/// app under "On My iPhone > ReceiptDrop" (the main app enables file sharing
-/// in Info.plist).
+/// app under "On My iPhone > Receipts4Tax" (the folder name shown there
+/// derives from the bundle's display name, which is "Receipts4Tax" even
+/// though the app's internal name is still ReceiptDrop; the main app
+/// enables file sharing in Info.plist).
 ///
 /// The share extension's sandbox can't write into the main app's Documents
 /// directory, so all writes go through the App Group container's spool

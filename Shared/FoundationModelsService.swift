@@ -146,76 +146,19 @@ struct FoundationModelsService: ReceiptExtractor {
             imageData = rendered
         }
 
-        #if canImport(UIKit)
-        // iOS 27 multimodal: the model reads the real image, preserving the
-        // two-column layout that OCR flattening destroys. `try?` so any
-        // image-path failure falls through to the OCR path rather than
-        // losing the submission.
-        if #available(iOS 27.0, *), Self.supportsImageInput, let image = UIImage(data: imageData),
-           let extracted = try? await extractFromImage(image, categoryContext: categoryContext) {
-            return extracted
-        }
-        #endif
-
+        // On-device extraction is OCR-only. FoundationModels takes no image
+        // input: as of the iOS 26.5 SDK the framework exposes no attachment
+        // type for prompts and no vision capability to query, so there is
+        // nothing to fall back *from* — Vision does the reading, and the
+        // model only ever sees text. Restoring a multimodal path means
+        // writing it against whatever Apple actually ships, not restoring
+        // this one.
         let ocrText = (try? await VisionOCRService.recognizeText(in: imageData)) ?? ""
         return try await extract(ocrText: ocrText, categoryContext: categoryContext)
     }
 
-    #if canImport(UIKit)
-    /// iOS 27 image path: same instructions/output shape as the text path,
-    /// minus the OCR-noise framing — the model is looking at the real photo.
-    @available(iOS 27.0, *)
-    private func extractFromImage(_ image: UIImage, categoryContext: String) async throws -> ExtractedReceipt {
-        try Self.ensureModelAvailable()
-
-        let vocabulary = VendorTypeToken.allValidValues.joined(separator: ", ")
-        let preamble = ExtractionPrompt.preamble(categoryContext: categoryContext, modelNormalizesDate: false)
-
-        let instructions = """
-        You extract structured data from a photo of a receipt, invoice, or \
-        bill. Return only what the image supports; never invent values. \
-        Allowed vendor-type tokens: \(vocabulary). \
-        The 'amount' must be the grand total at the very bottom of the receipt \
-        (labeled 'Total' or 'Grand Total', appearing after the subtotal and tax), \
-        never an individual line-item price.
-        """
-
-        let session = LanguageModelSession(instructions: instructions)
-        let draft: ReceiptDraft
-        do {
-            let response = try await session.respond(generating: ReceiptDraft.self) {
-                """
-                \(preamble)
-
-                Here is a photo of a receipt. Extract the receipt's details.
-                """
-                Attachment(image)
-            }
-            draft = response.content
-        } catch {
-            throw FoundationModelsError.modelUnavailable(error.localizedDescription)
-        }
-
-        return ExtractedReceipt.build(
-            vendor: draft.vendor.trimmingCharacters(in: .whitespacesAndNewlines),
-            rawWorkDate: draft.workDate.trimmingCharacters(in: .whitespacesAndNewlines),
-            amount: draft.amount.trimmingCharacters(in: .whitespacesAndNewlines),
-            comments: draft.comments.trimmingCharacters(in: .whitespacesAndNewlines),
-            rawVendorType: draft.vendorType,
-            modelReportedLowConfidence: draft.lowConfidence,
-            modelReason: draft.reviewReason)
-    }
-    #endif
-
-    /// Whether the on-device model accepts image input in prompts (varies by
-    /// device/model generation, so check the capability, not just the OS).
-    @available(iOS 27.0, *)
-    static var supportsImageInput: Bool {
-        SystemLanguageModel.default.capabilities.contains(.vision)
-    }
-
-    /// Text entry point — used directly by the Live Text "Scan Text" flow, and
-    /// by the image path above after on-device OCR.
+    /// Text entry point — used directly by the Live Text "Scan Text" flow,
+    /// and by `extract(data:kind:)` above once Vision has read the image.
     func extract(ocrText: String, categoryContext: String = "") async throws -> ExtractedReceipt {
         try Self.ensureModelAvailable()
 

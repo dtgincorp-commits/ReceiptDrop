@@ -32,6 +32,16 @@ enum ReceiptDateDetector {
                     continue
                 }
             }
+            // Range wording turns a single printed date into a *span* whose
+            // `.date` is the start — and the start is "now", not anything
+            // printed. "Coupon valid through 09/01/2026" and "Offer good
+            // until 09/01/2026" both report today with a ~13-day duration,
+            // while "Expires 09/01/2026" (no range word) correctly reports
+            // 09/01. Promo, coupon, and warranty lines carry that wording
+            // constantly, so left unfiltered this is the same defeat as the
+            // clock-time case above: today's date looks printed on the
+            // receipt. A genuinely printed date always has zero duration.
+            guard match.duration == 0 else { continue }
             days.append(calendar.startOfDay(for: date))
         }
 
