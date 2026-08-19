@@ -126,7 +126,16 @@ struct ReceiptSubmitView: View {
                                     .font(.subheadline.weight(.semibold))
                                 Text("Nothing here was read by an AI. On-device text recognition (OCR) filled in what it could find below — it may be wrong, mismatched, or missing, so compare every field against the receipt before saving.")
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    // Red, not secondary grey. Verified against
+                                    // a real Home Depot receipt: OCR prefilled
+                                    // the slogan "How doers" as the vendor and
+                                    // a loyalty year-to-date figure ($1,040.81)
+                                    // as the total against a real total of
+                                    // $145.17. Values that wrong, sitting in
+                                    // filled-in fields, read as answers rather
+                                    // than guesses — the warning has to carry
+                                    // more weight than the fields it qualifies.
+                                    .foregroundStyle(.red)
                             }
                         } icon: {
                             Image(systemName: "exclamationmark.triangle.fill")
