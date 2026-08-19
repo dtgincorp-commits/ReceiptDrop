@@ -4,10 +4,6 @@ options:
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
-  # Keep the project file in a format Xcode 15.2 can open —
-  # newer XcodeGen defaults to the Xcode 16 format (objectVersion 77),
-  # which crashes the Xcode 15.2 project editor.
-  xcodeVersion: "15.2"
 
 settings:
   base:
