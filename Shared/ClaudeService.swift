@@ -286,10 +286,34 @@ enum VisionOCRError: LocalizedError {
 /// Text" extraction mode: the recognized text (not the image) is what gets
 /// sent to whichever AI provider is selected, cutting upload size and token
 /// cost dramatically for easy-to-read receipts.
+/// Decodes image bytes for Vision along with the EXIF orientation needed to
+/// read them the right way up.
+///
+/// `CGImageSourceCreateImageAtIndex` hands back the *stored* pixel buffer and
+/// ignores the file's orientation tag entirely. Every photo an iPhone takes
+/// holding the phone upright is stored landscape with orientation 6 ("rotate
+/// 90° clockwise"), so a `VNImageRequestHandler` built without that tag reads
+/// the receipt sideways. Vision still recognizes the individual words — it
+/// handles rotated text fine — but every bounding box comes back in the
+/// sideways frame, so a receipt's rows run along x instead of y. Anything
+/// grouping observations into visual rows then splits every label from its
+/// own number ("TOTAL" from "$145.17"), and the flat reader emits lines in
+/// scrambled order.
+///
+/// Confirmed against a real Home Depot receipt photographed in portrait:
+/// without the tag, "TOTAL" and "$145.17" landed 0.22 apart in normalized y
+/// while sharing an x-range; with it, they group onto one row.
+private func visionImage(from data: Data) -> (CGImage, CGImagePropertyOrientation)? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+          let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+    let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+    let raw = (properties?[kCGImagePropertyOrientation] as? UInt32) ?? 1
+    return (cgImage, CGImagePropertyOrientation(rawValue: raw) ?? .up)
+}
+
 enum VisionOCRService {
     static func recognizeText(in data: Data) async throws -> String {
-        guard let cgImage = CGImageSourceCreateWithData(data as CFData, nil)
-            .flatMap({ CGImageSourceCreateImageAtIndex($0, 0, nil) }) else {
+        guard let (cgImage, orientation) = visionImage(from: data) else {
             throw VisionOCRError.unreadableImage
         }
 
@@ -306,7 +330,7 @@ enum VisionOCRService {
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = true
 
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
             do {
                 try handler.perform([request])
             } catch {
@@ -384,8 +408,7 @@ enum VisionLayoutService {
     /// name. Works on thermal printer receipts where RecognizeDocumentsRequest sees
     /// only paragraphs (not tables).
     static func recognizeRowsViaRawOCR(in data: Data) async throws -> [LayoutRow] {
-        guard let cgImage = CGImageSourceCreateWithData(data as CFData, nil)
-            .flatMap({ CGImageSourceCreateImageAtIndex($0, 0, nil) }) else {
+        guard let (cgImage, orientation) = visionImage(from: data) else {
             return []
         }
 
@@ -403,7 +426,7 @@ enum VisionLayoutService {
             request.recognitionLevel = .accurate
             // Language correction can mangle price amounts like "14.00"; disable it.
             request.usesLanguageCorrection = false
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
             do { try handler.perform([request]) } catch { continuation.resume(throwing: error) }
         }
 
