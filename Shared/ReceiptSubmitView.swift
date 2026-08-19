@@ -240,7 +240,33 @@ struct ReceiptSubmitView: View {
         guard let imageData else { return }
 
         isPrefillingManualFields = true
-        let text = try? await VisionOCRService.recognizeText(in: imageData)
+
+        // Prefer layout-aware text over flat OCR. `VisionOCRService.recognizeText`
+        // joins Vision's raw text observations with no positional information at
+        // all — on a thermal receipt with a wide gap between a label and its
+        // number ("TOTAL" ... "$145.17"), Vision frequently returns those as two
+        // separate observations, so they land on two separate lines. Every
+        // downstream parser that pairs a label with a *trailing* amount on the
+        // same line (`BillTotalsParser`, in particular) then sees an empty
+        // "TOTAL" line and falls through to "largest number on the receipt" —
+        // which picks up loyalty/statement figures that print bigger than the
+        // real total. `recognizeRowsViaRawOCR` reconstructs visual rows from
+        // bounding boxes first and pairs each label with its trailing amount
+        // itself, then `layoutString` renders that back to "LEFT    RIGHT" text,
+        // restoring exactly the same-line pairing the flat path loses. It isn't
+        // gated behind iOS 26/FoundationModels (unlike `recognizeRows`), so it's
+        // usable at this file's iOS 16 deployment target.
+        //
+        // Falls back to the flat OCR text when the layout path finds nothing
+        // (e.g. Vision's document/text request itself fails) so this can only
+        // improve on the previous behavior, never regress it.
+        var text: String?
+        if let rows = try? await VisionLayoutService.recognizeRowsViaRawOCR(in: imageData), !rows.isEmpty {
+            text = VisionLayoutService.layoutString(from: rows)
+        }
+        if text == nil || text?.isEmpty == true {
+            text = try? await VisionOCRService.recognizeText(in: imageData)
+        }
         isPrefillingManualFields = false
 
         guard let text, !text.isEmpty else { return }
