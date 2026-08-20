@@ -33,6 +33,17 @@ struct ReceiptSubmitView: View {
     @State private var manualWorkDate: Date = Date()
     @State private var manualComments: String = ""
 
+    /// Set when the user picks "Continue Without AI" out of the
+    /// `.offlineChoice` prompt below — an AI provider *is* configured, it
+    /// just couldn't be reached, and the user has opted into the same
+    /// deterministic OCR path as the no-AI case for this one submission.
+    /// Every place that gates on `ExtractionSettings.aiConfigured` to decide
+    /// "show manual fields / require them / submit manually" also has to
+    /// check this, since aiConfigured itself must stay unchanged (other call
+    /// sites depend on its original meaning of "is a provider set up at
+    /// all").
+    @State private var proceedWithoutAI = false
+
     /// True while on-device OCR (`prefillManualFieldsFromOCR`) is running,
     /// so the Details section can show a lightweight spinner instead of
     /// silently populating fields out from under someone who's already
@@ -43,6 +54,24 @@ struct ReceiptSubmitView: View {
     /// `.needsDate` nudge can update it once the user sets a date.
     @State private var pendingDateEntry: HistoryEntry?
     @State private var pickedDate = Date()
+
+    /// The already-normalized bytes/kind/category from the `submit()` call
+    /// that hit a connectivity-class failure, held so the `.offlineChoice`
+    /// prompt's two actions ("Continue Without AI" / "Save for Later") can
+    /// act on the exact same submission without re-deriving it (and without
+    /// re-running the JPEG re-encode).
+    private struct PendingSubmission {
+        let data: Data
+        let kind: ReceiptKind
+        let category: String
+        /// Why AI extraction couldn't run, carried so "Save for Later" files
+        /// the queue entry under the actual reason ("Offline mode is on, so
+        /// Claude ... is blocked") rather than a generic stand-in. The Retry
+        /// Queue's detail screen shows this under "Why it failed", and it is
+        /// the only place the user can still find out what to change.
+        let reason: String
+    }
+    @State private var pendingOfflineSubmission: PendingSubmission?
 
     // Same App Group store + key SettingsView writes, so the symbol shown
     // here always matches whatever the user picked — shared with the share
@@ -78,6 +107,17 @@ struct ReceiptSubmitView: View {
         case queued
         case needsDate
         case needsAmount
+        /// AI extraction failed for a connectivity reason (see
+        /// `ExtractionFailureClass`) — the receipt itself is fine, so
+        /// instead of silently queuing it for later retry, offer the user
+        /// a fallback right now. Carries the human-readable reason (the
+        /// underlying error's description) to show inline, plus whether
+        /// Apple's on-device model (`ExtractionSettings.appleOnDeviceReady`)
+        /// can be offered as a real-AI alternative to the configured
+        /// provider — false either because the device/OS can't run it, or
+        /// because the configured provider *was* Apple On-Device and just
+        /// failed, so offering it again would be pointless.
+        case offlineChoice(reason: String, canUseAppleIntelligence: Bool)
     }
 
     private var controlsDisabled: Bool {
@@ -91,7 +131,8 @@ struct ReceiptSubmitView: View {
     }
 
     private var canSubmit: Bool {
-        !selectedCategory.isEmpty && (ExtractionSettings.aiConfigured || manualFieldsValid)
+        let needsManualFields = !ExtractionSettings.aiConfigured || proceedWithoutAI
+        return !selectedCategory.isEmpty && (!needsManualFields || manualFieldsValid)
     }
 
     var body: some View {
@@ -113,7 +154,7 @@ struct ReceiptSubmitView: View {
                     }
                 }
 
-                if !ExtractionSettings.aiConfigured {
+                if !ExtractionSettings.aiConfigured || proceedWithoutAI {
                     // Deliberately a visible banner, not just footer text —
                     // a caveat printed under four fields is easy to scroll
                     // past, and the whole point is that nothing here has
@@ -122,7 +163,18 @@ struct ReceiptSubmitView: View {
                     Section {
                         Label {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("No AI connected — please check these details")
+                                // Two different situations land here: no
+                                // provider is set up at all, or one is
+                                // configured but couldn't be reached (the
+                                // user chose "Continue Without AI" off the
+                                // offline prompt). "No AI connected" would be
+                                // false in the second case — the provider
+                                // *is* connected in Settings, it just isn't
+                                // reachable right now — so pick the accurate
+                                // heading for whichever situation this is.
+                                Text(proceedWithoutAI
+                                     ? "AI unreachable — please check these details"
+                                     : "No AI connected — please check these details")
                                     .font(.subheadline.weight(.semibold))
                                 Text("Nothing here was read by an AI. On-device text recognition (OCR) filled in what it could find below — it may be wrong, mismatched, or missing, so compare every field against the receipt before saving.")
                                     .font(.caption)
@@ -167,7 +219,9 @@ struct ReceiptSubmitView: View {
                             }
                         }
                     } footer: {
-                        Text("Connect an AI in Settings to read receipts automatically instead of entering them by hand.")
+                        Text(proceedWithoutAI
+                             ? "Continuing without AI for this receipt. Everything below is on-device only."
+                             : "Connect an AI in Settings to read receipts automatically instead of entering them by hand.")
                     }
                 }
 
@@ -223,7 +277,7 @@ struct ReceiptSubmitView: View {
     /// precisely so people without any AI configured can still save a
     /// receipt.
     private func prefillManualFieldsFromOCR() async {
-        guard !ExtractionSettings.aiConfigured else { return }
+        guard !ExtractionSettings.aiConfigured || proceedWithoutAI else { return }
 
         // Vision reads still-image data. For a PDF, render its first page
         // to an image first — reusing the thumbnail helper below rather
@@ -372,6 +426,67 @@ struct ReceiptSubmitView: View {
                     Spacer()
                 }
             }
+        case .offlineChoice(let reason, let canUseAppleIntelligence):
+            // Follows the same inline-prompt convention as `.needsDate` /
+            // `.needsAmount` above rather than a sheet or alert — the user
+            // is already looking at this form, and every choice here
+            // ("retry with the on-device model" / "fill in fields myself" /
+            // "stash it and move on") is naturally expressed as buttons in
+            // place, not as a separate screen.
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Couldn't reach AI extraction", systemImage: "wifi.exclamationmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if canUseAppleIntelligence {
+                    // Explains *why* this is being offered — the configured
+                    // provider needs the network and can't be reached, but
+                    // Apple's on-device model never leaves the phone — and
+                    // draws the line the user needs to see between this
+                    // option and "Continue Without AI" below: this one is
+                    // still a real model reading the receipt, just a
+                    // different (offline-capable) one.
+                    Text("Your configured AI provider needs the internet and can't be reached. Apple's on-device model runs entirely on this iPhone and can read the receipt right now instead.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        useAppleIntelligence()
+                    } label: {
+                        HStack { Spacer(); Text("Use Apple Intelligence").bold(); Spacer() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Text("Or skip AI entirely and fill in the details yourself — on-device text matching only, not read by any AI, so it's often wrong.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("The receipt itself is fine — you can fill in the details yourself using on-device text recognition, or save it to submit with AI later.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if canUseAppleIntelligence {
+                    Button {
+                        continueWithoutAI()
+                    } label: {
+                        HStack { Spacer(); Text("Continue Without AI").bold(); Spacer() }
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    Button {
+                        continueWithoutAI()
+                    } label: {
+                        HStack { Spacer(); Text("Continue Without AI").bold(); Spacer() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                Button {
+                    saveOfflineSubmissionForLater()
+                } label: {
+                    HStack { Spacer(); Text("Save for Later").bold(); Spacer() }
+                }
+                .buttonStyle(.bordered)
+            }
         }
     }
 
@@ -413,6 +528,97 @@ struct ReceiptSubmitView: View {
         onComplete()
     }
 
+    /// "Continue Without AI" out of the `.offlineChoice` prompt — switches
+    /// this submission over to the exact same deterministic path the
+    /// no-AI case already uses. Re-runs OCR prefill (it no-opped the first
+    /// time, at `.task`, because `aiConfigured` was still true then) and
+    /// returns `submitState` to `.idle` so the Details fields become
+    /// editable and the Submit button reappears.
+    private func continueWithoutAI() {
+        proceedWithoutAI = true
+        pendingOfflineSubmission = nil
+        message = nil
+        submitState = .idle
+        Task {
+            await prefillManualFieldsFromOCR()
+        }
+    }
+
+    /// "Save for Later" out of the `.offlineChoice` prompt — the original
+    /// Retry Queue behavior, just deferred until the user picks it instead
+    /// of happening automatically.
+    private func saveOfflineSubmissionForLater() {
+        guard let pending = pendingOfflineSubmission else { submitState = .idle; return }
+        SubmissionStore.enqueue(data: pending.data, category: pending.category, kind: pending.kind,
+                                error: pending.reason)
+        pendingOfflineSubmission = nil
+        message = "Saved to the retry queue in the app."
+        submitState = .queued
+    }
+
+    /// "Use Apple Intelligence" out of the `.offlineChoice` prompt — retries
+    /// the same submission through `SubmissionPipeline`, forcing the
+    /// on-device extractor for this one call via `forcedProvider` (see
+    /// `SubmissionPipeline.run`) instead of touching the user's persisted
+    /// `ExtractionSettings.provider`. Deliberately routed through the exact
+    /// same success/duplicate/`.needsDate`/`.needsAmount` handling `submit()`
+    /// uses below, not a simplified parallel path — a receipt read by the
+    /// on-device model can come back needing a date or amount fix just like
+    /// one read by the cloud provider would.
+    ///
+    /// If this attempt *also* fails, don't loop back to offering Apple
+    /// Intelligence again — the on-device model just failed on this exact
+    /// receipt, so retrying it a second time isn't a real option. Fall
+    /// through to `.offlineChoice` with `canUseAppleIntelligence: false`,
+    /// which renders as the original Continue Without AI / Save for Later
+    /// pair with the new error.
+    private func useAppleIntelligence() {
+        guard let pending = pendingOfflineSubmission else { submitState = .idle; return }
+        message = nil
+        submitState = .running
+        statusText = SubmissionPipeline.Stage.reading.statusText
+
+        Task {
+            do {
+                let entry = try await SubmissionPipeline().run(
+                    data: pending.data, kind: pending.kind, category: pending.category,
+                    forcedProvider: .appleOnDevice) { stage in
+                    statusText = stage.statusText
+                }
+                pendingOfflineSubmission = nil
+                if entry.verificationStatus == .needsReview,
+                   entry.reviewReason.hasSuffix(Self.unreadableDateReasonSuffix) {
+                    pendingDateEntry = entry
+                    pickedDate = Date()
+                    submitState = .needsDate
+                } else if entry.verificationStatus == .needsReview,
+                          entry.reviewReason.contains(Self.amountNotPrintedMarker) {
+                    pendingAmountEntry = entry
+                    pickedAmount = entry.amount
+                    submitState = .needsAmount
+                } else {
+                    submitState = .success
+                    try? await Task.sleep(nanoseconds: 800_000_000)
+                    onComplete()
+                }
+            } catch let duplicate as SubmissionError {
+                pendingOfflineSubmission = nil
+                message = duplicate.localizedDescription
+                submitState = .success
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                onComplete()
+            } catch {
+                // Don't offer Apple Intelligence again — it just failed on
+                // this receipt. Keep the same pending bytes so Continue
+                // Without AI / Save for Later can still act on them.
+                pendingOfflineSubmission = PendingSubmission(
+                    data: pending.data, kind: pending.kind, category: pending.category,
+                    reason: error.localizedDescription)
+                submitState = .offlineChoice(reason: error.localizedDescription, canUseAppleIntelligence: false)
+            }
+        }
+    }
+
     private func submit() {
         let kind: ReceiptKind = attachment.kind == .image ? .image : .pdf
         // Re-encode images to JPEG so the bytes, Claude media_type, and Drive
@@ -428,7 +634,7 @@ struct ReceiptSubmitView: View {
         message = nil
         submitState = .running
 
-        guard ExtractionSettings.aiConfigured else {
+        guard ExtractionSettings.aiConfigured && !proceedWithoutAI else {
             submitManually(data: data, kind: kind, category: category)
             return
         }
@@ -465,11 +671,28 @@ struct ReceiptSubmitView: View {
                 try? await Task.sleep(nanoseconds: 1_200_000_000)
                 onComplete()
             } catch {
-                // Park the bytes + a queue entry so the main app can retry.
-                SubmissionStore.enqueue(data: data, category: category, kind: kind,
-                                        error: error.localizedDescription)
-                message = "Couldn't submit — saved to the retry queue in the app. \(error.localizedDescription)"
-                submitState = .queued
+                if ExtractionFailureClass.classify(error) == .connectivity {
+                    // AI just couldn't be reached — the receipt itself is
+                    // fine. Don't queue it silently; offer a fallback right
+                    // now instead of forcing a trip to Settings. Apple
+                    // Intelligence is only worth offering if it's actually
+                    // usable on this device *and* it isn't the same provider
+                    // that just failed (offering to retry the thing that
+                    // just failed, unchanged, would be a dead end).
+                    pendingOfflineSubmission = PendingSubmission(
+                        data: data, kind: kind, category: category,
+                        reason: error.localizedDescription)
+                    let canUseAppleIntelligence = ExtractionSettings.provider != .appleOnDevice
+                        && ExtractionSettings.appleOnDeviceReady
+                    submitState = .offlineChoice(reason: error.localizedDescription,
+                                                  canUseAppleIntelligence: canUseAppleIntelligence)
+                } else {
+                    // Park the bytes + a queue entry so the main app can retry.
+                    SubmissionStore.enqueue(data: data, category: category, kind: kind,
+                                            error: error.localizedDescription)
+                    message = "Couldn't submit — saved to the retry queue in the app. \(error.localizedDescription)"
+                    submitState = .queued
+                }
             }
         }
     }

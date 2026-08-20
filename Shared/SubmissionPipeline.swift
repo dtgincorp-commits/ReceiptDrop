@@ -57,14 +57,23 @@ struct SubmissionPipeline {
 
     /// Runs the pipeline. `onStage` is invoked on the main actor before each
     /// stage so the caller can drive a progress label.
+    ///
+    /// `forcedProvider`, when set, bypasses the persisted
+    /// `ExtractionSettings.provider`/`assertProviderAllowed()` for this one
+    /// call only and extracts with the given provider instead — used by
+    /// `ReceiptSubmitView`'s "Use Apple Intelligence" offline fallback,
+    /// which needs to retry through the on-device model without touching the
+    /// user's actually-configured (and shared, App-Group-persisted) provider
+    /// setting. Leave nil for the normal path.
     @discardableResult
     func run(data: Data,
              kind: ReceiptKind,
              category: String,
+             forcedProvider: ExtractionProvider? = nil,
              onStage: @MainActor (Stage) -> Void = { _ in }) async throws -> HistoryEntry {
         await onStage(.reading)
         let categoryContext = CategoryStore.shared.description(for: category)
-        let extracted = try await Self.extractWithFallback(data: data, kind: kind, categoryContext: categoryContext)
+        let extracted = try await Self.extractWithFallback(data: data, kind: kind, categoryContext: categoryContext, forcedProvider: forcedProvider)
 
         if let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == extracted.workDate && $0.amount == extracted.amount
@@ -100,9 +109,22 @@ struct SubmissionPipeline {
     /// this automatically retries once with the full image, keeping whichever
     /// result that retry produces. PDFs and "Full Image" mode always send the
     /// full file, unaffected by this fallback.
-    private static func extractWithFallback(data: Data, kind: ReceiptKind, categoryContext: String) async throws -> ExtractedReceipt {
-        try ExtractionSettings.assertProviderAllowed()
-        let extractor = ExtractionSettings.currentExtractor()
+    ///
+    /// `forcedProvider`, when set, resolves the extractor from that provider
+    /// instead of `ExtractionSettings.currentExtractor()` — a one-shot
+    /// override made by the caller rather than the ambient setting. The
+    /// Offline-mode guard still runs against whichever provider is actually
+    /// about to be used (the forced one when set, the persisted one
+    /// otherwise) via the provider-parameterized `assertProviderAllowed(_:)`
+    /// — Offline mode is a user-facing privacy commitment ("nothing leaves
+    /// the phone"), and `forcedProvider` accepts any `ExtractionProvider`, so
+    /// the check has to hold for whatever's effectively selected rather than
+    /// trusting every future caller to only ever force `.appleOnDevice`.
+    private static func extractWithFallback(data: Data, kind: ReceiptKind, categoryContext: String,
+                                              forcedProvider: ExtractionProvider? = nil) async throws -> ExtractedReceipt {
+        let effectiveProvider = forcedProvider ?? ExtractionSettings.provider
+        try ExtractionSettings.assertProviderAllowed(effectiveProvider)
+        let extractor = ExtractionSettings.extractor(for: effectiveProvider)
         guard kind == .image, ExtractionSettings.mode == .onDeviceOCR else {
             return try await extractor.extract(data: data, kind: kind, categoryContext: categoryContext)
         }

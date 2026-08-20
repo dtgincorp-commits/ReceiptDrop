@@ -436,6 +436,61 @@ enum OfflineModeError: LocalizedError {
     }
 }
 
+/// Classifies an extraction failure as "the AI genuinely couldn't be
+/// reached, but nothing is wrong with the receipt itself" vs. a real
+/// failure worth queuing for retry.
+///
+/// This distinction matters because `ReceiptSubmitView` has a perfectly
+/// good deterministic fallback (Vision OCR + `ManualEntryOCRPrefill`)
+/// sitting unused — when the only problem is connectivity, the user should
+/// be offered that path immediately instead of having the receipt dumped
+/// into the Retry Queue with nothing extracted.
+///
+/// Deliberately narrow. Two categories count:
+///   - `OfflineModeError.cloudProviderBlocked` — Offline mode is on and the
+///     selected provider needs the network. This isn't even a network
+///     *attempt*, just a local guard, but it's the same situation from the
+///     user's point of view: "AI is unreachable right now, the receipt is
+///     fine."
+///   - A `URLError` in the "not connected" family: `.notConnectedToInternet`,
+///     `.networkConnectionLost`, `.cannotFindHost`, `.cannotConnectToHost`,
+///     `.timedOut`, `.dataNotAllowed`, `.internationalRoamingOff`. These are
+///     all "the request never got a response from the provider" — no signal
+///     at all about whether the receipt, the API key, or the request itself
+///     was valid.
+///
+/// Deliberately NOT included: any error that reached the provider and got
+/// an answer back, even an unhappy one. A bad/expired API key, a 429 rate
+/// limit, a 500 from the provider, a malformed-response parse failure —
+/// these all mean the network worked and something else is actually wrong,
+/// so "just try again on-device" would silently hide a problem (like an
+/// expired key) that the user needs to see and fix. Those still queue.
+enum ExtractionFailureClass {
+    case connectivity
+    case other
+
+    static func classify(_ error: Error) -> ExtractionFailureClass {
+        if case OfflineModeError.cloudProviderBlocked = error {
+            return .connectivity
+        }
+        if let urlError = error as? URLError {
+            let connectivityCodes: Set<URLError.Code> = [
+                .notConnectedToInternet,
+                .networkConnectionLost,
+                .cannotFindHost,
+                .cannotConnectToHost,
+                .timedOut,
+                .dataNotAllowed,
+                .internationalRoamingOff,
+            ]
+            if connectivityCodes.contains(urlError.code) {
+                return .connectivity
+            }
+        }
+        return .other
+    }
+}
+
 /// Reads/writes the extraction provider + mode from App Group UserDefaults
 /// (not `@AppStorage`, which defaults to `UserDefaults.standard` — the share
 /// extension runs in a different sandbox and wouldn't see the same value).
@@ -470,13 +525,28 @@ enum ExtractionSettings {
         set { defaults.set(newValue, forKey: AppConstants.DefaultsKeys.offlineOnly) }
     }
 
-    /// Throws if Offline mode is on but a cloud provider is selected. Call at
-    /// the start of any extraction or search so the block is enforced
-    /// everywhere (main app *and* share extension), not just hidden in the UI.
-    static func assertProviderAllowed() throws {
+    /// Throws if Offline mode is on but `provider` is a cloud provider —
+    /// parameterized so a caller that's about to run extraction with some
+    /// provider *other* than the persisted `ExtractionSettings.provider`
+    /// (e.g. a one-shot `forcedProvider` override) can still have the
+    /// Offline mode guarantee enforced against what it's actually about to
+    /// use, not what happens to be saved in settings. Offline mode is a
+    /// user-facing privacy commitment ("nothing leaves the phone"), so this
+    /// must hold for the effective provider on every call path, not just the
+    /// persisted one — the invariant needs to be structural, not something
+    /// every future caller has to remember to check themselves.
+    static func assertProviderAllowed(_ provider: ExtractionProvider) throws {
         if offlineOnly && provider != .appleOnDevice {
             throw OfflineModeError.cloudProviderBlocked(provider)
         }
+    }
+
+    /// Throws if Offline mode is on but the currently *selected* provider is
+    /// a cloud provider. Call at the start of any extraction or search so
+    /// the block is enforced everywhere (main app *and* share extension),
+    /// not just hidden in the UI.
+    static func assertProviderAllowed() throws {
+        try assertProviderAllowed(provider)
     }
 
     /// True when the currently selected provider can actually run right now —
@@ -488,10 +558,7 @@ enum ExtractionSettings {
     static var aiConfigured: Bool {
         switch provider {
         case .appleOnDevice:
-            #if canImport(FoundationModels)
-            if #available(iOS 26.0, *) { return FoundationModelsService.isModelReady }
-            #endif
-            return false
+            return appleOnDeviceReady
         case .claude:
             return KeychainHelper.get(AppConstants.KeychainKeys.anthropicAPIKey) != nil
         case .openAI:
@@ -506,8 +573,32 @@ enum ExtractionSettings {
         }
     }
 
-    /// The extractor instance for the currently selected provider.
-    static func currentExtractor() -> ReceiptExtractor {
+    /// Whether Apple's on-device model is usable on this device *right now*,
+    /// independent of whether it's the currently-configured provider. Mirrors
+    /// the availability dance `aiConfigured` does for the `.appleOnDevice`
+    /// case, but exposed standalone so callers can ask "could I fall back to
+    /// on-device AI?" without switching `provider` first — e.g.
+    /// `ReceiptSubmitView` offering it as a one-shot override when the
+    /// user's actually-configured provider (Claude, Gemini, ...) can't be
+    /// reached. `SystemLanguageModel.default.availability` reflects device
+    /// eligibility + Apple Intelligence being enabled + the model being
+    /// downloaded, none of which this app can query cheaply outside
+    /// `FoundationModelsService`, so the check has to be gated the same way
+    /// that file is (iOS 26+ and the framework actually importable — the
+    /// share extension and older toolchains still need to compile this).
+    static var appleOnDeviceReady: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) { return FoundationModelsService.isModelReady }
+        #endif
+        return false
+    }
+
+    /// The extractor instance for a given provider — factored out of
+    /// `currentExtractor()` so a caller can resolve the extractor for a
+    /// provider *other* than the persisted setting (a one-shot override)
+    /// without touching `provider` itself, which is a shared App Group
+    /// setting the share extension also reads.
+    static func extractor(for provider: ExtractionProvider) -> ReceiptExtractor {
         switch provider {
         case .claude: return ClaudeService()
         case .openAI: return OpenAIService()
@@ -520,6 +611,11 @@ enum ExtractionSettings {
             #endif
             return GeminiService() // fallback on older OS / toolchains
         }
+    }
+
+    /// The extractor instance for the currently selected provider.
+    static func currentExtractor() -> ReceiptExtractor {
+        extractor(for: provider)
     }
 }
 
