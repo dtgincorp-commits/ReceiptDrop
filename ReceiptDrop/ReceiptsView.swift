@@ -751,7 +751,10 @@ struct ReceiptsView: View {
         }
         .sheet(isPresented: $showCategories, onDismiss: reload) {
             NavigationStack {
-                CategoriesView(focusNewCategoryOnAppear: focusNewCategoryOnOpen)
+                CategoriesView(focusNewCategoryOnAppear: focusNewCategoryOnOpen, onShowReceipts: { category in
+                    filterCategory = category
+                    showCategories = false
+                })
             }
         }
         .onAppear(perform: reload)
@@ -933,21 +936,32 @@ struct ReceiptsView: View {
 
     /// Horizontal row of tappable category pills — tap one to filter the
     /// tree down to just that category, tap "All" (or the same pill again)
-    /// to clear the filter.
+    /// to clear the filter. Wrapped in a `ScrollViewReader` so a filter set
+    /// from elsewhere (the Categories sheet's Receipts row) scrolls the
+    /// newly-selected pill into view instead of leaving it offscreen.
     private var categoryFilterRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                filterPill(label: "All", isSelected: filterCategory == nil) {
-                    filterCategory = nil
-                }
-                ForEach(categoryStore.categories, id: \.self) { category in
-                    filterPill(label: category, isSelected: filterCategory == category) {
-                        filterCategory = (filterCategory == category) ? nil : category
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    filterPill(label: "All", isSelected: filterCategory == nil) {
+                        filterCategory = nil
+                    }
+                    .id(String?.none as String?)
+                    ForEach(categoryStore.categories, id: \.self) { category in
+                        filterPill(label: category, isSelected: filterCategory == category) {
+                            filterCategory = (filterCategory == category) ? nil : category
+                        }
+                        .id(String?.some(category))
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .onChange(of: filterCategory) { newValue in
+                withAnimation {
+                    proxy.scrollTo(newValue, anchor: .center)
+                }
+            }
         }
     }
 

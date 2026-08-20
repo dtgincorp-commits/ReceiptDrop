@@ -11,6 +11,13 @@ struct CategoriesView: View {
     /// immediately so the user can start typing without an extra tap.
     var focusNewCategoryOnAppear: Bool = false
 
+    /// Lets a presenter (currently Receipts, via its "Manage Categories…"
+    /// sheet) turn the detail screen's Receipts row into a jump back to its
+    /// own filtered list instead of a dead label. Defaulted to nil so the
+    /// Settings → Categories entry point, which has no such list to jump
+    /// to, keeps the row inert without needing to know about this at all.
+    var onShowReceipts: ((String) -> Void)? = nil
+
     @StateObject private var categoryStore = CategoryStore.shared
     @State private var newCategory = ""
     @State private var addCategoryError: String?
@@ -35,7 +42,7 @@ struct CategoriesView: View {
             Section {
                 ForEach(categoryStore.categories, id: \.self) { category in
                     NavigationLink {
-                        CategoryDetailView(category: category)
+                        CategoryDetailView(category: category, onShowReceipts: onShowReceipts)
                     } label: {
                         HStack {
                             Text(category)
@@ -193,6 +200,11 @@ struct CategoriesView: View {
 struct CategoryDetailView: View {
     let category: String
 
+    /// See `CategoriesView.onShowReceipts` — nil here means this screen was
+    /// reached from somewhere with no Receipts list to jump back to (e.g.
+    /// Settings → Categories), so the Receipts row stays a plain label.
+    var onShowReceipts: ((String) -> Void)? = nil
+
     @StateObject private var categoryStore = CategoryStore.shared
     @State private var descriptionInput: String
     @State private var showRebuildConfirm = false
@@ -224,8 +236,9 @@ struct CategoryDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    init(category: String) {
+    init(category: String, onShowReceipts: ((String) -> Void)? = nil) {
         self.category = category
+        self.onShowReceipts = onShowReceipts
         _descriptionInput = State(initialValue: CategoryStore.shared.description(for: category))
         _renameInput = State(initialValue: category)
     }
@@ -242,10 +255,25 @@ struct CategoryDetailView: View {
     var body: some View {
         Form {
             Section {
-                HStack {
-                    Text("Receipts")
-                    Spacer()
-                    Text("\(entries.count)").foregroundStyle(.secondary)
+                if let onShowReceipts {
+                    Button {
+                        onShowReceipts(category)
+                    } label: {
+                        HStack {
+                            Text("Receipts").foregroundStyle(.primary)
+                            Spacer()
+                            Text("\(entries.count)").foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                } else {
+                    HStack {
+                        Text("Receipts")
+                        Spacer()
+                        Text("\(entries.count)").foregroundStyle(.secondary)
+                    }
                 }
             }
 
