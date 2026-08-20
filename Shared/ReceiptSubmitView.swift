@@ -125,6 +125,14 @@ struct ReceiptSubmitView: View {
         return true
     }
 
+    /// True while the `.offlineChoice` prompt is on screen — used to shrink
+    /// the receipt thumbnail so its buttons stay reachable without scrolling
+    /// (reported on an iPhone with a Dynamic Island, not just small screens).
+    private var isOfflineChoicePrompt: Bool {
+        if case .offlineChoice = submitState { return true }
+        return false
+    }
+
     private var manualFieldsValid: Bool {
         !manualVendor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && Double(manualAmount.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
@@ -145,7 +153,13 @@ struct ReceiptSubmitView: View {
                             Image(uiImage: thumb)
                                 .resizable()
                                 .scaledToFit()
-                                .frame(maxHeight: 220)
+                                // Shrunk only for the offline-choice prompt below —
+                                // by the time that prompt is showing the user has
+                                // already seen the photo, and the buttons that
+                                // decide what happens next need to fit on screen
+                                // without scrolling more than the thumbnail needs
+                                // full size.
+                                .frame(maxHeight: isOfflineChoicePrompt ? 100 : 220)
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                         } else {
                             Label("PDF attached", systemImage: "doc.fill")
@@ -436,19 +450,17 @@ struct ReceiptSubmitView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Label("Couldn't reach AI extraction", systemImage: "wifi.exclamationmark")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.red)
                 Text(reason)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if canUseAppleIntelligence {
-                    // Explains *why* this is being offered — the configured
-                    // provider needs the network and can't be reached, but
-                    // Apple's on-device model never leaves the phone — and
-                    // draws the line the user needs to see between this
-                    // option and "Continue Without AI" below: this one is
-                    // still a real model reading the receipt, just a
-                    // different (offline-capable) one.
-                    Text("Your configured AI provider needs the internet and can't be reached. Apple's on-device model runs entirely on this iPhone and can read the receipt right now instead.")
+                    // One line carries the distinction that used to take two
+                    // paragraphs: Apple Intelligence is a real model reading
+                    // the receipt on-device, "Continue Without AI" below is
+                    // just on-device text matching and is often wrong. Kept
+                    // short so the buttons stay on screen without scrolling.
+                    Text("Apple Intelligence reads the receipt on this iPhone; Continue Without AI just text-matches and is often wrong.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Button {
@@ -457,11 +469,8 @@ struct ReceiptSubmitView: View {
                         HStack { Spacer(); Text("Use Apple Intelligence").bold(); Spacer() }
                     }
                     .buttonStyle(.borderedProminent)
-                    Text("Or skip AI entirely and fill in the details yourself — on-device text matching only, not read by any AI, so it's often wrong.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 } else {
-                    Text("The receipt itself is fine — you can fill in the details yourself using on-device text recognition, or save it to submit with AI later.")
+                    Text("The receipt itself is fine — fill in the details yourself, or save it to submit with AI later.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
