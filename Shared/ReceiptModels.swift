@@ -830,7 +830,7 @@ enum ArchiveBackupService {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
-        let label = "ReceiptDrop_Backup_\(formatter.string(from: Date()))"
+        let label = "Receipts4Tax_Backup_\(formatter.string(from: Date()))"
         let tempZipURL = try buildArchive(label: label, entries: SubmissionStore.loadHistory(), includeEverything: true)
 
         guard let backupsFolder = LocalReceiptStore.backupsFolderURL() else {

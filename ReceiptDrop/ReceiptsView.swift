@@ -851,7 +851,7 @@ struct ReceiptsView: View {
                     isDeletingMonth = false
                     reload()
                     deleteMonthSuccessMessage = """
-                        Backed up to Files → On My iPhone → Receipt Drop → Backups → \(backupURL.lastPathComponent)
+                        Backed up to Files → On My iPhone → Receipts4Tax → Backups → \(backupURL.lastPathComponent)
 
                         Deleted \(monthEntries.count) receipt\(monthEntries.count == 1 ? "" : "s") for \(label).
                         """
@@ -889,7 +889,7 @@ struct ReceiptsView: View {
                     isDeletingYear = false
                     reload()
                     deleteYearSuccessMessage = """
-                        Backed up to Files → On My iPhone → Receipt Drop → Backups → \(backupURL.lastPathComponent)
+                        Backed up to Files → On My iPhone → Receipts4Tax → Backups → \(backupURL.lastPathComponent)
 
                         Deleted \(yearEntries.count) receipt\(yearEntries.count == 1 ? "" : "s") for \(year).
                         """

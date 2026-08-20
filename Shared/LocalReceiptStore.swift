@@ -545,7 +545,7 @@ enum LocalReceiptStore {
     // MARK: - Backup library
 
     /// Where full-backup zips are kept on-device, visible in Files under
-    /// On My iPhone > Receipt Drop > Backups — lets Restore list them by
+    /// On My iPhone > Receipts4Tax > Backups — lets Restore list them by
     /// date instead of requiring the document picker every time (which only
     /// exists because the app has no way to see back into wherever a share
     /// sheet destination like iCloud Drive actually put the file).

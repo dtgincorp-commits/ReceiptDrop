@@ -59,7 +59,7 @@ struct ExtensionBatchSubmitView: View {
                                 Spacer()
                             }
                         } footer: {
-                            Text("These will be saved now and read automatically the next time you open ReceiptDrop.")
+                            Text("These will be saved now and read automatically the next time you open Receipts4Tax.")
                         }
 
                         Section("Category") {

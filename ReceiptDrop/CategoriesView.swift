@@ -15,6 +15,9 @@ struct CategoriesView: View {
     @State private var newCategory = ""
     @State private var addCategoryError: String?
     @FocusState private var newCategoryFieldFocused: Bool
+    /// Long-form text moved out of the section footer — see
+    /// `SettingsInfoLink`. The footer keeps one sentence; the detail lives here.
+    @State private var infoTopic: SettingsInfoTopic?
 
     /// Set when a swipe-to-delete lands on a category that still has
     /// receipts — deletion then goes through a confirmation offering both
@@ -67,14 +70,26 @@ struct CategoriesView: View {
                 if let deleteError {
                     Text(deleteError).font(.caption).foregroundStyle(.red)
                 }
+
+                SettingsInfoButton(
+                    title: "Categories",
+                    detail: """
+                        Every category gets its own folder and CSV log, under Files → On My iPhone → Receipts4Tax.
+
+                        Swipe left on a category to delete it.
+
+                        Tap a category to see its receipt count and maintenance actions — rename, merge, rebuild its log, or open its CSV.
+                        """,
+                    topic: $infoTopic)
             } header: {
                 Text("Categories")
             } footer: {
-                Text("Each category gets its own folder and CSV log under Files > On My iPhone > Receipt Drop. Swipe left to delete a category; tap one for its receipt count and maintenance actions.")
+                Text("Each category gets its own folder and CSV log in the Files app.")
             }
         }
         .navigationTitle("Categories")
         .navigationBarTitleDisplayMode(.inline)
+        .settingsInfoSheet(topic: $infoTopic)
         .onAppear {
             if focusNewCategoryOnAppear {
                 newCategoryFieldFocused = true
@@ -139,7 +154,7 @@ struct CategoriesView: View {
                 await MainActor.run {
                     isDeletingCategory = false
                     pendingDelete = nil
-                    deleteMessage = "Backed up to Files → On My iPhone → Receipt Drop → Backups → \(summary.backupFilename). Deleted \(name) and \(summary.receiptsDeleted) receipt\(summary.receiptsDeleted == 1 ? "" : "s")."
+                    deleteMessage = "Backed up to Files → On My iPhone → Receipts4Tax → Backups → \(summary.backupFilename). Deleted \(name) and \(summary.receiptsDeleted) receipt\(summary.receiptsDeleted == 1 ? "" : "s")."
                 }
             } catch {
                 await MainActor.run {
@@ -203,6 +218,10 @@ struct CategoryDetailView: View {
     /// into the same flow, not a separate one.
     @State private var showQuickRenameAlert = false
 
+    /// Long-form text moved out of the section footers — see
+    /// `SettingsInfoLink`. Footers keep one sentence; the detail lives here.
+    @State private var infoTopic: SettingsInfoTopic?
+
     @Environment(\.dismiss) private var dismiss
 
     init(category: String) {
@@ -234,10 +253,15 @@ struct CategoryDetailView: View {
                 TextField("e.g. Expenses for my IT company", text: $descriptionInput, axis: .vertical)
                     .lineLimit(2...4)
                     .onSubmit { categoryStore.setDescription(descriptionInput, for: category) }
+
+                SettingsInfoButton(
+                    title: "Category Description",
+                    detail: "Optional, but helps the AI write better Comments and flag receipts that look like they don't belong here. Saved automatically as you leave the field.",
+                    topic: $infoTopic)
             } header: {
                 Text("Category Description for \(category) (Better AI decisioning)")
             } footer: {
-                Text("Optional, but helps the AI write better Comments and flag receipts that look like they don't belong here. Saved automatically as you leave the field.")
+                Text("Optional — helps the AI write better Comments.")
             }
             .onChange(of: descriptionInput) { newValue in
                 categoryStore.setDescription(newValue, for: category)
@@ -259,8 +283,13 @@ struct CategoryDetailView: View {
                 } label: {
                     Label("Open \(category) folder in Files", systemImage: "folder.fill")
                 }
+
+                SettingsInfoButton(
+                    title: "CSV and Files",
+                    detail: "\"Edit CSV in Numbers\" hands \(category)_log.csv to the Numbers app via the system Open In menu — Numbers keeps its own copy, so edits there don't change the file the app writes to. \"Open \(category) folder\" shows every file in this category, including receipt photos and any extra attachments not listed in the CSV.",
+                    topic: $infoTopic)
             } footer: {
-                Text("\"Edit CSV in Numbers\" hands \(category)_log.csv to the Numbers app via the system Open In menu — Numbers keeps its own copy, so edits there don't change the file the app writes to. \"Open \(category) folder\" shows every file in this category, including receipt photos and any extra attachments not listed in the CSV.")
+                Text("Open, edit, or browse this category's files.")
             }
 
             Section {
@@ -274,10 +303,15 @@ struct CategoryDetailView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                SettingsInfoButton(
+                    title: "Maintenance",
+                    detail: "Wipes and regenerates \(category)'s CSV log strictly from what's shown on the Receipts screen — fixes stray or duplicate rows. Comments on existing rows come back blank (they're only stored in the CSV); new receipts keep their Comments as usual. Other categories aren't affected.",
+                    topic: $infoTopic)
             } header: {
                 Text("Maintenance")
             } footer: {
-                Text("Wipes and regenerates \(category)'s CSV log strictly from what's shown on the Receipts screen — fixes stray or duplicate rows. Comments on existing rows come back blank (they're only stored in the CSV); new receipts keep their Comments as usual. Other categories aren't affected.")
+                Text("Rebuilds \(category)'s CSV log from what's on the Receipts screen.")
             }
 
             Section {
@@ -299,10 +333,15 @@ struct CategoryDetailView: View {
                 if let renameError {
                     Text(renameError).font(.caption).foregroundStyle(.red)
                 }
+
+                SettingsInfoButton(
+                    title: "Rename",
+                    detail: "Renames \(category) and moves its files to match — a full backup is made first. To combine it into an existing category instead, use Merge below. You can also rename by tapping \(category) at the top of this screen.",
+                    topic: $infoTopic)
             } header: {
                 Text("Rename")
             } footer: {
-                Text("Renames \(category) and moves its files to match — a full backup is made first. To combine it into an existing category instead, use Merge below. You can also rename by tapping \(category) at the top of this screen.")
+                Text("Renames \(category) and moves its files to match.")
             }
 
             if otherCategories.count > 0 {
@@ -338,15 +377,21 @@ struct CategoryDetailView: View {
                     if let mergeError {
                         Text(mergeError).font(.caption).foregroundStyle(.red)
                     }
+
+                    SettingsInfoButton(
+                        title: "Merge",
+                        detail: "Moves every receipt (photos and Comments included) from \(category) into the category you pick, then removes \(category) from the list. A full backup is made first. Useful for cleaning up an accidental duplicate — e.g. two categories that differ only in capitalization.",
+                        topic: $infoTopic)
                 } header: {
                     Text("Merge")
                 } footer: {
-                    Text("Moves every receipt (photos and Comments included) from \(category) into the category you pick, then removes \(category) from the list. A full backup is made first. Useful for cleaning up an accidental duplicate — e.g. two categories that differ only in capitalization.")
+                    Text("Moves every receipt into another category, then removes this one.")
                 }
             }
         }
         .navigationTitle(category)
         .navigationBarTitleDisplayMode(.inline)
+        .settingsInfoSheet(topic: $infoTopic)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Button {
@@ -413,7 +458,7 @@ struct CategoryDetailView: View {
                 await MainActor.run {
                     isMerging = false
                     duplicatePairs = summary.duplicatePairs
-                    var message = "Backed up to Files → On My iPhone → Receipt Drop → Backups → \(summary.backupFilename). Moved \(summary.receiptsMoved) receipt\(summary.receiptsMoved == 1 ? "" : "s") into \(destination)."
+                    var message = "Backed up to Files → On My iPhone → Receipts4Tax → Backups → \(summary.backupFilename). Moved \(summary.receiptsMoved) receipt\(summary.receiptsMoved == 1 ? "" : "s") into \(destination)."
                     if !summary.duplicatePairs.isEmpty {
                         message += " Found \(summary.duplicatePairs.count) possible duplicate\(summary.duplicatePairs.count == 1 ? "" : "s") — see below."
                     }

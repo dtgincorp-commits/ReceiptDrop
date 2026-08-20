@@ -156,7 +156,7 @@ struct ConnectAIView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("ReceiptDrop uses AI to read the vendor, date, and amount off each receipt photo. Pick whichever you already use — or the free option. This takes about two minutes, once.")
+                    Text("Receipts4Tax uses AI to read the vendor, date, and amount off each receipt photo. Pick whichever you already use — or the free option. This takes about two minutes, once.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

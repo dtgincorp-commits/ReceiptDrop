@@ -290,7 +290,7 @@ private struct QueueEntryDetailView: View {
                     // on itself (see PendingSubmissionProcessor). It'll be
                     // processed automatically next launch; Retry here just
                     // runs that same step immediately instead of waiting.
-                    Text("Not processed yet — this will run automatically the next time ReceiptDrop opens, or tap Retry to process it now.")
+                    Text("Not processed yet — this will run automatically the next time Receipts4Tax opens, or tap Retry to process it now.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {

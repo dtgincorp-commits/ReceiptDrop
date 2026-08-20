@@ -110,7 +110,7 @@ struct SettingsView: View {
                         detail: """
                             Receipt images stay local to this iPhone. The app automatically excludes its receipt storage from iCloud and device backups, so they're never uploaded by a system backup.
 
-                            They live under On My iPhone → ReceiptDrop in the Files app (local storage).
+                            They live under On My iPhone → Receipts4Tax in the Files app (local storage).
 
                             To keep them solely on-device, don't manually copy them into iCloud Drive, Photos (with iCloud Photos on), or any other cloud folder.
                             """,
@@ -747,7 +747,7 @@ struct ArchiveBackupView: View {
             SettingsInfoButton(
                 title: "Restore",
                 detail: """
-                    Backups on this phone are stored at Files → On My iPhone → Receipt Drop → Backups. Tap one to restore it. Swipe to delete a backup you no longer need.
+                    Backups on this phone are stored at Files → On My iPhone → Receipts4Tax → Backups. Tap one to restore it. Swipe to delete a backup you no longer need.
 
                     Restoring is additive: it never overwrites or deletes anything already on this phone, only adds what's missing.
 
@@ -974,7 +974,7 @@ struct ArchiveBackupView: View {
                     deleteMonth = nil
                     lastBackupDate = BackupSettings.lastBackupDate
                     localBackups = LocalReceiptStore.listBackups()
-                    deleteMessage = "Backed up to Files → On My iPhone → Receipt Drop → Backups → \(backupURL.lastPathComponent). Deleted \(entries.count) receipt\(entries.count == 1 ? "" : "s") for \(label)."
+                    deleteMessage = "Backed up to Files → On My iPhone → Receipts4Tax → Backups → \(backupURL.lastPathComponent). Deleted \(entries.count) receipt\(entries.count == 1 ? "" : "s") for \(label)."
                 }
             } catch {
                 await MainActor.run {
@@ -1000,14 +1000,14 @@ struct ArchiveBackupView: View {
                 switch scope {
                 case .year:
                     guard let year else { isWorking = false; return }
-                    label = "ReceiptDrop_Export_\(year)"
+                    label = "Receipts4Tax_Export_\(year)"
                     entries = ArchiveBackupService.entries(inYear: year)
                 case .month:
                     guard let year, let month else { isWorking = false; return }
-                    label = "ReceiptDrop_Export_\(year)-\(String(format: "%02d", month))"
+                    label = "Receipts4Tax_Export_\(year)-\(String(format: "%02d", month))"
                     entries = ArchiveBackupService.entries(inYear: year, month: month)
                 case .custom:
-                    label = "ReceiptDrop_Export_\(LocalReceiptStore.dateString(start))_to_\(LocalReceiptStore.dateString(end))"
+                    label = "Receipts4Tax_Export_\(LocalReceiptStore.dateString(start))_to_\(LocalReceiptStore.dateString(end))"
                     entries = ArchiveBackupService.entries(from: start, to: end)
                 }
                 let url = try ArchiveBackupService.buildArchive(label: label, entries: entries)
