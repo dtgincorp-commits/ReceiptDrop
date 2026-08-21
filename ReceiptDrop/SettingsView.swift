@@ -98,25 +98,25 @@ struct SettingsView: View {
                 // Only its supporting detail moves into the sheet.
                 Section {
                     Label {
-                        Text("Keep receipt images on this iPhone only")
+                        Text("Receipt images are stored on this iPhone")
                             .font(.subheadline.weight(.semibold))
                     } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
+                        Image(systemName: "internaldrive")
+                            .foregroundStyle(.secondary)
                     }
 
                     SettingsInfoButton(
                         title: "On-Device Storage",
                         detail: """
-                            Receipt images stay local to this iPhone. The app automatically excludes its receipt storage from iCloud and device backups, so they're never uploaded by a system backup.
+                            The app never uploads receipt images anywhere, and marks its receipt storage so system backups skip it — a routine iCloud or iTunes backup of this phone never includes them.
 
-                            They live under On My iPhone → Receipts4Tax in the Files app (local storage).
+                            They live under On My iPhone → Receipts4Tax in the Files app (local storage). If you copy them yourself into iCloud Drive, Photos (with iCloud Photos on), or another cloud folder, that's your own doing — the app isn't involved.
 
-                            To keep them solely on-device, don't manually copy them into iCloud Drive, Photos (with iCloud Photos on), or any other cloud folder.
+                            You're still covered if this phone is lost: Backup reminders default to Weekly, and the app also runs backups automatically in the background. Those backup archives (Settings → Archive & Backup) live in a separate folder that does ride along in iCloud Backup, so your receipts have a recovery path without every image being duplicated to iCloud too.
                             """,
                         topic: $infoTopic)
                 } footer: {
-                    Text("Receipt images never leave this iPhone, and are excluded from iCloud and device backups.")
+                    Text("The app never uploads receipt images, and automatic backups keep them recoverable if you lose this phone.")
                 }
 
                 // Only the currently selected provider's key field is shown —
