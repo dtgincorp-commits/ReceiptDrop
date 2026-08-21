@@ -11,14 +11,25 @@ struct CategoriesView: View {
     /// immediately so the user can start typing without an extra tap.
     var focusNewCategoryOnAppear: Bool = false
 
-    /// Lets a presenter (currently Receipts, via its "Manage Categories…"
-    /// sheet) turn the detail screen's Receipts row into a jump back to its
-    /// own filtered list instead of a dead label. Defaulted to nil so the
-    /// Settings → Categories entry point, which has no such list to jump
-    /// to, keeps the row inert without needing to know about this at all.
+    /// Lets a presenter turn the detail screen's Receipts row into a jump to
+    /// a filtered Receipts list instead of a dead label. Receipts' own
+    /// "Manage Categories…" sheet wires this straight to its local
+    /// `filterCategory` + dismiss; Settings → Categories (which has no
+    /// Receipts list of its own underneath it) wires it through
+    /// `ReceiptsNavigator` to jump tabs instead. Defaulted to nil rather than
+    /// required so any future caller with genuinely nothing to jump to can
+    /// still opt out and get the plain inert label.
     var onShowReceipts: ((String) -> Void)? = nil
 
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var categoryStore = CategoryStore.shared
+    /// Loaded once (not re-read per row) and kept fresh the same way
+    /// `ReceiptsView` keeps its own copy fresh: on appear, on foreground, and
+    /// on `.receiptDropDidUpdateHistory` (posted below after delete-with-
+    /// receipts, and by `CategoryDetailView` after merge/rename). Before this,
+    /// every row called `SubmissionStore.loadHistory()` — a UserDefaults read
+    /// + full JSON decode — once per category, on every body evaluation.
+    @State private var history: [HistoryEntry] = []
     @State private var newCategory = ""
     @State private var addCategoryError: String?
     @FocusState private var newCategoryFieldFocused: Bool
@@ -102,9 +113,14 @@ struct CategoriesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .settingsInfoSheet(topic: $infoTopic)
         .onAppear {
+            reloadHistory()
             if focusNewCategoryOnAppear {
                 newCategoryFieldFocused = true
             }
+        }
+        .onChange(of: scenePhase) { if $0 == .active { reloadHistory() } }
+        .onReceive(NotificationCenter.default.publisher(for: .receiptDropDidUpdateHistory)) { _ in
+            reloadHistory()
         }
         .onChange(of: newCategory) { _ in addCategoryError = nil }
         .confirmationDialog(
@@ -166,6 +182,13 @@ struct CategoriesView: View {
                     isDeletingCategory = false
                     pendingDelete = nil
                     deleteMessage = "Backed up to Files → On My iPhone → Receipts4Tax → Backups → \(summary.backupFilename). Deleted \(name) and \(summary.receiptsDeleted) receipt\(summary.receiptsDeleted == 1 ? "" : "s")."
+                    // Refreshes this screen's own cached history immediately
+                    // (rather than waiting for the next appear/foreground)
+                    // and lets any other observer — Receipts underneath this
+                    // sheet, a still-open CategoryDetailView — pick up the
+                    // deletion too.
+                    reloadHistory()
+                    NotificationCenter.default.post(name: .receiptDropDidUpdateHistory, object: nil)
                 }
             } catch {
                 await MainActor.run {
@@ -188,14 +211,25 @@ struct CategoriesView: View {
         }
     }
 
+    private func reloadHistory() {
+        history = SubmissionStore.loadHistory()
+    }
+
     /// Case-insensitive, matching the Receipts screen's category filter and
     /// the merge/rename/delete services. Matters more than cosmetically
     /// here: this count decides whether a swipe-to-delete asks about
     /// receipts at all, so undercounting mixed-case ones would silently
     /// orphan exactly the receipts the confirmation exists to protect.
+    ///
+    /// Derives from the cached `history` array rather than re-reading —
+    /// see `history`'s doc comment. `Self.receiptCount(for:in:)` is the pure
+    /// half, split out so it's testable without a live SubmissionStore.
     private func receiptCount(for category: String) -> Int {
-        SubmissionStore.loadHistory()
-            .filter { $0.category.caseInsensitiveCompare(category) == .orderedSame }.count
+        Self.receiptCount(for: category, in: history)
+    }
+
+    static func receiptCount(for category: String, in history: [HistoryEntry]) -> Int {
+        history.filter { $0.category.caseInsensitiveCompare(category) == .orderedSame }.count
     }
 }
 
@@ -204,12 +238,19 @@ struct CategoriesView: View {
 struct CategoryDetailView: View {
     let category: String
 
-    /// See `CategoriesView.onShowReceipts` — nil here means this screen was
-    /// reached from somewhere with no Receipts list to jump back to (e.g.
-    /// Settings → Categories), so the Receipts row stays a plain label.
+    /// See `CategoriesView.onShowReceipts`. Both current entry points
+    /// (Receipts' own sheet, Settings → Categories) supply this; nil stays
+    /// supported so a hypothetical future caller with nothing to jump to
+    /// gets a plain label instead.
     var onShowReceipts: ((String) -> Void)? = nil
 
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var categoryStore = CategoryStore.shared
+    /// Loaded once and kept fresh on appear/foreground/notification, same
+    /// reasoning as `CategoriesView.history` — this screen's `entries` used
+    /// to call `SubmissionStore.loadHistory()` on every body evaluation
+    /// (every alert message, every keystroke in the description field).
+    @State private var history: [HistoryEntry] = []
     @State private var descriptionInput: String
     @State private var showRebuildConfirm = false
     @State private var rebuildMessage: String?
@@ -250,10 +291,13 @@ struct CategoryDetailView: View {
     /// Case-insensitive, matching `CategoriesView.receiptCount` and the
     /// merge/rename services — this count appears in the rename and merge
     /// confirmations, which would otherwise understate how much is about to
-    /// move.
+    /// move. Derived from the cached `history` array — see its doc comment.
     private var entries: [HistoryEntry] {
-        SubmissionStore.loadHistory()
-            .filter { $0.category.caseInsensitiveCompare(category) == .orderedSame }
+        history.filter { $0.category.caseInsensitiveCompare(category) == .orderedSame }
+    }
+
+    private func reloadHistory() {
+        history = SubmissionStore.loadHistory()
     }
 
     var body: some View {
@@ -431,6 +475,11 @@ struct CategoryDetailView: View {
         .navigationTitle(category)
         .navigationBarTitleDisplayMode(.inline)
         .settingsInfoSheet(topic: $infoTopic)
+        .onAppear(perform: reloadHistory)
+        .onChange(of: scenePhase) { if $0 == .active { reloadHistory() } }
+        .onReceive(NotificationCenter.default.publisher(for: .receiptDropDidUpdateHistory)) { _ in
+            reloadHistory()
+        }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Button {
@@ -502,6 +551,12 @@ struct CategoryDetailView: View {
                         message += " Found \(summary.duplicatePairs.count) possible duplicate\(summary.duplicatePairs.count == 1 ? "" : "s") — see below."
                     }
                     mergeMessage = message
+                    // `entries` (this category) just emptied out and
+                    // `destination`'s grew — refresh so this screen and any
+                    // other observer (the category list underneath, Receipts
+                    // if visible) stop showing pre-merge counts.
+                    reloadHistory()
+                    NotificationCenter.default.post(name: .receiptDropDidUpdateHistory, object: nil)
                 }
             } catch {
                 await MainActor.run {
@@ -524,7 +579,13 @@ struct CategoryDetailView: View {
         Task {
             do {
                 _ = try CategoryRenameService.rename(category, to: target)
-                await MainActor.run { dismiss() }
+                await MainActor.run {
+                    // Posted before `dismiss()` so the category list this
+                    // pops back to (its cache still keyed to the old name)
+                    // reloads and picks up the new one under the new label.
+                    NotificationCenter.default.post(name: .receiptDropDidUpdateHistory, object: nil)
+                    dismiss()
+                }
             } catch {
                 await MainActor.run {
                     isRenaming = false

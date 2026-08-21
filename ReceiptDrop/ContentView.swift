@@ -1,7 +1,42 @@
 import SwiftUI
 
+/// Cross-tab bridge for jumping straight to a filtered Receipts list from
+/// somewhere outside Receipts' own navigation — currently just Settings →
+/// Categories → a category's "Receipts N" row, which used to be an inert
+/// label there (see `CategoriesView.onShowReceipts`) because Settings had no
+/// way to reach either `ContentView.selectedTab` or `ReceiptsView.filterCategory`,
+/// both plain `@State` private to their own views.
+///
+/// Follows `CategoryStore.shared`'s singleton-`ObservableObject` shape, but
+/// lives in the app target rather than `Shared/` — unlike `CategoryStore`,
+/// nothing here is read or written by the share extension, which has no
+/// tabs or navigation stack to bridge between.
+///
+/// `ContentView` observes `selectedTab` to switch the visible tab;
+/// `ReceiptsView` observes `pendingCategoryFilter` to apply the filter once
+/// it's on-screen. Both consumers clear the field they handled back to nil
+/// immediately after acting on it, so a value here always means "a jump was
+/// just requested," never "the current state" — a plain notification would
+/// work for the one-shot signal, but `ReceiptsView` needs the category
+/// *string* itself, not just a wake-up call, and both consumers need to fire
+/// even if their view isn't the one currently on screen when the request is
+/// made.
+final class ReceiptsNavigator: ObservableObject {
+    static let shared = ReceiptsNavigator()
+    private init() {}
+
+    @Published var selectedTab: Int?
+    @Published var pendingCategoryFilter: String?
+
+    func showReceipts(filteredTo category: String) {
+        pendingCategoryFilter = category
+        selectedTab = 0
+    }
+}
+
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var receiptsNavigator = ReceiptsNavigator.shared
     @State private var selectedTab = 0
     @State private var showBackupReminder = false
     @State private var showConnectAI = false
@@ -67,6 +102,14 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showConnectAI) {
             ConnectAIView { showConnectAI = false }
+        }
+        // Consumes `ReceiptsNavigator`'s cross-tab jump request — see its
+        // doc comment. Cleared right after acting on it so revisiting
+        // Receipts later doesn't re-select tab 0 on its own.
+        .onChange(of: receiptsNavigator.selectedTab) {
+            guard let tab = $0 else { return }
+            selectedTab = tab
+            receiptsNavigator.selectedTab = nil
         }
     }
 

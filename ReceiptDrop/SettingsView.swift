@@ -2,6 +2,15 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
+    @StateObject private var receiptsNavigator = ReceiptsNavigator.shared
+    /// Forces the `NavigationStack` below to rebuild from its root — SwiftUI
+    /// discards a stack's push history when its identity changes, which is
+    /// the simplest way to pop back to Settings' root screen after "Receipts
+    /// N" jumps the user over to the Receipts tab (see `ReceiptsNavigator`).
+    /// The existing links here are all destination-closure `NavigationLink`s
+    /// with no `NavigationPath` to clear directly, so this stands in for
+    /// `path = NavigationPath()`.
+    @State private var navigationResetID = UUID()
     @State private var selectedProvider: ExtractionProvider = ExtractionSettings.provider
     @State private var selectedMode: ExtractionMode = ExtractionSettings.mode
     @State private var offlineOnly: Bool = ExtractionSettings.offlineOnly
@@ -162,7 +171,9 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink {
-                        CategoriesView()
+                        CategoriesView(onShowReceipts: { category in
+                            receiptsNavigator.showReceipts(filteredTo: category)
+                        })
                     } label: {
                         Label("Categories", systemImage: "folder.badge.gearshape")
                     }
@@ -230,6 +241,14 @@ struct SettingsView: View {
                 }
             }
             .settingsInfoSheet(topic: $infoTopic)
+        }
+        .id(navigationResetID)
+        // "Receipts N" on a category's detail screen (pushed from here)
+        // just asked to jump to the Receipts tab — pop this stack back to
+        // Settings' root so a later visit doesn't land back inside
+        // Categories. See `navigationResetID`'s doc comment.
+        .onChange(of: receiptsNavigator.selectedTab) {
+            if $0 != nil { navigationResetID = UUID() }
         }
     }
 

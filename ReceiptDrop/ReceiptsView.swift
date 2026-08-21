@@ -19,6 +19,7 @@ private struct CapturedBill: Identifiable {
 struct ReceiptsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var categoryStore = CategoryStore.shared
+    @StateObject private var receiptsNavigator = ReceiptsNavigator.shared
     @State private var entries: [HistoryEntry] = []
     @State private var commentsMap: [String: String] = [:]
     @State private var newReceiptSource: NewReceiptSource?
@@ -761,6 +762,14 @@ struct ReceiptsView: View {
         .onChange(of: scenePhase) { if $0 == .active { reload() } }
         .onReceive(NotificationCenter.default.publisher(for: .receiptDropDidUpdateHistory)) { _ in
             reload()
+        }
+        // Picks up a cross-tab filter request from Settings → Categories —
+        // see `ReceiptsNavigator`. Cleared immediately after applying so it
+        // doesn't reapply on some later, unrelated appearance of this view.
+        .onChange(of: receiptsNavigator.pendingCategoryFilter) {
+            guard let category = $0 else { return }
+            filterCategory = category
+            receiptsNavigator.pendingCategoryFilter = nil
         }
         .alert("Delete \(yearPendingDelete.map(String.init) ?? "") Receipts?",
                isPresented: Binding(
