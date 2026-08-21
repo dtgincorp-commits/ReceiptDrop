@@ -260,6 +260,12 @@ private struct QueueOfflineChoiceView: View {
     @State private var reason: String
     @State private var canUseAppleIntelligence: Bool
     @State private var isRetrying = false
+    /// True while `beginManualEntry()` is reading the parked file and
+    /// building a thumbnail off the main thread — drives the "Continue
+    /// Without AI" button's spinner so the tap isn't silent while that work
+    /// happens, and blocks a double-tap the same way `isRetrying` already
+    /// does for the Apple Intelligence retry.
+    @State private var isPreparingManualEntry = false
     @State private var showManualEntry = false
     @State private var manualAttachment: SharedAttachment?
 
@@ -299,7 +305,7 @@ private struct QueueOfflineChoiceView: View {
                             }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(isRetrying)
+                        .disabled(isRetrying || isPreparingManualEntry)
                     } else {
                         Text("The receipt itself is fine — fill in the details yourself, or keep it queued to retry with AI later.")
                             .font(.caption)
@@ -316,18 +322,26 @@ private struct QueueOfflineChoiceView: View {
                         Button {
                             beginManualEntry()
                         } label: {
-                            HStack { Spacer(); Text("Continue Without AI").bold(); Spacer() }
+                            HStack {
+                                Spacer()
+                                if isPreparingManualEntry { ProgressView() } else { Text("Continue Without AI").bold() }
+                                Spacer()
+                            }
                         }
                         .buttonStyle(.bordered)
-                        .disabled(isRetrying)
+                        .disabled(isRetrying || isPreparingManualEntry)
                     } else {
                         Button {
                             beginManualEntry()
                         } label: {
-                            HStack { Spacer(); Text("Continue Without AI").bold(); Spacer() }
+                            HStack {
+                                Spacer()
+                                if isPreparingManualEntry { ProgressView() } else { Text("Continue Without AI").bold() }
+                                Spacer()
+                            }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(isRetrying)
+                        .disabled(isRetrying || isPreparingManualEntry)
                     }
 
                     // Least prominent, matching `ReceiptSubmitView`'s
@@ -336,7 +350,7 @@ private struct QueueOfflineChoiceView: View {
                     Button("Keep in Queue", action: onDismiss)
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
-                        .disabled(isRetrying)
+                        .disabled(isRetrying || isPreparingManualEntry)
                 }
             }
             .navigationTitle("Retry Failed")
@@ -344,7 +358,7 @@ private struct QueueOfflineChoiceView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Keep in Queue", action: onDismiss)
-                        .disabled(isRetrying)
+                        .disabled(isRetrying || isPreparingManualEntry)
                 }
             }
         }
@@ -369,17 +383,43 @@ private struct QueueOfflineChoiceView: View {
         }
     }
 
+    /// Reading the parked file (can be several MB) and decoding a thumbnail
+    /// from a full ~12MP capture used to happen synchronously here, right
+    /// before presenting the sheet — that's the multi-second blank-screen
+    /// stall this button caused. Both steps now run off the main thread in
+    /// a detached task (mirroring `BatchSubmissionRunner`'s pattern), and
+    /// only the final state assignment + sheet presentation hop back to the
+    /// main actor.
     private func beginManualEntry() {
-        guard let data = SubmissionStore.attachmentData(for: entry) else {
-            // Parked file is gone — nothing left to hand to manual entry;
-            // drop the stale entry instead of opening an empty sheet.
-            SubmissionStore.remove(entry)
-            onResolved()
-            return
+        isPreparingManualEntry = true
+        let entry = entry
+        Task.detached(priority: .userInitiated) {
+            let prepared: SharedAttachment?
+            if let data = SubmissionStore.attachmentData(for: entry) {
+                // Downsampled — this is only ever shown as a ~220pt
+                // thumbnail here and in the manual-entry sheet; `data`
+                // below stays the untouched original for OCR/extraction.
+                let thumbnail = entry.kind == .image
+                    ? AttachmentThumbnail.downsampled(from: data)
+                    : pdfThumbnail(data)
+                prepared = SharedAttachment(kind: entry.kind == .image ? .image : .pdf, data: data, thumbnail: thumbnail)
+            } else {
+                prepared = nil
+            }
+            await MainActor.run {
+                isPreparingManualEntry = false
+                guard let prepared else {
+                    // Parked file is gone — nothing left to hand to manual
+                    // entry; drop the stale entry instead of opening an
+                    // empty sheet.
+                    SubmissionStore.remove(entry)
+                    onResolved()
+                    return
+                }
+                manualAttachment = prepared
+                showManualEntry = true
+            }
         }
-        let thumbnail = entry.kind == .image ? UIImage(data: data) : pdfThumbnail(data)
-        manualAttachment = SharedAttachment(kind: entry.kind == .image ? .image : .pdf, data: data, thumbnail: thumbnail)
-        showManualEntry = true
     }
 
     /// Same one-shot `forcedProvider` retry `ReceiptSubmitView.useAppleIntelligence()`
@@ -563,13 +603,23 @@ private struct QueueEntryDetailView: View {
         .onAppear(perform: loadPreview)
     }
 
+    /// Same off-main-thread treatment as `beginManualEntry` above: reading
+    /// the parked file and decoding a thumbnail from a full-resolution
+    /// capture are both slow enough to be worth keeping off the main
+    /// thread, even though this preview already shows a `ProgressView`
+    /// while it loads. The full-screen zoom viewer reads its own copy of
+    /// `data` fresh (see `.fullScreenCover` above), so downsampling this
+    /// preview doesn't affect it.
     private func loadPreview() {
-        guard let data = SubmissionStore.attachmentData(for: entry) else { return }
-        if entry.kind == .image {
-            image = UIImage(data: data)
-        } else {
-            isPDF = true
-            image = pdfThumbnail(data)
+        let entry = entry
+        Task.detached(priority: .userInitiated) {
+            guard let data = SubmissionStore.attachmentData(for: entry) else { return }
+            let loadedIsPDF = entry.kind != .image
+            let loadedImage = loadedIsPDF ? pdfThumbnail(data) : AttachmentThumbnail.downsampled(from: data)
+            await MainActor.run {
+                isPDF = loadedIsPDF
+                image = loadedImage
+            }
         }
     }
 }

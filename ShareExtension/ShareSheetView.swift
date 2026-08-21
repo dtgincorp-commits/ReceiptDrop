@@ -76,9 +76,20 @@ struct ShareSheetView: View {
     private func loadSingleAttachment(providers: [NSItemProvider]) {
         if let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) }) {
             provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+                // `loadDataRepresentation`'s callback already runs off the
+                // main thread, but the old code then explicitly hopped onto
+                // it (`DispatchQueue.main.async`) to do the decode — full
+                // resolution, just to build a thumbnail. Build the
+                // thumbnail here, still off-main, and only hop over to
+                // publish the result.
+                guard let data else {
+                    DispatchQueue.main.async { loadError = "Couldn't read the image." }
+                    return
+                }
+                let thumbnail = AttachmentThumbnail.downsampled(from: data)
                 DispatchQueue.main.async {
-                    if let data, let image = UIImage(data: data) {
-                        attachment = SharedAttachment(kind: .image, data: data, thumbnail: image)
+                    if thumbnail != nil {
+                        attachment = SharedAttachment(kind: .image, data: data, thumbnail: thumbnail)
                     } else {
                         loadError = "Couldn't read the image."
                     }
@@ -86,12 +97,13 @@ struct ShareSheetView: View {
             }
         } else if let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) }) {
             provider.loadDataRepresentation(forTypeIdentifier: UTType.pdf.identifier) { data, _ in
+                guard let data else {
+                    DispatchQueue.main.async { loadError = "Couldn't read the PDF." }
+                    return
+                }
+                let thumbnail = pdfThumbnail(data)
                 DispatchQueue.main.async {
-                    if let data {
-                        attachment = SharedAttachment(kind: .pdf, data: data, thumbnail: pdfThumbnail(data))
-                    } else {
-                        loadError = "Couldn't read the PDF."
-                    }
+                    attachment = SharedAttachment(kind: .pdf, data: data, thumbnail: thumbnail)
                 }
             }
         } else {

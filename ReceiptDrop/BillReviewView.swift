@@ -20,6 +20,12 @@ struct BillReviewView: View {
     @State private var messageRecipients: [String]?
     @State private var messageAttachments: [(data: Data, filename: String)] = []
     @State private var showSaveToReceipts = false
+    /// Built off the main thread by `prepareSaveToReceipts()` before
+    /// `showSaveToReceipts` flips true — the sheet's content closure used
+    /// to decode `photoData` (full ~12MP) synchronously right as it was
+    /// about to present, which is exactly this bug's stall.
+    @State private var saveToReceiptsAttachment: SharedAttachment?
+    @State private var isPreparingSaveToReceipts = false
     @State private var showPhotoViewer = false
     /// Tips only make sense for a fraction of what Check a Bill scans
     /// (restaurant bills, not medical/travel/retail receipts) — showing the
@@ -83,9 +89,9 @@ struct BillReviewView: View {
             }
         }
         .sheet(isPresented: $showSaveToReceipts) {
-            if let image = UIImage(data: photoData) {
+            if let saveToReceiptsAttachment {
                 ReceiptSubmitView(
-                    attachment: SharedAttachment(kind: .image, data: photoData, thumbnail: image),
+                    attachment: saveToReceiptsAttachment,
                     onCancel: { showSaveToReceipts = false },
                     onComplete: {
                         LocalReceiptStore.drainSpoolIntoDocuments()
@@ -96,6 +102,25 @@ struct BillReviewView: View {
         }
         .fullScreenCover(isPresented: $showPhotoViewer) {
             BillPhotoViewerView(photoData: photoData, onDone: { showPhotoViewer = false })
+        }
+    }
+
+    /// Builds the downsampled thumbnail off the main thread, then presents
+    /// the sheet — `photoData` is the same full-resolution capture `load()`
+    /// itemizes, so decoding it for a ~220pt thumbnail synchronously (the
+    /// sheet content used to do this inline) is the same stall this bug
+    /// report is about.
+    private func prepareSaveToReceipts() {
+        isPreparingSaveToReceipts = true
+        let photoData = photoData
+        Task.detached(priority: .userInitiated) {
+            let thumbnail = AttachmentThumbnail.downsampled(from: photoData)
+            await MainActor.run {
+                isPreparingSaveToReceipts = false
+                guard thumbnail != nil else { return }
+                saveToReceiptsAttachment = SharedAttachment(kind: .image, data: photoData, thumbnail: thumbnail)
+                showSaveToReceipts = true
+            }
         }
     }
 
@@ -426,15 +451,16 @@ struct BillReviewView: View {
             .buttonStyle(.bordered)
 
             Button {
-                showSaveToReceipts = true
+                prepareSaveToReceipts()
             } label: {
                 HStack {
                     Spacer()
-                    Text("Save to Receipts")
+                    if isPreparingSaveToReceipts { ProgressView() } else { Text("Save to Receipts") }
                     Spacer()
                 }
             }
             .buttonStyle(.bordered)
+            .disabled(isPreparingSaveToReceipts)
 
             Button {
                 onScanNew()

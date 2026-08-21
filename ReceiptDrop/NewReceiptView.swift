@@ -36,6 +36,11 @@ struct NewReceiptView: View {
     @State private var scannedText: String?
     @State private var pendingBatchAttachments: [SharedAttachment] = []
     @State private var showBatchConfirm = false
+    /// True while `loadFile(at:)` is reading a Files-app import and building
+    /// its thumbnail off the main thread — without this the screen behind
+    /// the (now-dismissed) file picker is just `Color.clear` for however
+    /// long that takes, the same blank-screen stall as the Retry Queue bug.
+    @State private var isLoadingFile = false
 
     /// Hard cap passed to `PhotosPicker` itself — its own "N of 20 selected"
     /// UI stops the user from over-selecting in the first place. Was 0
@@ -76,6 +81,8 @@ struct NewReceiptView: View {
                         dismiss()
                         onComplete()
                     })
+            } else if isLoadingFile {
+                ProgressView()
             } else {
                 Color.clear
             }
@@ -184,24 +191,41 @@ struct NewReceiptView: View {
 
     /// Loads a file picked from the Files app, keeping PDFs as documents and
     /// treating everything else as an image (re-encoded to JPEG downstream).
+    /// The disk read and thumbnail decode both used to run synchronously
+    /// here on the main thread, right before presenting `ReceiptSubmitView`
+    /// — the same stall as the Retry Queue's "Continue Without AI" bug, just
+    /// triggered by a Files import instead. Both now happen off the main
+    /// thread; only the final `attachment`/`dismiss()` hop back.
     private func loadFile(at url: URL) {
         guard url.startAccessingSecurityScopedResource() else {
             dismiss()
             return
         }
-        defer { url.stopAccessingSecurityScopedResource() }
+        isLoadingFile = true
+        Task.detached(priority: .userInitiated) {
+            defer { url.stopAccessingSecurityScopedResource() }
+            guard let data = try? Data(contentsOf: url) else {
+                await MainActor.run { dismiss() }
+                return
+            }
 
-        guard let data = try? Data(contentsOf: url) else {
-            dismiss()
-            return
-        }
+            let loaded: SharedAttachment?
+            if url.pathExtension.lowercased() == "pdf" {
+                loaded = SharedAttachment(kind: .pdf, data: data, thumbnail: pdfThumbnail(data))
+            } else if let thumbnail = AttachmentThumbnail.downsampled(from: data) {
+                loaded = SharedAttachment(kind: .image, data: data, thumbnail: thumbnail)
+            } else {
+                loaded = nil
+            }
 
-        if url.pathExtension.lowercased() == "pdf" {
-            attachment = SharedAttachment(kind: .pdf, data: data, thumbnail: pdfThumbnail(data))
-        } else if let image = UIImage(data: data) {
-            attachment = SharedAttachment(kind: .image, data: data, thumbnail: image)
-        } else {
-            dismiss()
+            await MainActor.run {
+                isLoadingFile = false
+                if let loaded {
+                    attachment = loaded
+                } else {
+                    dismiss()
+                }
+            }
         }
     }
 }
