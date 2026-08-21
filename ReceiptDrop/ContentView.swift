@@ -60,7 +60,7 @@ struct ContentView: View {
         // Surfaced (not silent): this is moving tax records the user relies
         // on, so even though it's automatic and safe (see
         // `healCaseVariantFolders` below), it's told rather than just done.
-        .alert("Cleaned Up Duplicate Category Folders", isPresented: $showCaseVariantHealAlert) {
+        .alert("Category Folders Combined", isPresented: $showCaseVariantHealAlert) {
             Button("OK") {}
         } message: {
             Text(caseVariantHealMessage)
@@ -90,9 +90,9 @@ struct ContentView: View {
     private func healCaseVariantFolders() {
         let summary = LocalReceiptStore.healCaseVariantCategoryFolders()
         guard summary.categoriesHealed > 0 else { return }
-        var message = "Found \(summary.categoriesHealed) categor\(summary.categoriesHealed == 1 ? "y" : "ies") split across differently-capitalized folders (an old bug) and merged \(summary.filesMoved) file\(summary.filesMoved == 1 ? "" : "s") back together."
+        var message = "\(summary.categoriesHealed) categor\(summary.categoriesHealed == 1 ? "y" : "ies") had files split across two folders — they've been combined, moving \(summary.filesMoved) file\(summary.filesMoved == 1 ? "" : "s") into one place."
         if summary.conflicts > 0 {
-            message += " \(summary.conflicts) file\(summary.conflicts == 1 ? "" : "s") had a same-named conflict and were left as-is — check Files → On My iPhone → Receipts4Tax if a category looks off."
+            message += " \(summary.conflicts) file\(summary.conflicts == 1 ? "" : "s") shared a name with a different file already there, so \(summary.conflicts == 1 ? "it was" : "they were") left where \(summary.conflicts == 1 ? "it was" : "they were") — check Files → On My iPhone → Receipts4Tax if a category looks off."
         }
         caseVariantHealMessage = message
         showCaseVariantHealAlert = true
