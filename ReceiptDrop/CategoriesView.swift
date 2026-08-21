@@ -81,7 +81,11 @@ struct CategoriesView: View {
                 SettingsInfoButton(
                     title: "Categories",
                     detail: """
-                        Every category gets its own folder and CSV log, under Files → On My iPhone → Receipts4Tax.
+                        Every category gets its own folder, under Files → On My iPhone → Receipts4Tax. A category named "Office Supplies" gets a folder at Receipts4Tax/Office Supplies.
+
+                        That folder holds one CSV log named Office Supplies_log.csv, plus the receipt image and PDF files themselves — all sitting right alongside the log, not tucked away elsewhere.
+
+                        These are ordinary files: open, copy, or back them up yourself anytime, no proprietary format required.
 
                         Swipe left on a category to delete it.
 
