@@ -97,6 +97,14 @@ struct RetryQueueView: View {
     @State private var entries: [QueueEntry] = []
     @State private var retrying: Set<UUID> = []
     @State private var errorText: String?
+    /// Set by `retry(_:)` when a single-entry retry hits a connectivity-class
+    /// failure (see `ExtractionFailureClass`) — presented as a sheet so the
+    /// user gets the same fallback choices `ReceiptSubmitView`'s
+    /// `.offlineChoice` prompt offers, instead of the dead-end "\(reason)"
+    /// text that used to land in `errorText` (nothing to do but change
+    /// Settings and try again). Not surfaced by `retryAll()` — see its
+    /// comment.
+    @State private var offlineChoice: OfflineRetryChoice?
 
     var body: some View {
         NavigationStack {
@@ -148,6 +156,16 @@ struct RetryQueueView: View {
         }
         .onAppear(perform: reload)
         .onChange(of: scenePhase) { if $0 == .active { reload() } }
+        .sheet(item: $offlineChoice) { choice in
+            QueueOfflineChoiceView(
+                entry: choice.entry, reason: choice.reason,
+                canUseAppleIntelligence: choice.canUseAppleIntelligence,
+                onResolved: {
+                    offlineChoice = nil
+                    reload()
+                },
+                onDismiss: { offlineChoice = nil })
+        }
     }
 
     private func reload() {
@@ -159,7 +177,10 @@ struct RetryQueueView: View {
         reload()
     }
 
-    private func retry(_ entry: QueueEntry) async {
+    /// `offerChoice` is true for every entry point except `retryAll()` — see
+    /// that function's comment for why a batch retry never opens the
+    /// connectivity-choice sheet.
+    private func retry(_ entry: QueueEntry, offerChoice: Bool = true) async {
         guard !retrying.contains(entry.id) else { return }
         guard let data = SubmissionStore.attachmentData(for: entry) else {
             // File missing — nothing to retry; drop the stale entry.
@@ -181,13 +202,210 @@ struct RetryQueueView: View {
             SubmissionStore.remove(entry)
             reload()
         } catch {
-            errorText = "\(entry.category): \(error.localizedDescription)"
+            if offerChoice, ExtractionFailureClass.classify(error) == .connectivity {
+                // AI just couldn't be reached — same situation
+                // `ReceiptSubmitView.submit()` handles with `.offlineChoice`.
+                // Apple Intelligence is only worth offering if it's usable on
+                // this device *and* isn't the provider that just failed.
+                let canUseAppleIntelligence = ExtractionSettings.provider != .appleOnDevice
+                    && ExtractionSettings.appleOnDeviceReady
+                offlineChoice = OfflineRetryChoice(
+                    entry: entry, reason: error.localizedDescription,
+                    canUseAppleIntelligence: canUseAppleIntelligence)
+            } else {
+                errorText = "\(entry.category): \(error.localizedDescription)"
+            }
         }
     }
 
+    /// Deliberately keeps the old collect-errors-into-`errorText` behavior
+    /// instead of offering the connectivity-choice sheet per entry: with
+    /// four (or more) queued receipts all blocked the same way (e.g. Offline
+    /// Mode just got turned on), popping a modal choice for each one in turn
+    /// would mean four sequential prompts the user has to click through one
+    /// at a time, which is worse than today's single error summary. Anyone
+    /// who wants the fallback choices for a specific receipt already has
+    /// single-entry retry (the row's retry button, or the detail screen) for
+    /// that.
     private func retryAll() async {
         for entry in SubmissionStore.loadQueue() {
-            await retry(entry)
+            await retry(entry, offerChoice: false)
+        }
+    }
+}
+
+/// Identifies which queued entry `RetryQueueView`'s connectivity-choice
+/// sheet is currently showing, plus the failure it needs to display. See
+/// `RetryQueueView.offlineChoice`.
+private struct OfflineRetryChoice: Identifiable {
+    let entry: QueueEntry
+    let reason: String
+    let canUseAppleIntelligence: Bool
+    var id: UUID { entry.id }
+}
+
+/// The Retry Queue's answer to `ReceiptSubmitView`'s `.offlineChoice`
+/// prompt — same fork (Apple Intelligence / manual entry), but adapted to a
+/// receipt that's already saved to the queue: there's no "Save for Later"
+/// here, since it's already saved for later, so the third choice is
+/// "Keep in Queue" (do nothing, leave it as-is).
+private struct QueueOfflineChoiceView: View {
+    let entry: QueueEntry
+    /// Called once the entry is resolved — either Apple Intelligence
+    /// succeeded, or the manual-entry sheet below finished a submission.
+    /// The caller reloads its list and dismisses this sheet.
+    let onResolved: () -> Void
+    let onDismiss: () -> Void
+
+    @State private var reason: String
+    @State private var canUseAppleIntelligence: Bool
+    @State private var isRetrying = false
+    @State private var showManualEntry = false
+    @State private var manualAttachment: SharedAttachment?
+
+    init(entry: QueueEntry, reason: String, canUseAppleIntelligence: Bool,
+         onResolved: @escaping () -> Void, onDismiss: @escaping () -> Void) {
+        self.entry = entry
+        self.onResolved = onResolved
+        self.onDismiss = onDismiss
+        _reason = State(initialValue: reason)
+        _canUseAppleIntelligence = State(initialValue: canUseAppleIntelligence)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Label("Couldn't reach AI extraction", systemImage: "wifi.exclamationmark")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.red)
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    if canUseAppleIntelligence {
+                        Text("Apple Intelligence reads the receipt on this iPhone; Continue Without AI just text-matches and is often wrong.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button {
+                            Task { await useAppleIntelligence() }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                if isRetrying { ProgressView() } else { Text("Use Apple Intelligence").bold() }
+                                Spacer()
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isRetrying)
+                    } else {
+                        Text("The receipt itself is fine — fill in the details yourself, or keep it queued to retry with AI later.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    // Same type-inference reason `ReceiptSubmitView`'s
+                    // `.offlineChoice` case has two copies of this button:
+                    // `.bordered`/`.borderedProminent` aren't the same
+                    // concrete `ButtonStyle` type, so a ternary picking
+                    // between them as a single `.buttonStyle(...)` call
+                    // doesn't type-check.
+                    if canUseAppleIntelligence {
+                        Button {
+                            beginManualEntry()
+                        } label: {
+                            HStack { Spacer(); Text("Continue Without AI").bold(); Spacer() }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isRetrying)
+                    } else {
+                        Button {
+                            beginManualEntry()
+                        } label: {
+                            HStack { Spacer(); Text("Continue Without AI").bold(); Spacer() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isRetrying)
+                    }
+
+                    // Least prominent, matching `ReceiptSubmitView`'s
+                    // "Discard Receipt" — this one just closes the sheet and
+                    // leaves the entry queued rather than discarding it.
+                    Button("Keep in Queue", action: onDismiss)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .disabled(isRetrying)
+                }
+            }
+            .navigationTitle("Retry Failed")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Keep in Queue", action: onDismiss)
+                        .disabled(isRetrying)
+                }
+            }
+        }
+        .sheet(isPresented: $showManualEntry) {
+            if let manualAttachment {
+                // `startInManualMode: true` — this entry already failed AI
+                // extraction once; opening straight into the manual fields
+                // (Vision OCR prefill) rather than letting `submit()` try
+                // the AI pipeline again matches what "Continue Without AI"
+                // means everywhere else in the app.
+                ReceiptSubmitView(
+                    attachment: manualAttachment,
+                    onCancel: { showManualEntry = false },
+                    onComplete: {
+                        showManualEntry = false
+                        SubmissionStore.remove(entry)
+                        LocalReceiptStore.drainSpoolIntoDocuments()
+                        onResolved()
+                    },
+                    startInManualMode: true)
+            }
+        }
+    }
+
+    private func beginManualEntry() {
+        guard let data = SubmissionStore.attachmentData(for: entry) else {
+            // Parked file is gone — nothing left to hand to manual entry;
+            // drop the stale entry instead of opening an empty sheet.
+            SubmissionStore.remove(entry)
+            onResolved()
+            return
+        }
+        let thumbnail = entry.kind == .image ? UIImage(data: data) : pdfThumbnail(data)
+        manualAttachment = SharedAttachment(kind: entry.kind == .image ? .image : .pdf, data: data, thumbnail: thumbnail)
+        showManualEntry = true
+    }
+
+    /// Same one-shot `forcedProvider` retry `ReceiptSubmitView.useAppleIntelligence()`
+    /// does — if it fails again, don't loop back to offering Apple
+    /// Intelligence a second time on the same receipt; fall through to the
+    /// manual-entry / keep-in-queue pair with the new error.
+    private func useAppleIntelligence() async {
+        guard let data = SubmissionStore.attachmentData(for: entry) else {
+            SubmissionStore.remove(entry)
+            onResolved()
+            return
+        }
+        isRetrying = true
+        defer { isRetrying = false }
+        do {
+            _ = try await SubmissionPipeline().run(
+                data: data, kind: entry.kind, category: entry.category, forcedProvider: .appleOnDevice)
+            LocalReceiptStore.drainSpoolIntoDocuments()
+            SubmissionStore.remove(entry)
+            onResolved()
+        } catch is SubmissionError {
+            SubmissionStore.remove(entry)
+            onResolved()
+        } catch {
+            reason = error.localizedDescription
+            canUseAppleIntelligence = false
         }
     }
 }

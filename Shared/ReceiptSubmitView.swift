@@ -42,7 +42,27 @@ struct ReceiptSubmitView: View {
     /// check this, since aiConfigured itself must stay unchanged (other call
     /// sites depend on its original meaning of "is a provider set up at
     /// all").
+    ///
+    /// Seeded from `startInManualMode` at init (see below) for the Retry
+    /// Queue's "Continue Without AI" entry point — that caller already
+    /// knows AI extraction just failed for this exact bytes/category, so
+    /// this view should open straight into the manual-entry fields instead
+    /// of attempting the AI pipeline again first.
     @State private var proceedWithoutAI = false
+
+    /// True only for the Retry Queue's "Continue Without AI" flow, which
+    /// constructs this view already knowing extraction failed — see the
+    /// `init` below and `proceedWithoutAI` above.
+    private let startInManualMode: Bool
+
+    init(attachment: SharedAttachment, onCancel: @escaping () -> Void, onComplete: @escaping () -> Void,
+         startInManualMode: Bool = false) {
+        self.attachment = attachment
+        self.onCancel = onCancel
+        self.onComplete = onComplete
+        self.startInManualMode = startInManualMode
+        _proceedWithoutAI = State(initialValue: startInManualMode)
+    }
 
     /// True while on-device OCR (`prefillManualFieldsFromOCR`) is running,
     /// so the Details section can show a lightweight spinner instead of
@@ -495,6 +515,19 @@ struct ReceiptSubmitView: View {
                     HStack { Spacer(); Text("Save for Later").bold(); Spacer() }
                 }
                 .buttonStyle(.bordered)
+                // Last and least prominent of the choices — discards the
+                // capture entirely. Reuses `onCancel`, the exact same
+                // dismissal the toolbar Cancel button uses (see the
+                // `.toolbar` above), rather than a second path that might
+                // drift from it. Plain-style + destructive role instead of
+                // `.bordered`/`.borderedProminent` like its siblings, since
+                // "discard" shouldn't visually compete with the two ways
+                // forward above it.
+                Button(role: .destructive, action: onCancel) {
+                    HStack { Spacer(); Text("Discard Receipt"); Spacer() }
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.red)
             }
         }
     }
