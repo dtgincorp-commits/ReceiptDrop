@@ -291,7 +291,7 @@ struct CategoryDetailView: View {
                     detail: "Optional, but helps the AI write better Comments and flag receipts that look like they don't belong here. Saved automatically as you leave the field.",
                     topic: $infoTopic)
             } header: {
-                Text("Category Description for \(category) (Better AI decisioning)")
+                Text("Category Description")
             } footer: {
                 Text("Optional — helps the AI write better Comments.")
             }
