@@ -347,3 +347,171 @@ final class ReceiptDateDetectorRangeWordingTests: XCTestCase {
         XCTAssertEqual(c.day, 12)
     }
 }
+
+/// Tests for the numeric-date regex pass in `ReceiptDateDetector`, added to
+/// cover the real `NSDataDetector` blind spots found on a real Home Depot
+/// receipt: a receipt/reference number immediately before a date with a
+/// single space between them, and the word "Order" immediately before a
+/// date. See the type-level doc comment on `ReceiptDateDetector` for the
+/// standalone-script verification behind these.
+final class ReceiptDateDetectorNumericPassTests: XCTestCase {
+
+    private func day(_ date: Date) -> DateComponents {
+        Calendar.current.dateComponents([.year, .month, .day], from: date)
+    }
+
+    func testSingleSpaceBeforeAYearLikeNumberNoLongerKillsTheMatch() {
+        // NSDataDetector reads "1077 08/19/26" as one malformed expression
+        // (1077 parses as a plausible year) and drops the whole line —
+        // verified directly against NSDataDetector before landing this fix.
+        // Multiple spaces ("1077    08/19/26") happened to dodge this, which
+        // is exactly why this broke silently: `VisionLayoutService
+        // .layoutString` used to emit multiple spaces and now emits one.
+        let dates = ReceiptDateDetector.dates(in: "1077 08/19/26 11:55 AM")
+        XCTAssertEqual(dates.count, 1)
+        let c = day(dates[0])
+        XCTAssertEqual(c.year, 2026)
+        XCTAssertEqual(c.month, 8)
+        XCTAssertEqual(c.day, 19)
+    }
+
+    func testOrderDateLabelNoLongerKillsTheMatch() {
+        // "Order Date: 08/12/2026" returns zero NSDataDetector matches
+        // (verified directly), while "Sale Date: 08/12/2026" returns one —
+        // an inconsistency in NSDataDetector's own word list, not anything
+        // about the date itself. The regex pass doesn't care what word
+        // comes before the digits.
+        let dates = ReceiptDateDetector.dates(in: "Order Date: 08/12/2026")
+        XCTAssertEqual(dates.count, 1)
+        let c = day(dates[0])
+        XCTAssertEqual(c.year, 2026)
+        XCTAssertEqual(c.month, 8)
+        XCTAssertEqual(c.day, 12)
+    }
+
+    func testRejectsDigitsInsideAReceiptNumberBlock() {
+        // "1077 61 46161 08/19/2026 1700" is real text from the receipt:
+        // a receipt number, a register number, a transaction number, the
+        // real date, and a 24-hour time — none of the surrounding numeric
+        // noise should itself be read as a date, only the actual date.
+        let dates = ReceiptDateDetector.dates(in: "1077 61 46161 08/19/2026 1700")
+        XCTAssertEqual(dates.count, 1)
+        let c = day(dates[0])
+        XCTAssertEqual(c.year, 2026)
+        XCTAssertEqual(c.month, 8)
+        XCTAssertEqual(c.day, 19)
+    }
+
+    func testRejectsAuthCodeShapedAsASingleSlashNumberPair() {
+        // Only one separator in the whole string — can never satisfy the
+        // two-separator D/M/Y shape the regex requires.
+        let dates = ReceiptDateDetector.dates(in: "AUTH CODE 064152/5612915")
+        XCTAssertTrue(dates.isEmpty)
+    }
+
+    func testRejectsDashedReferenceNumberShapedLikeADate() {
+        // "0000" and "999" can't fit the 1-2 digit day/month groups the
+        // regex requires, at any alignment within the string.
+        let dates = ReceiptDateDetector.dates(in: "0000-999-735")
+        XCTAssertTrue(dates.isEmpty)
+    }
+
+    func testTwoDigitYearNeverReadsAsFuture() {
+        // "26" today (2026) must read as 2026, not row back to 1926 — the
+        // century rule always prefers the candidate century that keeps the
+        // year <= the current year, and 2026 already satisfies that.
+        let dates = ReceiptDateDetector.dates(in: "08/19/26")
+        XCTAssertEqual(dates.count, 1)
+        XCTAssertEqual(day(dates[0]).year, 2026)
+    }
+
+    func testAmbiguousDayMonthOrderDefaultsToUSConvention() {
+        // Both readings (Aug 5 vs. May 8) are valid calendar dates, so this
+        // is a genuinely ambiguous case — resolved via the app's existing
+        // US M/D default (see `ManualEntryOCRPrefillTests`'s 08/12/2026).
+        let dates = ReceiptDateDetector.dates(in: "05/08/2026")
+        XCTAssertEqual(dates.count, 1)
+        let c = day(dates[0])
+        XCTAssertEqual(c.month, 5)
+        XCTAssertEqual(c.day, 8)
+    }
+
+    func testUnambiguousDayFirstOrderingIsNotForcedIntoUSConvention() {
+        // 13 can't be a month, so this can only be D/M — May 13, not a
+        // nonexistent "13th month".
+        let dates = ReceiptDateDetector.dates(in: "13/05/2026")
+        XCTAssertEqual(dates.count, 1)
+        let c = day(dates[0])
+        XCTAssertEqual(c.month, 5)
+        XCTAssertEqual(c.day, 13)
+    }
+
+    func testBothPartsOver12IsRejectedRatherThanGuessed() {
+        // Neither ordering is a valid date — 13 and 14 can't both be
+        // months, and this shouldn't be misread as any date at all.
+        let dates = ReceiptDateDetector.dates(in: "13/14/2026")
+        XCTAssertTrue(dates.isEmpty)
+    }
+
+    func testDashAndDotSeparatorsAreRecognized() {
+        let dashDates = ReceiptDateDetector.dates(in: "08-19-2026")
+        XCTAssertEqual(dashDates.count, 1)
+        let dotDates = ReceiptDateDetector.dates(in: "08.19.2026")
+        XCTAssertEqual(dotDates.count, 1)
+    }
+
+    func testMixedSeparatorsDoNotMatch() {
+        // The two separators must match (`\2` backreference) — this isn't
+        // a real date shape any receipt actually prints, and allowing it
+        // would widen the false-positive surface for no real benefit.
+        let dates = ReceiptDateDetector.dates(in: "08/19-2026")
+        XCTAssertTrue(dates.isEmpty)
+    }
+
+    func testInvalidCalendarDateIsRejectedNotNormalized() {
+        // Foundation's `Calendar` silently rolls "02/30" forward into
+        // March — that would fabricate a date that isn't printed anywhere,
+        // which this detector must never do for the AI cross-check's sake.
+        //
+        // Prefixed with a year-like receipt number ("1077 ") so
+        // NSDataDetector's own path drops the line entirely (the same
+        // quirk this whole fix works around) — that isolates the
+        // assertion to the regex pass's own rejection. A bare "02/30/2026"
+        // isn't usable here: NSDataDetector normalizes it to March 2 on
+        // its own, which is a pre-existing NSDataDetector leniency this
+        // change doesn't touch, not something this test is about.
+        let dates = ReceiptDateDetector.dates(in: "1077 02/30/2026")
+        XCTAssertTrue(dates.isEmpty)
+    }
+
+    // MARK: - Full real-receipt layout text (see task: IMG_6392.JPEG)
+
+    func testRealHomeDepotLayoutTextResolvesToTransactionDate() {
+        // This is the exact layout-joined text `VisionLayoutService
+        // .layoutString` produces for the real receipt image that exposed
+        // this bug — single-space-joined tokens, a receipt number directly
+        // before the date, and a future policy-expiry date that must not
+        // win. `ReceiptDateDetector` itself should report *both* real
+        // dates (08/19/2026 and the future 11/17/2026 — its job is "every
+        // date printed"); it's `likelyReceiptDate`'s future-date rule that
+        // narrows it down to the transaction date.
+        let text = """
+        1077 08/19/26 11:55 AM
+        1077 61 46161 08/19/2026 1700
+        POLICY ID RETURN POLICY DEFINITIONS
+        DAYS POLICY EXPIRES ON
+        11/17/2026
+        """
+
+        let allDates = Set(ReceiptDateDetector.dates(in: text).map { day($0) }.map { [$0.year, $0.month, $0.day] })
+        XCTAssertTrue(allDates.contains([2026, 8, 19]))
+        XCTAssertTrue(allDates.contains([2026, 11, 17]))
+
+        let date = ManualEntryOCRPrefill.likelyReceiptDate(in: text)
+        XCTAssertNotNil(date)
+        let c = day(date!)
+        XCTAssertEqual(c.year, 2026)
+        XCTAssertEqual(c.month, 8)
+        XCTAssertEqual(c.day, 19)
+    }
+}

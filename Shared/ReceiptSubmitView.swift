@@ -25,6 +25,15 @@ struct ReceiptSubmitView: View {
     @State private var statusText: String = ""
     @State private var message: String?
 
+    /// Drives the full-screen zoomable viewer, reached by tapping the
+    /// thumbnail below — see `zoomablePhotoData`. This is the screen where
+    /// verifying every field against the receipt matters most (it's the
+    /// only path with no AI to double-check the OCR prefill), so the same
+    /// pinch-zoom viewer `QueueEntryDetailView` uses in ContentView.swift is
+    /// reused here rather than leaving the user stuck with a ~220pt-tall
+    /// static thumbnail too small to read a total off.
+    @State private var showPhotoViewer = false
+
     /// Shown instead of running AI extraction when no provider is configured
     /// (see `ExtractionSettings.aiConfigured`) — the photo is still saved,
     /// just with hand-typed fields instead of an automatic read.
@@ -153,6 +162,20 @@ struct ReceiptSubmitView: View {
         return false
     }
 
+    /// The bytes handed to `BillPhotoViewerView`, which only accepts raw
+    /// image data (see `QueueEntryDetailView`'s call site) — not a PDF. For
+    /// an image attachment that's the original capture, full quality. For a
+    /// PDF there's no "original photo" to fall back to, so this renders the
+    /// first page the same way the OCR prefill above already does
+    /// (`pdfThumbnail`) rather than adding a second, higher-fidelity PDF
+    /// renderer just for this viewer.
+    private var zoomablePhotoData: Data? {
+        switch attachment.kind {
+        case .image: return attachment.data
+        case .pdf: return pdfThumbnail(attachment.data)?.pngData()
+        }
+    }
+
     private var manualFieldsValid: Bool {
         !manualVendor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && Double(manualAmount.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
@@ -170,21 +193,37 @@ struct ReceiptSubmitView: View {
                     HStack {
                         Spacer()
                         if let thumb = attachment.thumbnail {
-                            Image(uiImage: thumb)
-                                .resizable()
-                                .scaledToFit()
-                                // Shrunk only for the offline-choice prompt below —
-                                // by the time that prompt is showing the user has
-                                // already seen the photo, and the buttons that
-                                // decide what happens next need to fit on screen
-                                // without scrolling more than the thumbnail needs
-                                // full size.
-                                .frame(maxHeight: isOfflineChoicePrompt ? 100 : 220)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            // Tappable for the same reason as the Retry Queue's
+                            // photo (ContentView.swift's QueueEntryDetailView):
+                            // a small static thumbnail can't show a receipt
+                            // total legibly, and this screen is the one that
+                            // explicitly asks the user to verify every field
+                            // against the paper when there's no AI to trust.
+                            Button {
+                                showPhotoViewer = true
+                            } label: {
+                                Image(uiImage: thumb)
+                                    .resizable()
+                                    .scaledToFit()
+                                    // Shrunk only for the offline-choice prompt below —
+                                    // by the time that prompt is showing the user has
+                                    // already seen the photo, and the buttons that
+                                    // decide what happens next need to fit on screen
+                                    // without scrolling more than the thumbnail needs
+                                    // full size.
+                                    .frame(maxHeight: isOfflineChoicePrompt ? 100 : 220)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(zoomablePhotoData == nil)
                         } else {
                             Label("PDF attached", systemImage: "doc.fill")
                         }
                         Spacer()
+                    }
+                } footer: {
+                    if zoomablePhotoData != nil {
+                        Text("Tap the photo to zoom in.")
                     }
                 }
 
@@ -292,6 +331,11 @@ struct ReceiptSubmitView: View {
         }
         .task {
             await prefillManualFieldsFromOCR()
+        }
+        .fullScreenCover(isPresented: $showPhotoViewer) {
+            if let data = zoomablePhotoData {
+                BillPhotoViewerView(photoData: data, onDone: { showPhotoViewer = false })
+            }
         }
     }
 
