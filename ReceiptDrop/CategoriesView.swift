@@ -299,17 +299,14 @@ struct CategoryDetailView: View {
                 Button {
                     openCSV()
                 } label: {
-                    Label("View CSV in the Files app", systemImage: "folder")
+                    // Spreadsheet glyph ties both CSV actions together visually, distinct from the folder action below.
+                    Label("View CSV in the Files app", systemImage: "tablecells")
                 }
                 Button {
                     editInNumbers()
                 } label: {
-                    Label("Edit CSV in Numbers App", systemImage: "square.and.pencil")
-                }
-                Button {
-                    openCategoryFolder()
-                } label: {
-                    Label("Open \(category) folder in Files", systemImage: "folder.fill")
+                    // Hand-off arrow signals this leaves the app — the one action with a real consequence (Numbers keeps its own copy).
+                    Label("Edit CSV in Numbers App", systemImage: "arrow.up.forward.app")
                 }
 
                 SettingsInfoButton(
@@ -317,7 +314,17 @@ struct CategoryDetailView: View {
                     detail: "\"Edit CSV in Numbers\" hands \(category)_log.csv to the Numbers app via the system Open In menu — Numbers keeps its own copy, so edits there don't change the file the app writes to. \"Open \(category) folder\" shows every file in this category, including receipt photos and any extra attachments not listed in the CSV.",
                     topic: $infoTopic)
             } footer: {
-                Text("Open, edit, or browse this category's files.")
+                Text("Open or edit this category's CSV.")
+            }
+
+            Section {
+                Button {
+                    openCategoryFolder()
+                } label: {
+                    Label("Open \(category) folder in Files", systemImage: "folder")
+                }
+            } footer: {
+                Text("Browse every file in this category, including receipt photos.")
             }
 
             Section {
