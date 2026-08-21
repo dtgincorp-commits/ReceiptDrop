@@ -5,6 +5,8 @@ struct ContentView: View {
     @State private var selectedTab = 0
     @State private var showBackupReminder = false
     @State private var showConnectAI = false
+    @State private var caseVariantHealMessage = ""
+    @State private var showCaseVariantHealAlert = false
     // @AppStorage against the App Group suite (not the default store) so
     // this reads/writes the same value SettingsView's picker does, with
     // SwiftUI's normal live-update behavior — changing it in Settings
@@ -38,12 +40,14 @@ struct ContentView: View {
         // drain them into Documents (visible in Files) whenever we foreground.
         .onAppear {
             LocalReceiptStore.drainSpoolIntoDocuments()
+            healCaseVariantFolders()
             showBackupReminder = BackupSettings.isReminderDue()
             maybeShowAISetup()
         }
         .onChange(of: scenePhase) {
             if $0 == .active {
                 LocalReceiptStore.drainSpoolIntoDocuments()
+                healCaseVariantFolders()
                 showBackupReminder = BackupSettings.isReminderDue()
             }
         }
@@ -53,9 +57,45 @@ struct ContentView: View {
         } message: {
             Text("It's been a while since your last backup. Go to Settings → Archive & Backup to back up now.")
         }
+        // Surfaced (not silent): this is moving tax records the user relies
+        // on, so even though it's automatic and safe (see
+        // `healCaseVariantFolders` below), it's told rather than just done.
+        .alert("Cleaned Up Duplicate Category Folders", isPresented: $showCaseVariantHealAlert) {
+            Button("OK") {}
+        } message: {
+            Text(caseVariantHealMessage)
+        }
         .sheet(isPresented: $showConnectAI) {
             ConnectAIView { showConnectAI = false }
         }
+    }
+
+    /// Must run only after `drainSpoolIntoDocuments()` — spooled files that
+    /// haven't landed in Documents yet aren't visible to this at all, so
+    /// draining first is what lets a receipt sitting in a share-extension
+    /// spool folder end up healed instead of orphaned in a variant that
+    /// this pass never sees.
+    ///
+    /// Silent when there's nothing to do (the overwhelming majority of
+    /// launches, once an install has been healed once) — the alert only
+    /// fires the run that actually found and merged a split. iOS's
+    /// case-sensitive data volume is what let two folders share one
+    /// category in the first place (see `LocalReceiptStore.
+    /// categoryFolderURL`); an install already carrying that split gets it
+    /// fixed automatically rather than requiring a support conversation,
+    /// but because this moves real receipt files across folders — the
+    /// user's actual tax records — it's told about it after the fact rather
+    /// than done invisibly, the same way Merge/Rename in Settings already
+    /// report what they moved.
+    private func healCaseVariantFolders() {
+        let summary = LocalReceiptStore.healCaseVariantCategoryFolders()
+        guard summary.categoriesHealed > 0 else { return }
+        var message = "Found \(summary.categoriesHealed) categor\(summary.categoriesHealed == 1 ? "y" : "ies") split across differently-capitalized folders (an old bug) and merged \(summary.filesMoved) file\(summary.filesMoved == 1 ? "" : "s") back together."
+        if summary.conflicts > 0 {
+            message += " \(summary.conflicts) file\(summary.conflicts == 1 ? "" : "s") had a same-named conflict and were left as-is — check Files → On My iPhone → Receipts4Tax if a category looks off."
+        }
+        caseVariantHealMessage = message
+        showCaseVariantHealAlert = true
     }
 
     /// First-run guided AI setup — shown once, and only to users who don't

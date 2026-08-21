@@ -127,4 +127,166 @@ final class LocalReceiptStoreTests: XCTestCase {
             try String(contentsOf: categoryFolderURL(destCategory).appendingPathComponent("receipt.txt"), encoding: .utf8),
             "original content")
     }
+
+    // MARK: - Case-insensitive folder resolution
+    //
+    // iOS's data volume is case-sensitive, so "Sample Category" and "SAMPLE
+    // CATEGORY" are two different directories to the filesystem even though
+    // CategoryStore treats them as one category (see CategoryStore.add).
+    // Every folder-path build in LocalReceiptStore routes through
+    // `categoryFolderURL`, which resolves a category name against whatever
+    // already exists on disk before appending it — these tests cover that
+    // resolution directly, plus the `healCaseVariantCategoryFolders` cleanup
+    // for installs that already have the split.
+
+    func testImportFileReusesExistingCaseVariantFolderInsteadOfSplitting() throws {
+        _ = try LocalReceiptStore.importFile(from: sourceURL, category: testCategory, filename: "receipt.txt")
+
+        let differentCase = testCategory.uppercased()
+        XCTAssertNotEqual(differentCase, testCategory, "the two spellings must actually differ for this test to mean anything")
+        defer { try? FileManager.default.removeItem(at: categoryFolderURL(differentCase)) }
+
+        let secondSource = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).txt")
+        try "second file".write(to: secondSource, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: secondSource) }
+
+        _ = try LocalReceiptStore.importFile(from: secondSource, category: differentCase, filename: "second.txt")
+
+        // Both files must land under the one folder that already existed
+        // (testCategory's original spelling) — not a second sibling folder
+        // for the differently-cased name.
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: categoryFolderURL().appendingPathComponent("second.txt").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: categoryFolderURL(differentCase).path))
+    }
+
+    // `healCaseVariantCategoryFolders`'s production trigger is two folders
+    // that differ only by case (e.g. "Sample Category" / "SAMPLE
+    // CATEGORY") — real on a device's case-sensitive data volume, but the
+    // Mac this test runs on formats its own filesystem case-insensitively,
+    // so `mkdir` for the second spelling silently collapses onto the first
+    // rather than creating a second folder (confirmed independently: two
+    // `FileManager.createDirectory` calls for case-variant names throw an
+    // I/O error here, the case-insensitive volume treating them as the same
+    // path). These tests instead call `mergeFolderContents` — the exact
+    // function `healCaseVariantCategoryFolders` calls per variant it
+    // finds — directly on two ordinarily-named folders, which exercises
+    // the identical move/reconcile/CSV-merge logic without depending on
+    // case-variant folders actually existing on disk.
+
+    func testMergeFolderContentsMovesFilesAndCSVLogs() throws {
+        let sourceFolder = categoryFolderURL(testCategory)
+        let destFolder = categoryFolderURL(destCategory)
+        let fm = FileManager.default
+        try fm.createDirectory(at: sourceFolder, withIntermediateDirectories: true)
+        try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
+
+        try "source content".write(to: sourceFolder.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        try "dest content".write(to: destFolder.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+
+        let header = "Contractor_or_Vendor_Name,Work_Date,Amount,Comments,Receipt_File,Scanned_Date\n"
+        try (header + "Vendor A,2024-01-01,10.00,,a.txt,2024-01-01\n")
+            .write(to: sourceFolder.appendingPathComponent("\(testCategory!)_log.csv"), atomically: true, encoding: .utf8)
+        try (header + "Vendor B,2024-01-02,20.00,,b.txt,2024-01-02\n")
+            .write(to: destFolder.appendingPathComponent("\(destCategory!)_log.csv"), atomically: true, encoding: .utf8)
+
+        let result = LocalReceiptStore.mergeFolderContents(from: sourceFolder, into: destFolder)
+
+        XCTAssertEqual(result.conflicted, 0)
+        XCTAssertGreaterThanOrEqual(result.moved, 2) // a.txt + the CSV
+
+        // The source folder is fully consolidated away; dest holds everything.
+        XCTAssertFalse(fm.fileExists(atPath: sourceFolder.path))
+        XCTAssertTrue(fm.fileExists(atPath: destFolder.appendingPathComponent("a.txt").path))
+        XCTAssertTrue(fm.fileExists(atPath: destFolder.appendingPathComponent("b.txt").path))
+
+        // The CSV merges under dest's own log filename, not source's —
+        // otherwise the two categories' differently-named logs would both
+        // end up sitting in dest instead of merging into one.
+        let mergedCSVURL = destFolder.appendingPathComponent("\(destCategory!)_log.csv")
+        let mergedCSV = try String(contentsOf: mergedCSVURL, encoding: .utf8)
+        XCTAssertTrue(mergedCSV.contains("Vendor A"))
+        XCTAssertTrue(mergedCSV.contains("Vendor B"))
+        XCTAssertEqual(mergedCSV.components(separatedBy: "Contractor_or_Vendor_Name").count - 1, 1,
+                       "header must not be duplicated by the merge")
+        XCTAssertFalse(fm.fileExists(atPath: destFolder.appendingPathComponent("\(testCategory!)_log.csv").path),
+                       "source's own (differently-named) CSV must not be left behind alongside the merged one")
+    }
+
+    func testMergeFolderContentsReconcilesIdenticalSameNamedFile() throws {
+        let sourceFolder = categoryFolderURL(testCategory)
+        let destFolder = categoryFolderURL(destCategory)
+        let fm = FileManager.default
+        try fm.createDirectory(at: sourceFolder, withIntermediateDirectories: true)
+        try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
+
+        try "same content".write(to: sourceFolder.appendingPathComponent("receipt.txt"), atomically: true, encoding: .utf8)
+        try "same content".write(to: destFolder.appendingPathComponent("receipt.txt"), atomically: true, encoding: .utf8)
+
+        let result = LocalReceiptStore.mergeFolderContents(from: sourceFolder, into: destFolder)
+
+        XCTAssertEqual(result.conflicted, 0, "identical contents under the same name must reconcile, not conflict")
+        XCTAssertFalse(fm.fileExists(atPath: sourceFolder.path), "the redundant source copy/folder should be cleaned up")
+        XCTAssertEqual(
+            try String(contentsOf: destFolder.appendingPathComponent("receipt.txt"), encoding: .utf8),
+            "same content")
+    }
+
+    func testMergeFolderContentsLeavesGenuineConflictInPlace() throws {
+        let sourceFolder = categoryFolderURL(testCategory)
+        let destFolder = categoryFolderURL(destCategory)
+        let fm = FileManager.default
+        try fm.createDirectory(at: sourceFolder, withIntermediateDirectories: true)
+        try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
+
+        try "source's receipt".write(to: sourceFolder.appendingPathComponent("receipt.txt"), atomically: true, encoding: .utf8)
+        try "dest's receipt".write(to: destFolder.appendingPathComponent("receipt.txt"), atomically: true, encoding: .utf8)
+
+        let result = LocalReceiptStore.mergeFolderContents(from: sourceFolder, into: destFolder)
+
+        XCTAssertEqual(result.conflicted, 1, "genuinely different contents under the same name must be surfaced, not silently resolved")
+        // Neither copy is lost: source survives (non-empty, so not deleted)
+        // and both files keep their own content.
+        XCTAssertTrue(fm.fileExists(atPath: sourceFolder.appendingPathComponent("receipt.txt").path))
+        XCTAssertEqual(
+            try String(contentsOf: sourceFolder.appendingPathComponent("receipt.txt"), encoding: .utf8),
+            "source's receipt")
+        XCTAssertEqual(
+            try String(contentsOf: destFolder.appendingPathComponent("receipt.txt"), encoding: .utf8),
+            "dest's receipt")
+    }
+
+    func testMergeFolderContentsIsIdempotent() throws {
+        let sourceFolder = categoryFolderURL(testCategory)
+        let destFolder = categoryFolderURL(destCategory)
+        let fm = FileManager.default
+        try fm.createDirectory(at: sourceFolder, withIntermediateDirectories: true)
+        try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
+        try "content".write(to: sourceFolder.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+
+        let first = LocalReceiptStore.mergeFolderContents(from: sourceFolder, into: destFolder)
+        XCTAssertEqual(first.moved, 1)
+        XCTAssertFalse(fm.fileExists(atPath: sourceFolder.path))
+
+        // Running again against the now-gone source must be a safe no-op,
+        // not an error and not a second move of anything.
+        let second = LocalReceiptStore.mergeFolderContents(from: sourceFolder, into: destFolder)
+        XCTAssertEqual(second.moved, 0)
+        XCTAssertEqual(second.conflicted, 0)
+        XCTAssertEqual(
+            try String(contentsOf: destFolder.appendingPathComponent("a.txt"), encoding: .utf8),
+            "content")
+    }
+
+    func testHealCaseVariantCategoryFoldersIsNoOpWithoutDuplicates() {
+        // No pre-existing split for this (unique, freshly-generated)
+        // category — the common case on every launch after the first.
+        let summary = LocalReceiptStore.healCaseVariantCategoryFolders()
+        // Can't assert `categoriesHealed == 0` globally (other categories
+        // on this shared Documents directory are outside this test's
+        // control), only that this call completes without ever touching
+        // this test's own (untouched) folder.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: categoryFolderURL().path))
+        _ = summary
+    }
 }

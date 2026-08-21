@@ -41,7 +41,7 @@ enum LocalReceiptStore {
                           comments: String, receiptFilename: String, category: String,
                           scannedDate: String = LocalReceiptStore.todayString()) throws {
         let folder = try spoolCategoryFolder(category)
-        let csvURL = folder.appendingPathComponent(logFileName(category: category))
+        let csvURL = folder.appendingPathComponent(logFileName(category: folder.lastPathComponent))
         let row = csvRow([vendor, workDate, amount, comments, receiptFilename, scannedDate])
 
         var coordinatorError: NSError?
@@ -79,7 +79,14 @@ enum LocalReceiptStore {
             at: spoolRoot, includingPropertiesForKeys: nil) else { return }
 
         for categoryDir in categoryDirs where categoryDir.hasDirectoryPath {
-            let destCategoryDir = docsRoot.appendingPathComponent(categoryDir.lastPathComponent, isDirectory: true)
+            // Routed through the same case-insensitive resolution every
+            // other Documents lookup uses (see `categoryFolderURL`) — a
+            // spool folder spelled differently than what's already in
+            // Documents (e.g. drained late, after the case that "won" in
+            // Documents was decided elsewhere) must land in that same
+            // folder rather than spinning up a sibling and reintroducing
+            // the split this resolution exists to prevent.
+            let destCategoryDir = categoryFolderURL(category: categoryDir.lastPathComponent, under: docsRoot)
             try? fm.createDirectory(at: destCategoryDir, withIntermediateDirectories: true)
 
             guard let files = try? fm.contentsOfDirectory(at: categoryDir, includingPropertiesForKeys: nil) else { continue }
@@ -120,6 +127,109 @@ enum LocalReceiptStore {
         }
     }
 
+    /// Consolidates installs that already have case-variant sibling folders
+    /// for one category on disk (e.g. both "Sample Category" and "SAMPLE
+    /// CATEGORY" under Documents/Receipts, from before every path in this
+    /// file resolved a category name against what's already there — see
+    /// `categoryFolderURL`). For each such group, everything is folded into
+    /// one canonical folder: receipt files are moved (an identical
+    /// same-named duplicate is dropped, a genuinely different one is left
+    /// in place rather than clobbered — the same rule `moveFile` uses), CSV
+    /// logs are merged rather than one overwriting the other, and a variant
+    /// folder is only deleted once it's confirmed completely empty.
+    ///
+    /// Deliberately doesn't touch `SubmissionStore`/history: every lookup
+    /// in this file already resolves a category name to whichever folder is
+    /// actually on disk, so a `HistoryEntry` still carrying an old-case
+    /// category string keeps working unchanged — it now just resolves to
+    /// the same single folder as everything else. That keeps this function
+    /// a pure filesystem operation, safe to run from either the main app or
+    /// (in principle) the share extension, and safe to call repeatedly:
+    /// once no category has more than one on-disk folder, this is just a
+    /// directory listing.
+    @discardableResult
+    static func healCaseVariantCategoryFolders() -> CaseVariantHealSummary {
+        var summary = CaseVariantHealSummary()
+        guard let docsRoot = documentsRootURL() else { return summary }
+        let fm = FileManager.default
+        guard let siblings = try? fm.contentsOfDirectory(
+            at: docsRoot, includingPropertiesForKeys: [.isDirectoryKey]) else { return summary }
+        let folders = siblings.filter { $0.hasDirectoryPath }
+
+        // Grouping on the uppercase form (rather than a general
+        // case-insensitive grouping) also picks the group's canonical name
+        // for free below — it's exactly `CategoryStore.add`'s own
+        // convention for what a category name "should" look like.
+        let groups = Dictionary(grouping: folders) { $0.lastPathComponent.uppercased() }
+        for (upperName, group) in groups where group.count > 1 {
+            let names = group.map(\.lastPathComponent)
+            let canonicalName = names.first(where: { $0 == upperName }) ?? names.sorted().first!
+            let canonicalURL = docsRoot.appendingPathComponent(canonicalName, isDirectory: true)
+            try? fm.createDirectory(at: canonicalURL, withIntermediateDirectories: true)
+
+            for variantURL in group where variantURL.lastPathComponent != canonicalName {
+                let (moved, conflicted) = mergeFolderContents(from: variantURL, into: canonicalURL)
+                summary.filesMoved += moved
+                summary.conflicts += conflicted
+                summary.categoriesHealed += 1
+            }
+        }
+        return summary
+    }
+
+    /// Moves every file out of `source` into `dest`: a same-named receipt
+    /// file already at `dest` is dropped from `source` if identical, or
+    /// left in `source` (not clobbered) if genuinely different — matching
+    /// `moveFile`'s collision rule. A `.csv` log is merged via `mergeCSV`
+    /// under `dest`'s own log filename — not `source`'s, which embeds
+    /// `source`'s category text (`logFileName(category:)`) and so names the
+    /// file differently than `dest`'s log; appending it under the source's
+    /// name would leave two CSVs sitting in one folder instead of merging
+    /// them into the one the rest of the app looks for.
+    /// `source` is removed only once it's confirmed empty, so a left-behind
+    /// conflict correctly keeps the folder (and the file a human needs to
+    /// look at) around instead of silently discarding it.
+    ///
+    /// Not `private`: `healCaseVariantCategoryFolders` above is the only
+    /// production caller, but this is also the seam the test suite calls
+    /// directly, since the two folders it merges don't have to be real
+    /// case-variants of each other — the merge itself is case-agnostic, and
+    /// the host Mac's default (case-insensitive) filesystem can't actually
+    /// hold two on-disk folders that differ only by case the way a real
+    /// device's data volume can.
+    static func mergeFolderContents(from source: URL, into dest: URL) -> (moved: Int, conflicted: Int) {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil) else {
+            return (0, 0)
+        }
+        var moved = 0
+        var conflicted = 0
+        for file in files {
+            if file.lastPathComponent.hasSuffix(".csv") {
+                let destURL = dest.appendingPathComponent(logFileName(category: dest.lastPathComponent))
+                mergeCSV(from: file, into: destURL)
+                try? fm.removeItem(at: file) // mergeCSV never removes `file` itself, even when it merges into an existing dest
+                moved += 1
+                continue
+            }
+            let destURL = dest.appendingPathComponent(file.lastPathComponent)
+            if fm.fileExists(atPath: destURL.path) {
+                if sameContents(file, destURL) {
+                    try? fm.removeItem(at: file)
+                    moved += 1
+                } else {
+                    conflicted += 1
+                }
+            } else if (try? fm.moveItem(at: file, to: destURL)) != nil {
+                moved += 1
+            }
+        }
+        if let remaining = try? fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil), remaining.isEmpty {
+            try? fm.removeItem(at: source)
+        }
+        return (moved, conflicted)
+    }
+
     // MARK: - Paths
 
     private static func spoolRootURL() -> URL? {
@@ -132,7 +242,7 @@ enum LocalReceiptStore {
         guard let root = spoolRootURL() else {
             throw LocalStoreError.appGroupUnavailable
         }
-        let folder = root.appendingPathComponent(category, isDirectory: true)
+        let folder = categoryFolderURL(category: category, under: root)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
     }
@@ -141,6 +251,43 @@ enum LocalReceiptStore {
     private static func documentsRootURL() -> URL? {
         guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
         return docs.appendingPathComponent(receiptsDirName, isDirectory: true)
+    }
+
+    /// Resolves `category` to a folder under `root`, preferring whatever's
+    /// already on disk over the literal string passed in.
+    ///
+    /// iOS's data volume is case-sensitive, but `CategoryStore` treats
+    /// category names case-insensitively (see `CategoryStore.add`) — so
+    /// without this, saving under "Sample Category" and later "SAMPLE
+    /// CATEGORY" (the same category, per `CategoryStore`) silently created
+    /// two sibling directories, each invisible to the other and to the
+    /// Categories screen's count. Routing every folder-path build in this
+    /// file through here means any case variant of an existing category
+    /// converges on whichever folder is already there, instead of
+    /// splintering into a new one.
+    ///
+    /// When more than one case-variant folder already exists (an install
+    /// that split before this existed — `healCaseVariantCategoryFolders`
+    /// cleans those up), the one matching `CategoryStore.add`'s own
+    /// uppercase convention wins, so resolution is deterministic rather
+    /// than depending on `FileManager`'s unspecified directory-listing
+    /// order. When nothing exists yet, the literal name is used as-is —
+    /// this is also why callers (including tests) that pass an
+    /// as-yet-unused name still get exactly that name back.
+    private static func categoryFolderURL(category: String, under root: URL) -> URL {
+        root.appendingPathComponent(resolvedCategoryComponent(category, under: root), isDirectory: true)
+    }
+
+    private static func resolvedCategoryComponent(_ category: String, under root: URL) -> String {
+        guard let siblings = try? FileManager.default.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: [.isDirectoryKey]) else {
+            return category
+        }
+        let matches = siblings
+            .filter { $0.hasDirectoryPath && $0.lastPathComponent.caseInsensitiveCompare(category) == .orderedSame }
+            .map(\.lastPathComponent)
+        guard !matches.isEmpty else { return category }
+        return matches.first(where: { $0 == $0.uppercased() }) ?? matches.sorted().first!
     }
 
     /// Marks the receipt storage roots (the app's Documents/Receipts folder and
@@ -190,17 +337,17 @@ enum LocalReceiptStore {
     /// in the Files app to clean up by hand.
     static func allExistingFileURLs(category: String, filename: String) -> [URL] {
         var urls: [URL] = []
-        if let docURL = documentsRootURL()?
-            .appendingPathComponent(category, isDirectory: true)
-            .appendingPathComponent(filename),
-           FileManager.default.fileExists(atPath: docURL.path) {
-            urls.append(docURL)
+        if let docsRoot = documentsRootURL() {
+            let docURL = categoryFolderURL(category: category, under: docsRoot).appendingPathComponent(filename)
+            if FileManager.default.fileExists(atPath: docURL.path) {
+                urls.append(docURL)
+            }
         }
-        if let spoolURL = spoolRootURL()?
-            .appendingPathComponent(category, isDirectory: true)
-            .appendingPathComponent(filename),
-           FileManager.default.fileExists(atPath: spoolURL.path) {
-            urls.append(spoolURL)
+        if let spoolRoot = spoolRootURL() {
+            let spoolURL = categoryFolderURL(category: category, under: spoolRoot).appendingPathComponent(filename)
+            if FileManager.default.fileExists(atPath: spoolURL.path) {
+                urls.append(spoolURL)
+            }
         }
         return urls
     }
@@ -334,9 +481,10 @@ enum LocalReceiptStore {
     static func moveFile(filename: String, from oldCategory: String, to newCategory: String) throws {
         let sources = allExistingFileURLs(category: oldCategory, filename: filename)
         guard !sources.isEmpty else { return }
-        guard let destFolder = documentsRootURL()?.appendingPathComponent(newCategory, isDirectory: true) else {
+        guard let docsRoot = documentsRootURL() else {
             throw LocalStoreError.appGroupUnavailable
         }
+        let destFolder = categoryFolderURL(category: newCategory, under: docsRoot)
         try FileManager.default.createDirectory(at: destFolder, withIntermediateDirectories: true)
         let destURL = destFolder.appendingPathComponent(filename)
 
@@ -373,11 +521,16 @@ enum LocalReceiptStore {
     /// rows have that column blank; only affects entries submitted before
     /// this rebuild — new submissions still get Comments filled in normally.
     static func rebuildLog(category: String, entries: [HistoryEntry]) throws {
-        guard let folder = documentsRootURL()?.appendingPathComponent(category, isDirectory: true) else {
+        guard let docsRoot = documentsRootURL() else {
             throw LocalStoreError.appGroupUnavailable
         }
+        let folder = categoryFolderURL(category: category, under: docsRoot)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let csvURL = folder.appendingPathComponent(logFileName(category: category))
+        // Named after the resolved folder, not the raw `category` argument
+        // — otherwise a stale mixed-case `category` string would produce a
+        // second differently-named CSV inside the one folder every other
+        // lookup already converged on.
+        let csvURL = folder.appendingPathComponent(logFileName(category: folder.lastPathComponent))
 
         let sorted = entries.sorted { $0.timestamp < $1.timestamp }
         var content = csvRow(AppConstants.sheetHeader)
@@ -407,9 +560,9 @@ enum LocalReceiptStore {
     /// doesn't exist yet (e.g. nothing drained there); callers should check
     /// existence before opening it.
     static func documentsLogFileURL(category: String) -> URL? {
-        documentsRootURL()?
-            .appendingPathComponent(category, isDirectory: true)
-            .appendingPathComponent(logFileName(category: category))
+        guard let docsRoot = documentsRootURL() else { return nil }
+        let folder = categoryFolderURL(category: category, under: docsRoot)
+        return folder.appendingPathComponent(logFileName(category: folder.lastPathComponent))
     }
 
     /// Builds a CSV (header + matching rows) for `entries` by filtering the
@@ -475,9 +628,10 @@ enum LocalReceiptStore {
     /// back" apart from "already had it."
     @discardableResult
     static func importFile(from sourceURL: URL, category: String, filename: String) throws -> Bool {
-        guard let destFolder = documentsRootURL()?.appendingPathComponent(category, isDirectory: true) else {
+        guard let docsRoot = documentsRootURL() else {
             throw LocalStoreError.appGroupUnavailable
         }
+        let destFolder = categoryFolderURL(category: category, under: docsRoot)
         try FileManager.default.createDirectory(at: destFolder, withIntermediateDirectories: true)
         let destURL = destFolder.appendingPathComponent(filename)
         guard !FileManager.default.fileExists(atPath: destURL.path) else { return false }
@@ -494,11 +648,12 @@ enum LocalReceiptStore {
         guard backupLines.count > 1 else { return } // header only, nothing to merge
 
         guard let existingURL = existingLogURL(category: category) else {
-            guard let destFolder = documentsRootURL()?.appendingPathComponent(category, isDirectory: true) else {
+            guard let docsRoot = documentsRootURL() else {
                 throw LocalStoreError.appGroupUnavailable
             }
+            let destFolder = categoryFolderURL(category: category, under: docsRoot)
             try FileManager.default.createDirectory(at: destFolder, withIntermediateDirectories: true)
-            try csvText.write(to: destFolder.appendingPathComponent(logFileName(category: category)), atomically: true, encoding: .utf8)
+            try csvText.write(to: destFolder.appendingPathComponent(logFileName(category: destFolder.lastPathComponent)), atomically: true, encoding: .utf8)
             return
         }
 
@@ -539,7 +694,7 @@ enum LocalReceiptStore {
     /// where every receipt file (primary and extras) for that category
     /// actually lives, visible in the Files app.
     static func documentsCategoryFolderURL(category: String) -> URL? {
-        documentsRootURL()?.appendingPathComponent(category, isDirectory: true)
+        documentsRootURL().map { categoryFolderURL(category: category, under: $0) }
     }
 
     // MARK: - Backup library
@@ -589,14 +744,15 @@ enum LocalReceiptStore {
     /// Finds the category's CSV log, checking Documents (drained) then the
     /// App Group spool (not yet drained).
     private static func existingLogURL(category: String) -> URL? {
-        let name = logFileName(category: category)
-        if let docURL = documentsRootURL()?.appendingPathComponent(category, isDirectory: true).appendingPathComponent(name),
-           FileManager.default.fileExists(atPath: docURL.path) {
-            return docURL
+        if let docsRoot = documentsRootURL() {
+            let folder = categoryFolderURL(category: category, under: docsRoot)
+            let docURL = folder.appendingPathComponent(logFileName(category: folder.lastPathComponent))
+            if FileManager.default.fileExists(atPath: docURL.path) { return docURL }
         }
-        if let spoolURL = spoolRootURL()?.appendingPathComponent(category, isDirectory: true).appendingPathComponent(name),
-           FileManager.default.fileExists(atPath: spoolURL.path) {
-            return spoolURL
+        if let spoolRoot = spoolRootURL() {
+            let folder = categoryFolderURL(category: category, under: spoolRoot)
+            let spoolURL = folder.appendingPathComponent(logFileName(category: folder.lastPathComponent))
+            if FileManager.default.fileExists(atPath: spoolURL.path) { return spoolURL }
         }
         return nil
     }
@@ -675,6 +831,18 @@ enum LocalReceiptStore {
         }
         return value
     }
+}
+
+/// Result of `LocalReceiptStore.healCaseVariantCategoryFolders()`.
+/// `categoriesHealed == 0` means nothing needed fixing — the common case on
+/// every launch after the first.
+struct CaseVariantHealSummary {
+    var categoriesHealed = 0
+    var filesMoved = 0
+    /// Same-named files with genuinely different contents, left in place
+    /// rather than clobbered — worth surfacing, since these are exactly the
+    /// receipts a silent migration must not quietly resolve either way.
+    var conflicts = 0
 }
 
 enum LocalStoreError: LocalizedError {
