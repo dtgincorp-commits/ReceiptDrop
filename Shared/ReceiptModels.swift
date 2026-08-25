@@ -499,10 +499,15 @@ enum ExtractionSettings {
 
     static var provider: ExtractionProvider {
         get {
-            // Gemini is the default: it has a genuine free tier (no card,
-            // no per-user cost), unlike Claude/OpenAI which always bill.
+            // Apple On-Device is the default: on capable hardware it works with
+            // zero setup (no key, no signup, real AI reading the receipt). Every
+            // other provider bills per-user and requires a key before it's
+            // actually usable, so defaulting to one of them would just show a
+            // "configured" provider that isn't — the honest fallback for
+            // incapable devices is the OCR-prefill path, not another provider
+            // pretending to be ready.
             guard let raw = defaults.string(forKey: AppConstants.DefaultsKeys.extractionProvider),
-                  let value = ExtractionProvider(rawValue: raw) else { return .gemini }
+                  let value = ExtractionProvider(rawValue: raw) else { return .appleOnDevice }
             return value
         }
         set { defaults.set(newValue.rawValue, forKey: AppConstants.DefaultsKeys.extractionProvider) }
