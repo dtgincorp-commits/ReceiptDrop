@@ -120,7 +120,7 @@ most users not knowing how to re-grant.
 **Change:** one short screen explaining why, shown *before* the system prompt —
 "Receipts4Tax needs your camera to scan receipts. Nothing leaves your phone."
 
-## 8. Share-extension cold start — DECIDED, then implemented
+## 8. Share-extension cold start — DONE (83cee36)
 
 Plenty of users will meet this app by sharing a photo from Photos, having never
 opened it. That path has no wizard, no priming, no empty state — and it runs the
