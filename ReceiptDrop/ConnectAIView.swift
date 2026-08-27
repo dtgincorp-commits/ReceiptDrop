@@ -187,6 +187,22 @@ struct ConnectAIView: View {
                         }
                         .tint(.primary)
                     }
+                } else if appleOnDeviceDownloading {
+                    // Eligible hardware, Apple Intelligence on, model just
+                    // hasn't finished downloading — distinct from a device
+                    // that can never run it (item 6 in TODO.md handles the
+                    // "not enabled" case; this is only the download wait).
+                    // Say so instead of silently omitting the option, so the
+                    // user doesn't conclude it's broken and never check back.
+                    Section {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Apple Intelligence is getting ready on this iPhone")
+                                .font(.body.weight(.semibold))
+                            Text("The on-device model is downloading — this happens over Wi-Fi while your phone is charging, and can take a while the first time. Receipts are read using on-device text recognition until it's ready.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 Section {
@@ -236,6 +252,19 @@ struct ConnectAIView: View {
     private var appleOnDeviceReady: Bool {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) { return FoundationModelsService.isModelReady }
+        #endif
+        return false
+    }
+
+    /// True only for the "capable, enabled, still downloading" state — a
+    /// device that can never run the model returns false here too, so it
+    /// falls through to today's unchanged "no Apple Intelligence option"
+    /// behavior.
+    private var appleOnDeviceDownloading: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            if case .downloading = FoundationModelsService.readiness { return true }
+        }
         #endif
         return false
     }

@@ -156,6 +156,17 @@ struct SettingsView: View {
                               systemImage: "checkmark.seal")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        // The model can be mid-download even after this
+                        // provider is selected (e.g. picked before setup
+                        // finished, or the phone hasn't had Wi-Fi+charging
+                        // time since). Say so quietly rather than let it look
+                        // broken — extraction still works via OCR meanwhile.
+                        if appleOnDeviceDownloading {
+                            Label("On-device model is still downloading — extraction uses on-device text recognition until it's ready.",
+                                  systemImage: "arrow.down.circle")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     } footer: {
                         Text("Reading and search both run on-device.")
                     }
@@ -260,6 +271,18 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    /// True only while the on-device model is mid-download on an eligible,
+    /// enabled device — mirrors `ConnectAIView`'s equivalent check so both
+    /// screens agree on what "downloading" means.
+    private var appleOnDeviceDownloading: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            if case .downloading = FoundationModelsService.readiness { return true }
+        }
+        #endif
+        return false
     }
 }
 

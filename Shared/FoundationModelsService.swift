@@ -393,13 +393,60 @@ struct FoundationModelsService: ReceiptExtractor {
 
     // MARK: - Availability
 
-    /// Whether the on-device model is usable right now (device eligible +
-    /// Apple Intelligence enabled + model downloaded).
-    static var isModelReady: Bool {
+    /// `SystemLanguageModel.availability` collapses to `.available` /
+    /// `.unavailable(reason)`, but callers care about a real third state:
+    /// a capable, enabled iPhone whose multi-GB model just hasn't finished
+    /// downloading yet looks identical to a phone that can never run it if
+    /// all you check is a Bool. This distinguishes "works here, not yet" from
+    /// "will never work here" so the UI can say so instead of silently
+    /// falling back to OCR-only extraction with no explanation.
+    ///
+    /// `.appleIntelligenceNotEnabled` is deliberately folded into
+    /// `.notEligible` rather than given its own case for now — that's a
+    /// capable device where the user just hasn't flipped the system switch,
+    /// a distinct "one-tap fix" state from either of these. Surfacing that
+    /// is a separate piece of work; this only needs to keep the reason
+    /// around (rather than discard it) so that work doesn't have to
+    /// re-derive it later.
+    enum ModelReadinessStatus {
+        case ready
+        /// Device is eligible and Apple Intelligence is on, but the
+        /// on-device model itself isn't ready yet — in practice this means
+        /// it's still downloading over Wi-Fi.
+        case downloading
+        /// Nothing to wait for right now: hardware/OS can't run the model,
+        /// Apple Intelligence is off, or (nil) a future availability case
+        /// this file doesn't recognize yet. The reason is kept, not
+        /// stringified, so future callers (e.g. a "turn on Apple
+        /// Intelligence" prompt) can branch on it without re-deriving it.
+        case notEligible(SystemLanguageModel.Availability.UnavailableReason?)
+    }
+
+    /// The current readiness, distinguishing "downloading" from "not
+    /// eligible" — see `ModelReadinessStatus`.
+    static var readiness: ModelReadinessStatus {
         switch SystemLanguageModel.default.availability {
-        case .available: return true
-        default: return false
+        case .available:
+            return .ready
+        case .unavailable(.modelNotReady):
+            return .downloading
+        case .unavailable(let reason):
+            return .notEligible(reason)
+        @unknown default:
+            // An availability case added after this file was written —
+            // treat conservatively as "not eligible" (hide the option)
+            // rather than claim readiness we can't back up.
+            return .notEligible(nil)
         }
+    }
+
+    /// Whether the on-device model is usable right now (device eligible +
+    /// Apple Intelligence enabled + model downloaded). Existing callers that
+    /// only need a yes/no answer keep using this; UI that wants to explain
+    /// *why not* should use `readiness` instead.
+    static var isModelReady: Bool {
+        if case .ready = readiness { return true }
+        return false
     }
 
     private static func ensureModelAvailable() throws {
