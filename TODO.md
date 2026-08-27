@@ -111,7 +111,7 @@ screen, with a direct link to Settings → Apple Intelligence & Siri. Show once 
 do not nag — but leave a permanent entry point in the app's own Settings for
 someone who enables it months later.
 
-## 7. Prime permissions before the system dialog — ONE TIME BY NATURE
+## 7. Prime permissions before the system dialog — DONE (5fc7ff8)
 
 iOS asks for camera and photo access exactly once. Cold system dialogs get
 reflexive "Don't Allow" taps, and once denied the capture flow dead-ends with
