@@ -120,15 +120,31 @@ most users not knowing how to re-grant.
 **Change:** one short screen explaining why, shown *before* the system prompt —
 "Receipts4Tax needs your camera to scan receipts. Nothing leaves your phone."
 
-## 8. Decide what the share-extension cold start should be — DESIGN QUESTION
+## 8. Share-extension cold start — DECIDED, then implemented
 
 Plenty of users will meet this app by sharing a photo from Photos, having never
 opened it. That path has no wizard, no priming, no empty state — and it runs the
 same `ReceiptSubmitView` with the same validation.
 
-Item 1 fixes it. Items 4–7 do not reach it at all. Worth deciding deliberately
-what a first-time share-sheet user should see rather than letting it be whatever
-falls out.
+**Decision:** do not replicate the main app's onboarding wizard inside the share
+extension. Extensions run under tight memory limits, get killed for overreach,
+and are a modal, single-purpose surface handed a fixed 30 seconds or so — not
+where a first-run experience belongs. Most of what a cold-start share user needs
+is already covered for free, since it lives in code the extension already runs:
+item 1 (never block the save), item 5 (honest "still downloading" messaging),
+item 6 (Apple Intelligence default/nudge) are all in `Shared/`.
+
+What's actually missing is small:
+1. A way back to the main app — the extension is a dead end today; someone who
+   wants to connect an AI provider or see their other receipts has no path
+   there from inside it.
+2. Confirmation, not new code, that shared state (`CategoryStore`,
+   `ExtractionSettings`) initializes correctly when the extension is the
+   *first* process ever to touch the App Group — i.e. someone shares a photo
+   before ever opening the app once. This should already work since both read
+   from the same App Group `UserDefaults` suite regardless of which process
+   gets there first, but it was never explicitly verified from a true
+   first-touch cold start.
 
 ## 9. Bundled sample receipt — FIRST RUN ONLY
 
