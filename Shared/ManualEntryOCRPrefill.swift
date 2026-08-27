@@ -220,27 +220,75 @@ enum ManualEntryOCRPrefill {
             }
         }
 
-        // Fallback: no usable "@" survived OCR. Scan for a bare
-        // domain-shaped token instead and take the first *valid* one in
-        // reading order (matches are visited top-to-bottom since the text
-        // is laid out that way) — earliest on the receipt is more likely
-        // to be the merchant's own masthead/header than a third-party URL
-        // (a payment processor's domain, an unrelated brand's promo link)
-        // buried further down in footer marketing copy. This is weaker
-        // evidence than an "@" match, which is why it only runs when that
-        // path finds nothing.
+        // Fallback: no usable "@" survived OCR. Scan for every bare
+        // domain-shaped token (not just the first) — collecting all of them
+        // is what lets the disambiguation below tell a genuine merchant
+        // domain apart from an OCR fusion artifact; taking only the first
+        // match in reading order, as this used to do, is exactly what let
+        // the low-light Home Depot photo through: OCR read the receipt's
+        // "@" as an "S" instead of dropping it, fusing the cashier's
+        // username onto the front of the real domain
+        // ("PULASHOMEDEPOT.COM"), which looks like a perfectly valid domain
+        // and sits *above* the clean "homedepot.com" printed in the
+        // footer — so "first in reading order" picked the corrupted one.
         guard let domainRegex = try? NSRegularExpression(
             pattern: #"\b((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})\b"#
         ) else { return nil }
 
         let range = NSRange(text.startIndex..., in: text)
+        var candidates: [String] = [] // lowercase registrable names, in reading order, duplicates kept (for frequency)
         for match in domainRegex.matches(in: text, range: range) {
-            guard let domainRange = Range(match.range(at: 1), in: text) else { continue }
-            if let name = registrableVendorName(fromDomain: String(text[domainRange])) {
-                return name
-            }
+            guard let domainRange = Range(match.range(at: 1), in: text),
+                  let registrable = registrableDomainName(fromDomain: String(text[domainRange])) else { continue }
+            candidates.append(registrable)
         }
-        return nil
+        guard !candidates.isEmpty else { return nil }
+
+        // Dedupe while keeping first-occurrence order — this is the order
+        // ties fall back to below, same as the old "first match wins" rule.
+        var seen = Set<String>()
+        let uniqueInOrder = candidates.filter { seen.insert($0).inserted }
+
+        // Suffix rule: OCR fusing a stray character/word onto the front of
+        // a real domain is a known, recurring failure mode; two genuinely
+        // different companies both printing a domain on the same receipt
+        // where one's name is a proper suffix of the other's ("homedepot"
+        // vs. "pulashomedepot") is far less likely. When that shape shows
+        // up, treat the longer one as the fusion artifact and drop it —
+        // but only when a shorter candidate is actually present in the
+        // text to justify the call; a lone domain with no corroborating
+        // shorter match is left completely alone; truncating an
+        // unaccompanied domain on suspicion alone would risk mangling a
+        // real, longer brand name that simply happens to contain a shorter
+        // dictionary-ish word.
+        let suffixArtifacts = Set(uniqueInOrder.filter { longer in
+            uniqueInOrder.contains { shorter in shorter != longer && longer.hasSuffix(shorter) }
+        })
+        let survivors = uniqueInOrder.filter { !suffixArtifacts.contains($0) }
+        guard !survivors.isEmpty else { return nil }
+
+        // Among survivors, prefer whichever printed most often. A
+        // merchant's own domain often appears more than once on a receipt
+        // (header masthead, footer "learn more" link, loyalty program
+        // text); a one-off mention — a third-party URL in a single line of
+        // marketing copy — typically doesn't repeat. This is a weaker,
+        // secondary signal: it only breaks ties among domains the suffix
+        // rule didn't already resolve, and when frequencies tie too
+        // (the common case — most domains on a receipt appear exactly
+        // once), reading order still decides, same as before this fix.
+        let frequency = Dictionary(candidates.map { ($0, 1) }, uniquingKeysWith: +)
+        guard let chosen = survivors.max(by: { (frequency[$0] ?? 0, negativeIndex(of: $0, in: uniqueInOrder))
+            < (frequency[$1] ?? 0, negativeIndex(of: $1, in: uniqueInOrder)) })
+        else { return nil }
+
+        return titleCased(chosen)
+    }
+
+    /// `uniqueInOrder`'s reading-order position, negated so that "earlier in
+    /// the text" sorts as "larger" alongside frequency in the `max(by:)`
+    /// tuple comparison above (both criteria should favor bigger values).
+    private static func negativeIndex(of name: String, in ordered: [String]) -> Int {
+        -(ordered.firstIndex(of: name) ?? 0)
     }
 
     /// Shared by both the `@domain.tld` match and the bare-`domain.tld`
@@ -250,6 +298,19 @@ enum ManualEntryOCRPrefill {
     /// payment processor, or other domain that would be a worse vendor
     /// guess than falling through to the line heuristic.
     private static func registrableVendorName(fromDomain domain: String) -> String? {
+        guard let registrable = registrableDomainName(fromDomain: domain) else { return nil }
+        return titleCased(registrable)
+    }
+
+    /// Same filtering as `registrableVendorName` above but stops short of
+    /// title-casing, returning the lowercase registrable label itself.
+    /// Split out so the bare-domain fallback can compare/dedupe/count
+    /// candidates by their actual registrable name (`registrableDomainName`
+    /// == "homedepot" from *this* domain and "homedepot" from a second,
+    /// differently-cased occurrence must be recognized as the same
+    /// candidate) before deciding which single one to title-case and
+    /// return.
+    private static func registrableDomainName(fromDomain domain: String) -> String? {
         let labels = domain.lowercased().split(separator: ".").map(String.init)
         guard labels.count >= 2 else { return nil }
 
@@ -289,7 +350,14 @@ enum ManualEntryOCRPrefill {
         ]
         guard !excludedDomains.contains(registrable) else { return nil }
 
-        return registrable.prefix(1).uppercased() + registrable.dropFirst()
+        return registrable
+    }
+
+    /// Title-cases a lowercase registrable label for display — "homedepot"
+    /// -> "Homedepot". Pulled out on its own so the bare-domain fallback can
+    /// pick a winning candidate first and title-case only that one.
+    private static func titleCased(_ registrable: String) -> String {
+        registrable.prefix(1).uppercased() + registrable.dropFirst()
     }
 
     private static func isPlausibleVendorLine(_ line: String) -> Bool {

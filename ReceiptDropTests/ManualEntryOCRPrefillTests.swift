@@ -362,10 +362,136 @@ final class ManualEntryOCRPrefillTests: XCTestCase {
         // When no "@" survives OCR at all, and multiple distinct bare
         // domains are printed, the fallback should prefer the one that
         // appears earlier (closer to the merchant's own header) over one
-        // buried further down in footer/marketing copy.
+        // buried further down in footer/marketing copy. Neither domain here
+        // is a suffix of the other and both appear exactly once, so this
+        // exercises the plain reading-order tiebreak, unaffected by the
+        // suffix/frequency rules added for the fused-username bug below.
         let text = """
         Visit westcoasthardware.com for hours
         Financing details at somebank.com/apply
+        Total                   42.10
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Westcoasthardware")
+    }
+
+    // MARK: - Vendor: bare-domain fallback, fused-username OCR artifact
+    // (real-device evidence — low-light photo of the same Home Depot receipt
+    // that motivated `testVendorFallsBackToBareDomainWhenAtSignIsMangled`
+    // above; see `50e93d1` and the bug report this fix responds to)
+
+    func testVendorBareDomainFallbackResolvesFusedUsernameToTheShorterRealDomain() {
+        // The exact real-world failure: low light made OCR read the "@" in
+        // "ALEXANDER_S_PULA@HOMEDEPOT.COM" as an "S" instead of dropping it,
+        // fusing the username onto the domain into "PULASHOMEDEPOT.COM" —
+        // a perfectly valid-looking domain that sits above the clean
+        // "homedepot.com" printed a few lines down in the footer. Taking
+        // "the first bare domain in reading order" (the pre-fix rule)
+        // confidently returns "Pulashomedepot". Since "homedepot" is a
+        // proper suffix of "pulashomedepot" and both are actually printed
+        // on this receipt, the suffix rule must recognize the longer one as
+        // the fusion artifact and resolve to the real, shorter domain
+        // instead.
+        let text = """
+        PULASHOMEDEPOT.COM
+        0603  00053  01304   07/09/26  01:05 PM
+        SUBTOTAL     134.73
+        TOTAL       $145.17
+        Learn more at homedepot.com/credit
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Homedepot")
+    }
+
+    func testVendorBareDomainFallbackGoodLightVariantStillResolvesToHomedepot() {
+        // Regression check for the good-light capture of the same receipt:
+        // OCR here reads the "@" as "Ö" ("PULACHOMEDEPÖT.COM"), which
+        // contains a non-ASCII-letter character the bare-domain regex
+        // (`[A-Za-z0-9-]`) can't match at all, so it never becomes a
+        // candidate in the first place — only the clean "homedepot.com"
+        // footer mention ever enters the candidate list, and the suffix/
+        // frequency logic added for the low-light case has nothing to do.
+        // This already worked before this fix; pinned here so the new
+        // multi-candidate logic doesn't regress it.
+        let text = """
+        ALEXANDER S_PULACHOMEDEPÖT.COM
+        0603  00053  01304   07/09/26  01:05 PM
+        SUBTOTAL     134.73
+        TOTAL       $145.17
+        Learn more at homedepot.com/credit
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Homedepot")
+    }
+
+    func testVendorEmailMatchStillWinsOutrightOverAFusedBareDomainElsewhere() {
+        // When a literal "@" survives OCR and parses cleanly, that path
+        // returns before the bare-domain fallback (and its suffix/frequency
+        // disambiguation) ever runs at all — the "@" match stays the
+        // highest-confidence signal regardless of what else is printed.
+        let text = """
+        alexander_s_pula@homedepot.com
+        0603  00053  01304   07/09/26  01:05 PM
+        TOTAL       $145.17
+        Learn more at homedepot.com/credit
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Homedepot")
+    }
+
+    func testVendorBareDomainFallbackDoesNotTruncateALoneFusedLookingDomain() {
+        // The suffix rule only fires when a shorter candidate is actually
+        // corroborated by a second, independent match in the text — it must
+        // never start stripping a suspected prefix off a single domain that
+        // appears alone, since that risks mangling a real (if unlucky)
+        // brand name that happens to end in a shorter, more common word.
+        // With nothing else printed, "pulashomedepot.com" is taken at face
+        // value, same as any other single bare-domain match.
+        let text = """
+        PULASHOMEDEPOT.COM
+        Total                   42.10
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Pulashomedepot")
+    }
+
+    func testVendorBareDomainFallbackExcludesPersonalEmailProviderEvenWhenItRepeatsMoreOften() {
+        // The personal-email-provider exclusion is applied per candidate
+        // before the frequency comparison ever runs — an excluded domain
+        // must never win purely because it happens to be printed more
+        // often than the real (excluded-list-clear) merchant domain.
+        let text = """
+        Ace Hardware
+        Loyalty account gmail.com
+        Newsletter signup at gmail.com
+        Learn more at acehardware.com
+        Total                   42.10
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Acehardware")
+    }
+
+    func testVendorBareDomainFallbackExcludesPaymentProcessorEvenWhenItRepeatsMoreOften() {
+        // Same guarantee for the payment-processor exclusion list — being
+        // printed on every receipt line (surcharge notice, "powered by"
+        // footer, card-network branding) must never be enough to outrank
+        // the real merchant's own, less-frequently-printed domain.
+        let text = """
+        Ace Hardware
+        Powered by squareup.com
+        Visit squareup.com for merchant details
+        Learn more at acehardware.com
+        Total                   42.10
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Acehardware")
+    }
+
+    func testVendorBareDomainFallbackFrequencyBreaksTieWhenNeitherIsASuffixOfTheOther() {
+        // Frequency is the secondary signal this fix adds: when two
+        // unrelated (non-suffix) domains are both printed and neither the
+        // suffix rule nor plain reading order alone would obviously be
+        // "more correct," a domain repeated across the receipt (header and
+        // footer, as a real merchant's own domain often is) should win over
+        // a domain that only appears once, even though the one-off domain
+        // is printed first.
+        let text = """
+        Financing details at somebank.com/apply
+        Visit westcoasthardware.com for hours
+        Thanks for shopping at westcoasthardware.com
         Total                   42.10
         """
         XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Westcoasthardware")
