@@ -30,6 +30,32 @@ that isn't printed on the receipt. An empty vendor becomes something like
 **Also fixes the share extension**, which runs the same view with the same
 validation and has no onboarding of its own (see item 8).
 
+## 1b. A wrong-looking guess is worse than a blank one — PERMANENT
+
+Found testing item 1's fix. There are two separate ways the Vendor field can
+be bad, and only one of them is currently flagged.
+
+- **Field is blank** (OCR found nothing plausible) → fixed in `cb9b7ef`: saves
+  as "Unknown Vendor", flagged `needsReview`.
+- **Field has real-looking text that is simply wrong** (OCR guessed a slogan
+  or the wrong line — the original "How doers" case from the Home Depot
+  receipt) → saves verbatim, **no flag at all**. This was never blocking
+  Submit, so item 1 correctly left it alone, but it's arguably the more
+  dangerous case: a wrong name that reads as plausible can sit in a tax
+  record indefinitely with nothing marking it for a second look, where a
+  blank field is at least obviously wrong.
+
+**Open question, not yet decided:** should every manually-saved receipt
+(no AI, or "Continue Without AI") get `needsReview` regardless of whether
+the fields look filled-in, since none of it was actually verified? Or is
+that too noisy — everyone using the no-AI path forever sees every receipt
+flagged? Consider whether `needsReview` should instead attach specifically
+to fields that came from `ManualEntryOCRPrefill` and were never edited by
+the user (edited-by-hand implies the user looked at and confirmed it),
+versus fields the user actually typed or corrected themselves. That
+distinction isn't currently tracked anywhere in `ReceiptSubmitView` — would
+need new state, not just reusing what's there.
+
 ## 2. "Work Date" is jargon — PERMANENT
 
 A first-time user is asked for a **Work Date** before they can save. Nobody
@@ -127,7 +153,8 @@ needing better guesses.
 
 ## Sequencing
 
-1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
+1 (done, cb9b7ef) → 1b (needs a product decision first — see the open question
+above, don't implement until it's answered) → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
 
 Item 1 first: it is the only one with a real bug behind it, it is permanent, and
 it is the only one that also covers the share extension.
