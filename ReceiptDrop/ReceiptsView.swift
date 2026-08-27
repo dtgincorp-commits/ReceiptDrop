@@ -23,6 +23,12 @@ struct ReceiptsView: View {
     @State private var entries: [HistoryEntry] = []
     @State private var commentsMap: [String: String] = [:]
     @State private var newReceiptSource: NewReceiptSource?
+    /// Drives the "Try it with a sample receipt" preview — see
+    /// `SampleReceiptDemoView`. Lives here rather than as a `NewReceiptSource`
+    /// case: every other case in that enum ends up inside a real
+    /// `SharedAttachment`/`ReceiptSubmitView` flow that can save, and this
+    /// one deliberately never does.
+    @State private var showSampleReceiptDemo = false
     /// IDs (year/month/day) the user has manually collapsed. Everything else
     /// starts expanded.
     @State private var collapsed: Set<AnyHashable> = []
@@ -493,6 +499,25 @@ struct ReceiptsView: View {
                                 .background(Theme.actionBlue, in: Capsule())
                         }
                         .padding(.top, 8)
+
+                        // Deliberately a plain-text button below the real
+                        // capsule CTA above, not a second capsule or a menu
+                        // item next to "Enter Manually" — this is a
+                        // no-camera, no-receipt-in-hand fallback for someone
+                        // who wants to see the pipeline work before trusting
+                        // it with a real receipt (TODO.md item 9), not a
+                        // third way to submit one for real. It has to read
+                        // as secondary to both scanning and manual entry.
+                        // Only shown while the list is genuinely empty, which
+                        // is what makes this "first run" without a separate
+                        // flag — once a real receipt exists this button is
+                        // gone for good, same as the capsule above it.
+                        Button("Try it with a sample receipt") {
+                            showSampleReceiptDemo = true
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
                     }
                 } else if isSearching || reviewFilterActive {
                     List {
@@ -716,6 +741,9 @@ struct ReceiptsView: View {
         }
         .sheet(item: $newReceiptSource) { source in
             NewReceiptView(source: source, onComplete: reload)
+        }
+        .sheet(isPresented: $showSampleReceiptDemo) {
+            SampleReceiptDemoView(onDone: { showSampleReceiptDemo = false })
         }
         .fullScreenCover(isPresented: $showBillCapture, onDismiss: {
             // Runs after the cover has fully finished dismissing, so
