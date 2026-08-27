@@ -469,10 +469,31 @@ struct ReceiptsView: View {
         NavigationStack {
             Group {
                 if entries.isEmpty {
+                    // The single most important screen for a first-time
+                    // user: zero receipts, period (not a search or category
+                    // filter narrowing an otherwise non-empty list — those
+                    // stay plain captions below). Give it a real call to
+                    // action instead of leaving the toolbar "+" as the only,
+                    // easy-to-miss way in. The button opens the exact same
+                    // `newReceiptMenuItems` the toolbar "+" and floating
+                    // button already share, so there's one source of truth
+                    // for "how to start a new receipt," not a second one.
                     ContentUnavailableCompatView(
                         title: "No Receipts Yet",
                         message: "Receipts you submit will appear here."
-                    )
+                    ) {
+                        Menu {
+                            newReceiptMenuItems
+                        } label: {
+                            Label("Scan Your First Receipt", systemImage: "camera.fill")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 12)
+                                .background(Theme.actionBlue, in: Capsule())
+                        }
+                        .padding(.top, 8)
+                    }
                 } else if isSearching || reviewFilterActive {
                     List {
                         categoryPillRow

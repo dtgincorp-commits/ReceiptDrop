@@ -708,9 +708,22 @@ private struct QueueEntryDetailView: View {
 }
 
 /// iOS 16-compatible stand-in for ContentUnavailableView (which is iOS 17+).
-struct ContentUnavailableCompatView: View {
+///
+/// `actions` defaults to `EmptyView`, so every existing call site (search
+/// results, filtered-category, upload queue, insights, duplicate review) is
+/// unaffected — it's opt-in, used only where an empty state should actually
+/// invite a specific next action (the "zero receipts, period" case) rather
+/// than just narrate why the list is empty.
+struct ContentUnavailableCompatView<Actions: View>: View {
     let title: String
     let message: String
+    @ViewBuilder var actions: () -> Actions
+
+    init(title: String, message: String, @ViewBuilder actions: @escaping () -> Actions = { EmptyView() }) {
+        self.title = title
+        self.message = message
+        self.actions = actions
+    }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -723,6 +736,7 @@ struct ContentUnavailableCompatView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
+            actions()
         }
     }
 }
