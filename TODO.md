@@ -154,6 +154,22 @@ it work in seconds, before being asked for anything.
 
 Lowest priority of the set — nice, not load-bearing.
 
+**Two decisions made before implementing:**
+
+1. **No real photo bundled.** A coding agent can't produce an actual photograph,
+   and this session's real test receipts carry real (if partially masked)
+   purchase data — shipping one to every install would be a privacy problem,
+   not just an aesthetic one. The demo image is generated synthetically at
+   runtime (drawn text on a canvas: fake vendor, line items, total, date) with
+   fabricated data, not a bundled asset file.
+
+2. **Preview only — never persists.** Running the demo through the real save
+   path would leave a fake "Demo Store" receipt sitting in the user's actual
+   Receipts list and CSV log afterward. The demo runs the real extraction
+   pipeline against the synthetic image and shows the result, then dismisses —
+   it must not call whatever `SubmissionPipeline`/save function a real
+   submission uses.
+
 ---
 
 ## Explicitly not doing
