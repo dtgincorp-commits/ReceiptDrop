@@ -79,7 +79,13 @@ struct ReceiptDraft {
     @Guide(description: "true if you are not confident the extracted values are correct (noisy text, ambiguous total, unclear date).")
     var lowConfidence: Bool
 
-    @Guide(description: "A short reason when lowConfidence is true; otherwise an empty string.")
+    // Left generic ("ambiguous total, unclear date") this produced exactly
+    // that generic phrase back — the model had nothing telling it what a
+    // useful reason looks like, so it echoed the category name instead of
+    // describing the receipt in front of it. Naming the shape of a good
+    // answer (point at the actual conflicting numbers/dates) is what gets a
+    // specific one back.
+    @Guide(description: "If lowConfidence is true, name the specific thing on THIS receipt that's ambiguous — e.g. \"total shows $84.50 but the tip line above it is blank\" or \"two dates printed, 08/09/26 and 09/08/26\" — not a generic label like \"ambiguous total\" or \"unclear date\". Otherwise an empty string.")
     var reviewReason: String
 }
 

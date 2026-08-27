@@ -134,9 +134,14 @@ struct ClaudeService: ReceiptExtractor {
                         "enum": ["high", "low"],
                         "description": "\"low\" if the receipt is handwritten, blurry, damaged, or any field (vendor, date, amount) was hard to read or guessed. \"high\" only if you're confident every field is accurate.",
                     ],
+                    // A generic instruction here ("explain why confidence is
+                    // low") produced generic phrases back ("ambiguous total,
+                    // unclear date") — no help to whoever has to act on the
+                    // flag. Naming what a specific answer looks like gets a
+                    // specific one back instead.
                     "confidence_reason": [
                         "type": "string",
-                        "description": "If confidence is \"low\", a short phrase explaining why (e.g. \"handwritten total, hard to read\"). Empty string if confidence is \"high\".",
+                        "description": "If confidence is \"low\", name the specific ambiguous detail on THIS receipt — e.g. \"total shows $84.50 but the 15% tip line above it is blank, unclear if tip is included\" or \"two dates printed, 08/09/26 and 09/08/26, unclear which is the transaction date\" — not a generic phrase like \"ambiguous total\" or \"unclear date\". Empty string if confidence is \"high\".",
                     ],
                     "vendor_type": [
                         "type": "string",
@@ -610,7 +615,11 @@ struct OpenAIService: ReceiptExtractor {
                 "amount": ["type": "string", "description": "The grand total as a plain number string with no currency symbol or thousands separators, e.g. 1234.56."],
                 "comments": ["type": "string", "description": "A short (max ~12 word) description of what was purchased."],
                 "confidence": ["type": "string", "enum": ["high", "low"], "description": "\"low\" if the receipt is handwritten, blurry, damaged, or any field was hard to read or guessed. \"high\" only if every field is confidently accurate."],
-                "confidence_reason": ["type": "string", "description": "If confidence is \"low\", a short phrase explaining why. Empty string if confidence is \"high\"."],
+                // A generic instruction here produced generic phrases back
+                // ("ambiguous total, unclear date") — no help to whoever has
+                // to act on the flag. Naming what a specific answer looks
+                // like gets a specific one back instead.
+                "confidence_reason": ["type": "string", "description": "If confidence is \"low\", name the specific ambiguous detail on THIS receipt — e.g. \"total shows $84.50 but the tip line above it is blank\" or \"two dates printed, 08/09/26 and 09/08/26\" — not a generic phrase like \"ambiguous total\" or \"unclear date\". Empty string if confidence is \"high\"."],
                 "vendor_type": ["type": "string", "enum": VendorTypeToken.allValidValues, "description": "The kind of business this vendor is, judged from its name/context. Pick the closest fit; use \"other\" if none fit well."],
             ],
             "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason", "vendor_type"],
@@ -718,7 +727,11 @@ struct PerplexityService: ReceiptExtractor {
                 "amount": ["type": "string", "description": "The grand total as a plain number string with no currency symbol or thousands separators, e.g. 1234.56."],
                 "comments": ["type": "string", "description": "A short (max ~12 word) description of what was purchased."],
                 "confidence": ["type": "string", "enum": ["high", "low"], "description": "\"low\" if the receipt is handwritten, blurry, damaged, or any field was hard to read or guessed. \"high\" only if every field is confidently accurate."],
-                "confidence_reason": ["type": "string", "description": "If confidence is \"low\", a short phrase explaining why. Empty string if confidence is \"high\"."],
+                // A generic instruction here produced generic phrases back
+                // ("ambiguous total, unclear date") — no help to whoever has
+                // to act on the flag. Naming what a specific answer looks
+                // like gets a specific one back instead.
+                "confidence_reason": ["type": "string", "description": "If confidence is \"low\", name the specific ambiguous detail on THIS receipt — e.g. \"total shows $84.50 but the tip line above it is blank\" or \"two dates printed, 08/09/26 and 09/08/26\" — not a generic phrase like \"ambiguous total\" or \"unclear date\". Empty string if confidence is \"high\"."],
                 "vendor_type": ["type": "string", "enum": VendorTypeToken.allValidValues, "description": "The kind of business this vendor is, judged from its name/context. Pick the closest fit; use \"other\" if none fit well."],
             ],
             "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason", "vendor_type"],
@@ -821,7 +834,15 @@ struct GeminiService: ReceiptExtractor {
                 "amount": ["type": "STRING"],
                 "comments": ["type": "STRING"],
                 "confidence": ["type": "STRING", "enum": ["high", "low"]],
-                "confidence_reason": ["type": "STRING"],
+                // Unlike the other providers' schemas, none of Gemini's
+                // fields carry a "description" here — but confidence_reason
+                // needs one anyway: with no guidance at all the model fell
+                // back to generic phrases like "ambiguous total, unclear
+                // date" instead of describing what's actually on the
+                // receipt. Gemini's schema format supports "description"
+                // per-property, so add just this one rather than restyling
+                // the whole schema.
+                "confidence_reason": ["type": "STRING", "description": "If confidence is \"low\", name the specific ambiguous detail on THIS receipt — e.g. \"total shows $84.50 but the tip line above it is blank\" or \"two dates printed, 08/09/26 and 09/08/26\" — not a generic phrase like \"ambiguous total\" or \"unclear date\". Empty string if confidence is \"high\"."],
                 "vendor_type": ["type": "STRING", "enum": VendorTypeToken.allValidValues],
             ],
             "required": ["vendor", "work_date", "amount", "comments", "confidence", "confidence_reason", "vendor_type"],
