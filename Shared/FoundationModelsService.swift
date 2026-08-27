@@ -401,42 +401,49 @@ struct FoundationModelsService: ReceiptExtractor {
     /// "will never work here" so the UI can say so instead of silently
     /// falling back to OCR-only extraction with no explanation.
     ///
-    /// `.appleIntelligenceNotEnabled` is deliberately folded into
-    /// `.notEligible` rather than given its own case for now — that's a
-    /// capable device where the user just hasn't flipped the system switch,
-    /// a distinct "one-tap fix" state from either of these. Surfacing that
-    /// is a separate piece of work; this only needs to keep the reason
-    /// around (rather than discard it) so that work doesn't have to
-    /// re-derive it later.
+    /// `.appleIntelligenceNotEnabled` gets its own case rather than being
+    /// folded into a generic "not eligible" bucket, because it's a distinct
+    /// "one-tap fix" state: a capable device where the user just hasn't
+    /// flipped the system switch, as opposed to hardware/OS that can never
+    /// run this at all. TODO.md item 6 surfaces this case with a prompt to
+    /// turn Apple Intelligence on.
     enum ModelReadinessStatus {
         case ready
         /// Device is eligible and Apple Intelligence is on, but the
         /// on-device model itself isn't ready yet — in practice this means
         /// it's still downloading over Wi-Fi.
         case downloading
-        /// Nothing to wait for right now: hardware/OS can't run the model,
-        /// Apple Intelligence is off, or (nil) a future availability case
-        /// this file doesn't recognize yet. The reason is kept, not
-        /// stringified, so future callers (e.g. a "turn on Apple
-        /// Intelligence" prompt) can branch on it without re-deriving it.
-        case notEligible(SystemLanguageModel.Availability.UnavailableReason?)
+        /// Hardware/OS can never run the model here (or a future
+        /// availability reason this file doesn't recognize yet, treated
+        /// conservatively the same way). Nothing to offer — hide the option,
+        /// exactly like before this case was split out.
+        case deviceNotEligible
+        /// The device COULD run the model — Apple Intelligence itself is
+        /// just off system-wide. Unlike `deviceNotEligible`, this is worth
+        /// surfacing with a prompt, since turning it on is a single Settings
+        /// toggle away.
+        case appleIntelligenceNotEnabled
     }
 
-    /// The current readiness, distinguishing "downloading" from "not
-    /// eligible" — see `ModelReadinessStatus`.
+    /// The current readiness, distinguishing "downloading" from the two
+    /// flavors of "not eligible" — see `ModelReadinessStatus`.
     static var readiness: ModelReadinessStatus {
         switch SystemLanguageModel.default.availability {
         case .available:
             return .ready
         case .unavailable(.modelNotReady):
             return .downloading
-        case .unavailable(let reason):
-            return .notEligible(reason)
+        case .unavailable(.appleIntelligenceNotEnabled):
+            return .appleIntelligenceNotEnabled
+        case .unavailable:
+            // Covers `.deviceNotEligible` and any reason this file doesn't
+            // recognize yet — both mean "nothing to fix from here."
+            return .deviceNotEligible
         @unknown default:
             // An availability case added after this file was written —
             // treat conservatively as "not eligible" (hide the option)
             // rather than claim readiness we can't back up.
-            return .notEligible(nil)
+            return .deviceNotEligible
         }
     }
 

@@ -190,10 +190,9 @@ struct ConnectAIView: View {
                 } else if appleOnDeviceDownloading {
                     // Eligible hardware, Apple Intelligence on, model just
                     // hasn't finished downloading — distinct from a device
-                    // that can never run it (item 6 in TODO.md handles the
-                    // "not enabled" case; this is only the download wait).
-                    // Say so instead of silently omitting the option, so the
-                    // user doesn't conclude it's broken and never check back.
+                    // that can never run it. Say so instead of silently
+                    // omitting the option, so the user doesn't conclude it's
+                    // broken and never check back.
                     Section {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Apple Intelligence is getting ready on this iPhone")
@@ -201,6 +200,27 @@ struct ConnectAIView: View {
                             Text("The on-device model is downloading — this happens over Wi-Fi while your phone is charging, and can take a while the first time. Receipts are read using on-device text recognition until it's ready.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                        }
+                    }
+                } else if appleIntelligenceNotEnabled {
+                    // Capable hardware, but the user hasn't flipped the
+                    // system-wide Apple Intelligence switch — a one-tap fix,
+                    // not a limitation, so this gets a nudge and a shortcut
+                    // rather than silently vanishing like a truly ineligible
+                    // device does. This is a first-run nudge only: it's
+                    // reachable again anytime from Settings (see
+                    // `SettingsView`), so missing it here isn't a dead end.
+                    Section {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Turn on Apple Intelligence")
+                                .font(.body.weight(.semibold))
+                            Text("Your iPhone supports it — turning it on lets Receipts4Tax read receipts with zero setup, no key needed.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button("Open Settings") {
+                                openSystemSettings()
+                            }
+                            .font(.caption.weight(.semibold))
                         }
                     }
                 }
@@ -268,6 +288,31 @@ struct ConnectAIView: View {
         #endif
         return false
     }
+
+    /// True only for "capable device, Apple Intelligence itself is off" —
+    /// the one state worth a nudge, since it's a single Settings toggle
+    /// rather than a hardware limitation.
+    private var appleIntelligenceNotEnabled: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            if case .appleIntelligenceNotEnabled = FoundationModelsService.readiness { return true }
+        }
+        #endif
+        return false
+    }
+}
+
+/// Opens this app's page in the Settings app. There is no stable, public
+/// deep link straight to the "Apple Intelligence & Siri" screen — Apple's
+/// only documented URL (`openSettingsURLString`) lands on the app's own
+/// Settings page, not a specific system screen, and the private "prefs:"
+/// schemes some apps use for exact sub-pages are unsupported and liable to
+/// break or draw App Store rejection. Landing one tap short of the toggle
+/// (System Settings app, rather than dead center on it) is the honest
+/// trade-off for a link that keeps working across iOS versions.
+func openSystemSettings() {
+    guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+    UIApplication.shared.open(url)
 }
 
 // MARK: - Per-provider setup

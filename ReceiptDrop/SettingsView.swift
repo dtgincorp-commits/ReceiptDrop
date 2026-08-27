@@ -167,6 +167,21 @@ struct SettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+                        // Unlike the first-run nudge in ConnectAIView (shown
+                        // once), this stays here permanently — someone who
+                        // enables Apple Intelligence months later, or wants
+                        // to jump to the toggle at all, can always find it
+                        // by way of this provider's own Settings row.
+                        if appleIntelligenceNotEnabled {
+                            Label("Apple Intelligence is off for this iPhone — turn it on for zero-setup, on-device reading.",
+                                  systemImage: "gearshape")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button("Open Settings") {
+                                openSystemSettings()
+                            }
+                            .font(.caption.weight(.semibold))
+                        }
                     } footer: {
                         Text("Reading and search both run on-device.")
                     }
@@ -280,6 +295,18 @@ struct SettingsView: View {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
             if case .downloading = FoundationModelsService.readiness { return true }
+        }
+        #endif
+        return false
+    }
+
+    /// True only for "capable device, Apple Intelligence itself is off" —
+    /// mirrors `ConnectAIView`'s equivalent check so both screens agree on
+    /// what "not enabled" means.
+    private var appleIntelligenceNotEnabled: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            if case .appleIntelligenceNotEnabled = FoundationModelsService.readiness { return true }
         }
         #endif
         return false
