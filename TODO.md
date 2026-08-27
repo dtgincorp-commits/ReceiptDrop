@@ -146,7 +146,7 @@ What's actually missing is small:
    gets there first, but it was never explicitly verified from a true
    first-touch cold start.
 
-## 9. Bundled sample receipt — FIRST RUN ONLY
+## 9. Bundled sample receipt — DONE (2203cf6)
 
 Let someone tap "Try it" and run the whole pipeline against a receipt image
 shipped inside the app. No camera permission, no real receipt in hand. They see
