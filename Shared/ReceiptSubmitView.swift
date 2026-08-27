@@ -176,14 +176,41 @@ struct ReceiptSubmitView: View {
         }
     }
 
-    private var manualFieldsValid: Bool {
-        !manualVendor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && Double(manualAmount.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+    /// Vendor is deliberately NOT part of this — an empty vendor no longer
+    /// blocks Submit (see `submitManually`, which falls back to
+    /// "Unknown Vendor" and flags the entry for review instead). Amount is
+    /// different: a wrong or placeholder *number* silently sitting in a tax
+    /// record is worse than an obviously-fake vendor name, since totals get
+    /// summed and nobody re-reads every line. So amount still has to parse
+    /// before Submit enables — but unlike before, `blockedSubmitReason`
+    /// below makes sure the button explains why instead of just sitting
+    /// disabled.
+    private var manualAmountValid: Bool {
+        Double(manualAmount.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
     }
 
     private var canSubmit: Bool {
         let needsManualFields = !ExtractionSettings.aiConfigured || proceedWithoutAI
-        return !selectedCategory.isEmpty && (!needsManualFields || manualFieldsValid)
+        return !selectedCategory.isEmpty && (!needsManualFields || manualAmountValid)
+    }
+
+    /// Human-readable reason Submit is currently disabled, or nil when it
+    /// isn't. `canSubmit` used to just disable the button with nothing
+    /// explaining why — see TODO.md item 1, "Never block the save" — so
+    /// this is shown right under the button whenever something still blocks
+    /// it, rather than leaving a silently-dead control.
+    private var blockedSubmitReason: String? {
+        guard !canSubmit else { return nil }
+        if selectedCategory.isEmpty {
+            return "Pick a category above to save this receipt."
+        }
+        let needsManualFields = !ExtractionSettings.aiConfigured || proceedWithoutAI
+        if needsManualFields && !manualAmountValid {
+            return manualAmount.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "Enter an amount to save this receipt — unlike the vendor, a missing or wrong dollar amount can't be safely guessed for a tax record."
+                : "\"\(manualAmount)\" isn't a valid amount — enter a number like 42.10 to save this receipt."
+        }
+        return nil
     }
 
     var body: some View {
@@ -433,6 +460,12 @@ struct ReceiptSubmitView: View {
                 }
             }
             .disabled(!canSubmit)
+            // Never a silently-dead button — see `blockedSubmitReason`.
+            if let blockedSubmitReason {
+                Text(blockedSubmitReason)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         case .running:
             HStack {
                 Spacer()
@@ -783,11 +816,39 @@ struct ReceiptSubmitView: View {
         }
     }
 
+    /// Fallback vendor written when the user submits with the Vendor field
+    /// still blank — happens whenever OCR prefill deliberately returned
+    /// nothing rather than guess (see `ManualEntryOCRPrefill.likelyVendorLine`)
+    /// and the user didn't type one in either. Saving still proceeds (see
+    /// TODO.md item 1, "Never block the save") — a missing name is easy to
+    /// spot and fix later from the Receipts list; refusing to save the
+    /// receipt at all is the actual harm.
+    static let unknownVendorPlaceholder = "Unknown Vendor"
+
+    /// Resolves what to actually save for Vendor from what the user typed —
+    /// pulled out of `submitManually` as its own static function so the
+    /// substitution (blank input still saves, as `unknownVendorPlaceholder`,
+    /// flagged for review) is unit-testable without standing up the view.
+    static func resolveManualVendor(_ raw: String) -> (vendor: String, needsReview: Bool, reviewReason: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty else { return (trimmed, false, "") }
+        return (unknownVendorPlaceholder, true, "Vendor name missing")
+    }
+
     /// No AI provider configured — saves the photo/PDF with the hand-typed
     /// fields instead of running extraction. Not routed through the retry
     /// queue on failure: retries there always re-run AI extraction
     /// (`SubmissionPipeline.run`), which would ignore what the user typed —
     /// simpler to just let them hit Submit again.
+    ///
+    /// Vendor is allowed to be empty here (see `canSubmit`, which no longer
+    /// requires it) — it's substituted with `unknownVendorPlaceholder` and
+    /// the saved entry is flagged `.needsReview`, the same mechanism
+    /// `ExtractedReceipt.build` already uses for an AI-read receipt with a
+    /// blank vendor. Amount is not handled this way: `canSubmit` still
+    /// requires it to parse before this function ever runs, so by the time
+    /// we're here `normalizedAmount` is always a real number the user
+    /// confirmed, not a placeholder.
     private func submitManually(data: Data, kind: ReceiptKind, category: String) {
         statusText = SubmissionPipeline.Stage.saving.statusText
         let formatter = DateFormatter()
@@ -795,7 +856,7 @@ struct ReceiptSubmitView: View {
         formatter.dateFormat = AppConstants.sheetDateFormat
         let normalizedAmount = Double(manualAmount.trimmingCharacters(in: .whitespacesAndNewlines))
             .map { String($0) } ?? manualAmount
-        let vendor = manualVendor.trimmingCharacters(in: .whitespacesAndNewlines)
+        let (vendor, vendorNeedsReview, vendorReviewReason) = Self.resolveManualVendor(manualVendor)
         let workDate = formatter.string(from: manualWorkDate)
         let comments = manualComments.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -803,7 +864,8 @@ struct ReceiptSubmitView: View {
             do {
                 _ = try SubmissionPipeline.saveWithoutExtraction(
                     data: data, kind: kind, category: category,
-                    vendor: vendor, workDate: workDate, amount: normalizedAmount, comments: comments)
+                    vendor: vendor, workDate: workDate, amount: normalizedAmount, comments: comments,
+                    needsReview: vendorNeedsReview, reviewReason: vendorReviewReason)
                 submitState = .success
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 onComplete()

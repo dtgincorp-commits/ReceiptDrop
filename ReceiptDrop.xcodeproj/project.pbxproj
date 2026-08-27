@@ -19,6 +19,7 @@
 		167A6DAFB1FCB380DC1D043D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60DE60441FC6CA5A44E28DEF /* SettingsView.swift */; };
 		16A31AF37D41B42F94982675 /* AutoBackupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32F2DD659E3FF9FED54431B /* AutoBackupService.swift */; };
 		1BEBCD8888AB65FF0B4D5827 /* APIKeyTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */; };
+		1E94254423D4555F1AFB3C0A /* ManualEntrySaveWithReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789972440BA93C2739F33479 /* ManualEntrySaveWithReviewTests.swift */; };
 		209B3D7E78931388864C1CC5 /* ReceiptDropApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399D1B3777B6FF27E193E2F1 /* ReceiptDropApp.swift */; };
 		22031BFF337270977E620A55 /* CategoryDeleteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF380D2280F12372F67471C0 /* CategoryDeleteService.swift */; };
 		222AB11BDCCC95A76EEE9A7A /* BillModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE72A7EE2EB472CB550F4F88 /* BillModels.swift */; };
@@ -30,14 +31,14 @@
 		33B67E5A8F3C95456C1D3091 /* BillPhotoViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86442B7A67FF10D3BC18F73F /* BillPhotoViewerView.swift */; };
 		379E0098262BB5CF0E978D5D /* LocalReceiptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */; };
 		38789BB5235E9A416422F54C /* CategoryMergeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B53F75D6339B27D330F62AF5 /* CategoryMergeService.swift */; };
+		390DB692A79E23CA647F6C80 /* AttachmentThumbnailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5D15E75C57846F860C9D3B /* AttachmentThumbnailTests.swift */; };
 		40103CE18DB63CAEC200FC8E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2BA4083781DB6C6A6F55D792 /* Assets.xcassets */; };
 		401A2E4BB076015C80CB489B /* BatchSubmissionRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50557937A6FFA7EE5E0A83CD /* BatchSubmissionRunner.swift */; };
-		AF51CE58E080EC951A7EF3BE /* AttachmentThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = D722E73BC9D30041753EE54E /* AttachmentThumbnail.swift */; };
-		7835D12D8694D1F6879E5711 /* AttachmentThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = D722E73BC9D30041753EE54E /* AttachmentThumbnail.swift */; };
 		438C22CA72F62D6792A44725 /* APIKeyTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */; };
 		47A0F236D3B5AA0B3B86D7B1 /* FoundationModelsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874DB9B5F6B131E4EF1B14AB /* FoundationModelsService.swift */; };
 		47A99C2F4083B3B48436F481 /* CategoryDeleteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF380D2280F12372F67471C0 /* CategoryDeleteService.swift */; };
 		48B4716DBEE24027E4094340 /* ClaudeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7730A1380B462CC48DB1C5E /* ClaudeService.swift */; };
+		4AECB132A2B48C728708FA5F /* AttachmentThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDBA80332CC2662CA3FB1FD8 /* AttachmentThumbnail.swift */; };
 		53A231EDE5EC0E17EDAF8BC0 /* BillModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE72A7EE2EB472CB550F4F88 /* BillModels.swift */; };
 		54EBDEACA67CDD0340D4C3E1 /* SubmissionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57FF61EB58699460FE16D612 /* SubmissionStore.swift */; };
 		54ED10E6932E78F13E41BA9E /* AppCurrency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */; };
@@ -56,8 +57,6 @@
 		8993C405D307C9986F22BE26 /* PendingSubmissionProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 963BBE1D80A49FFD5690A813 /* PendingSubmissionProcessor.swift */; };
 		8D9FC56A37C5FD5F392B6BCA /* ReceiptAmountDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = E09FF1A61ACC24D913C73900 /* ReceiptAmountDetector.swift */; };
 		8F48CC0DC6C42F2C928F1C82 /* ExtractionFailureClassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 974E714CBE6D526E00CE9477 /* ExtractionFailureClassTests.swift */; };
-		1D9C132860E3197FD85C93C1 /* AttachmentThumbnailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D82667C9734EE81639DE44B9 /* AttachmentThumbnailTests.swift */; };
-		EB626DE6E7903C3037397A27 /* CategoriesViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EC6EC45F54357DF6B5D9725 /* CategoriesViewTests.swift */; };
 		91B1D508C2908A0EB0045532 /* CategoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820F21560AF35EFF72979693 /* CategoryStore.swift */; };
 		92B9B6475BC80D6F58BD16D1 /* TorchPreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF53CB390C89FC9984BDC13 /* TorchPreferenceStore.swift */; };
 		94C1488C8061205BFD249837 /* LocalReceiptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */; };
@@ -98,11 +97,13 @@
 		DC2AEFBDB10450622ED9569E /* ReceiptCropService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE145F3A4C712818F908A82 /* ReceiptCropService.swift */; };
 		DEF3F7AFC83A15F5A809CF52 /* ScannedTextSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B3295A349899BF8290F0B97 /* ScannedTextSubmitView.swift */; };
 		E1B43E5E39B38CC08C3A7824 /* ExtractionLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35A1A78E48AAD20590B47E39 /* ExtractionLogicTests.swift */; };
+		E20C16E9ECEDB4D1F9D8706A /* CategoriesViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F2D0A26164BC1EB50AC9510 /* CategoriesViewTests.swift */; };
 		E23F74196CB32223A35D1C70 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 24F99E4477C2AFEDD8DC698B /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E520FAD5D609E53E000FD1CA /* SettingsInfoLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE989CFC7987A552BBCBBB3D /* SettingsInfoLink.swift */; };
 		E7AED0646507150C7FAAFA65 /* AzureDocumentIntelligenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */; };
 		F210E6892B5CEBFAC855857E /* ManualEntryOCRPrefillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E9F98C3A8C057A179F0CBE1 /* ManualEntryOCRPrefillTests.swift */; };
 		F3BF161A4231487C54B8DB46 /* InsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CFF6F9F94C524551A1A7102 /* InsightsView.swift */; };
+		F3DF8803716A82E76ED021D5 /* AttachmentThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDBA80332CC2662CA3FB1FD8 /* AttachmentThumbnail.swift */; };
 		F4D45048DA00D1430D6B75E3 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3363F7383B194313AE1C80FF /* Theme.swift */; };
 		FE5FFC1FA2508767E5C0500A /* BillEvalHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 525C3226B85E765DA6EC3B6C /* BillEvalHarness.swift */; };
 		FEE021180D225DB68B1FCF3D /* QuickSendContactStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C55D1066ECBE9ED09826A40 /* QuickSendContactStore.swift */; };
@@ -160,11 +161,11 @@
 		35A1A78E48AAD20590B47E39 /* ExtractionLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionLogicTests.swift; sourceTree = "<group>"; };
 		399D1B3777B6FF27E193E2F1 /* ReceiptDropApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptDropApp.swift; sourceTree = "<group>"; };
 		3B5E0049BD90BDFDE54268AE /* ConnectAIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectAIView.swift; sourceTree = "<group>"; };
+		3F2D0A26164BC1EB50AC9510 /* CategoriesViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoriesViewTests.swift; sourceTree = "<group>"; };
 		40594EEE43B6E118DC837A56 /* CategoriesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoriesView.swift; sourceTree = "<group>"; };
 		4538142851698631A6AF89CF /* ReceiptDropTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ReceiptDropTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4C55D1066ECBE9ED09826A40 /* QuickSendContactStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickSendContactStore.swift; sourceTree = "<group>"; };
 		50557937A6FFA7EE5E0A83CD /* BatchSubmissionRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchSubmissionRunner.swift; sourceTree = "<group>"; };
-		D722E73BC9D30041753EE54E /* AttachmentThumbnail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentThumbnail.swift; sourceTree = "<group>"; };
 		525C3226B85E765DA6EC3B6C /* BillEvalHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillEvalHarness.swift; sourceTree = "<group>"; };
 		54DEA5E5F2DDE4AC17C77C9D /* ReceiptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsView.swift; sourceTree = "<group>"; };
 		57FF61EB58699460FE16D612 /* SubmissionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubmissionStore.swift; sourceTree = "<group>"; };
@@ -178,8 +179,10 @@
 		692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReceiptStoreTests.swift; sourceTree = "<group>"; };
 		6B9C7F659B17F23A554F8347 /* SpendingInsightsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingInsightsService.swift; sourceTree = "<group>"; };
 		6CEFB96E5673FBC20796DFAE /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		6D5D15E75C57846F860C9D3B /* AttachmentThumbnailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentThumbnailTests.swift; sourceTree = "<group>"; };
 		6EE145F3A4C712818F908A82 /* ReceiptCropService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCropService.swift; sourceTree = "<group>"; };
 		75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCurrency.swift; sourceTree = "<group>"; };
+		789972440BA93C2739F33479 /* ManualEntrySaveWithReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualEntrySaveWithReviewTests.swift; sourceTree = "<group>"; };
 		7B3295A349899BF8290F0B97 /* ScannedTextSubmitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannedTextSubmitView.swift; sourceTree = "<group>"; };
 		820F21560AF35EFF72979693 /* CategoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryStore.swift; sourceTree = "<group>"; };
 		821135EAEB594F15E8ECCC57 /* DuplicateDetectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateDetectionService.swift; sourceTree = "<group>"; };
@@ -189,8 +192,6 @@
 		95B580A99D583CAAF76374FD /* ManualReceiptEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualReceiptEntryView.swift; sourceTree = "<group>"; };
 		963BBE1D80A49FFD5690A813 /* PendingSubmissionProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingSubmissionProcessor.swift; sourceTree = "<group>"; };
 		974E714CBE6D526E00CE9477 /* ExtractionFailureClassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionFailureClassTests.swift; sourceTree = "<group>"; };
-		D82667C9734EE81639DE44B9 /* AttachmentThumbnailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentThumbnailTests.swift; sourceTree = "<group>"; };
-		1EC6EC45F54357DF6B5D9725 /* CategoriesViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoriesViewTests.swift; sourceTree = "<group>"; };
 		9E9676D03C5C8CD8922DCCCB /* ReceiptDrop.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ReceiptDrop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A390548284FDD4A341F7ABF5 /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		A7730A1380B462CC48DB1C5E /* ClaudeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeService.swift; sourceTree = "<group>"; };
@@ -200,6 +201,7 @@
 		B53F75D6339B27D330F62AF5 /* CategoryMergeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryMergeService.swift; sourceTree = "<group>"; };
 		BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyTester.swift; sourceTree = "<group>"; };
 		C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubmissionPipeline.swift; sourceTree = "<group>"; };
+		CDBA80332CC2662CA3FB1FD8 /* AttachmentThumbnail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentThumbnail.swift; sourceTree = "<group>"; };
 		CEC8FCD6E9B669200EEEC134 /* BillReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillReviewView.swift; sourceTree = "<group>"; };
 		CF380D2280F12372F67471C0 /* CategoryDeleteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryDeleteService.swift; sourceTree = "<group>"; };
 		D65E49DF78FE2F53DF54D1FB /* ShareSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheetView.swift; sourceTree = "<group>"; };
@@ -229,13 +231,14 @@
 		99773B09C0189DAC4C6AAD78 /* ReceiptDropTests */ = {
 			isa = PBXGroup;
 			children = (
-				D82667C9734EE81639DE44B9 /* AttachmentThumbnailTests.swift */,
-				1EC6EC45F54357DF6B5D9725 /* CategoriesViewTests.swift */,
+				6D5D15E75C57846F860C9D3B /* AttachmentThumbnailTests.swift */,
+				3F2D0A26164BC1EB50AC9510 /* CategoriesViewTests.swift */,
 				974E714CBE6D526E00CE9477 /* ExtractionFailureClassTests.swift */,
 				35A1A78E48AAD20590B47E39 /* ExtractionLogicTests.swift */,
 				ACF73882CBDC5F84C48D9030 /* ExtractionSettingsOverrideTests.swift */,
 				692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */,
 				1E9F98C3A8C057A179F0CBE1 /* ManualEntryOCRPrefillTests.swift */,
+				789972440BA93C2739F33479 /* ManualEntrySaveWithReviewTests.swift */,
 			);
 			path = ReceiptDropTests;
 			sourceTree = "<group>";
@@ -271,7 +274,7 @@
 				E2941693C5D3EECC412C2593 /* AppConstants.swift */,
 				75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */,
 				65429EAA84DE433AE5FE8369 /* AppTextSize.swift */,
-				D722E73BC9D30041753EE54E /* AttachmentThumbnail.swift */,
+				CDBA80332CC2662CA3FB1FD8 /* AttachmentThumbnail.swift */,
 				0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */,
 				5B5CC0C2403B122863DCF1E3 /* BatchReceiptSubmitView.swift */,
 				50557937A6FFA7EE5E0A83CD /* BatchSubmissionRunner.swift */,
@@ -457,8 +460,8 @@
 				7BEB3A1247963FEF61B950FE /* AppConstants.swift in Sources */,
 				71CCDF38BD3109B77E790035 /* AppCurrency.swift in Sources */,
 				A933026D14369CB556BD7573 /* AppTextSize.swift in Sources */,
+				F3DF8803716A82E76ED021D5 /* AttachmentThumbnail.swift in Sources */,
 				16A31AF37D41B42F94982675 /* AutoBackupService.swift in Sources */,
-				AF51CE58E080EC951A7EF3BE /* AttachmentThumbnail.swift in Sources */,
 				E7AED0646507150C7FAAFA65 /* AzureDocumentIntelligenceService.swift in Sources */,
 				1579641B6C78471A95945A1E /* BatchReceiptSubmitView.swift in Sources */,
 				9B6EF7B44DF6ABBE6B508386 /* BatchSubmissionRunner.swift in Sources */,
@@ -518,7 +521,7 @@
 				565E406ADD2728D9A3D43D98 /* AppConstants.swift in Sources */,
 				54ED10E6932E78F13E41BA9E /* AppCurrency.swift in Sources */,
 				7DC9169DF1AABEE1E48F39A9 /* AppTextSize.swift in Sources */,
-				7835D12D8694D1F6879E5711 /* AttachmentThumbnail.swift in Sources */,
+				4AECB132A2B48C728708FA5F /* AttachmentThumbnail.swift in Sources */,
 				0A932F628E1DA811D4270E99 /* AzureDocumentIntelligenceService.swift in Sources */,
 				9FFCC53F9104DE83324DD46A /* BatchReceiptSubmitView.swift in Sources */,
 				401A2E4BB076015C80CB489B /* BatchSubmissionRunner.swift in Sources */,
@@ -557,13 +560,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1D9C132860E3197FD85C93C1 /* AttachmentThumbnailTests.swift in Sources */,
-				EB626DE6E7903C3037397A27 /* CategoriesViewTests.swift in Sources */,
+				390DB692A79E23CA647F6C80 /* AttachmentThumbnailTests.swift in Sources */,
+				E20C16E9ECEDB4D1F9D8706A /* CategoriesViewTests.swift in Sources */,
 				8F48CC0DC6C42F2C928F1C82 /* ExtractionFailureClassTests.swift in Sources */,
 				E1B43E5E39B38CC08C3A7824 /* ExtractionLogicTests.swift in Sources */,
 				9D8CFA582B47C35EB43B1CDC /* ExtractionSettingsOverrideTests.swift in Sources */,
 				94C1488C8061205BFD249837 /* LocalReceiptStoreTests.swift in Sources */,
 				F210E6892B5CEBFAC855857E /* ManualEntryOCRPrefillTests.swift in Sources */,
+				1E94254423D4555F1AFB3C0A /* ManualEntrySaveWithReviewTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

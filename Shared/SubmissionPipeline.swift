@@ -170,10 +170,19 @@ struct SubmissionPipeline {
     /// by hand instead. Same duplicate check and CSV/history shape as `run`,
     /// so a receipt saved this way is indistinguishable from an AI-read one
     /// once an AI provider is connected later — nothing to migrate.
+    ///
+    /// `needsReview`/`reviewReason` let the caller flag an entry it saved
+    /// with a placeholder value instead of blocking the save entirely — e.g.
+    /// `ReceiptSubmitView.submitManually` filling in "Unknown Vendor" when
+    /// OCR prefill couldn't confidently guess one. Defaults preserve the
+    /// original behavior (a hand-typed entry is `.verified` — a human already
+    /// looked at every field before tapping Submit) for the one other case
+    /// that matters: everything really was filled in by hand.
     @discardableResult
     static func saveWithoutExtraction(data: Data, kind: ReceiptKind, category: String,
                                        vendor: String, workDate: String, amount: String,
-                                       comments: String) throws -> HistoryEntry {
+                                       comments: String,
+                                       needsReview: Bool = false, reviewReason: String = "") throws -> HistoryEntry {
         if let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == workDate && $0.amount == amount
         }) {
@@ -187,7 +196,9 @@ struct SubmissionPipeline {
 
         let entry = HistoryEntry(
             category: category, vendor: vendor, workDate: workDate, amount: amount,
-            receiptLink: filename, timestamp: Date(), verificationStatus: .verified)
+            receiptLink: filename, timestamp: Date(),
+            verificationStatus: needsReview ? .needsReview : .verified,
+            reviewReason: reviewReason)
         SubmissionStore.appendHistory(entry)
         return entry
     }
