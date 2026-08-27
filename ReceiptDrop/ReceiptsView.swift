@@ -638,9 +638,9 @@ struct ReceiptsView: View {
                             groupByWorkDate = true
                         } label: {
                             if groupByWorkDate {
-                                Label("Group by Work Date", systemImage: "checkmark")
+                                Label("Group by Receipt Date", systemImage: "checkmark")
                             } else {
-                                Text("Group by Work Date")
+                                Text("Group by Receipt Date")
                             }
                         }
                         Divider()

@@ -43,7 +43,7 @@ struct ManualReceiptEntryView: View {
                         TextField("Amount", text: $amount)
                             .keyboardType(.decimalPad)
                     }
-                    DatePicker("Work Date", selection: $workDate, displayedComponents: .date)
+                    DatePicker("Receipt Date", selection: $workDate, displayedComponents: .date)
                     TextField("Comments", text: $comments, axis: .vertical)
                         .lineLimit(2...4)
                 }

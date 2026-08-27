@@ -94,7 +94,7 @@ struct EditReceiptView: View {
                             .keyboardType(.decimalPad)
                     }
                     .disabled(isSaving)
-                    DatePicker("Work Date", selection: $workDate, displayedComponents: .date)
+                    DatePicker("Receipt Date", selection: $workDate, displayedComponents: .date)
                         .disabled(isSaving)
                     TextField("Comments", text: $comments, axis: .vertical)
                         .lineLimit(2...4)

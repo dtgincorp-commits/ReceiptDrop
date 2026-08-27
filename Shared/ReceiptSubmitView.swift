@@ -304,7 +304,7 @@ struct ReceiptSubmitView: View {
                                 .keyboardType(.decimalPad)
                                 .disabled(controlsDisabled)
                         }
-                        DatePicker("Work Date", selection: $manualWorkDate, displayedComponents: .date)
+                        DatePicker("Receipt Date", selection: $manualWorkDate, displayedComponents: .date)
                             .disabled(controlsDisabled)
                         TextField("Comments", text: $manualComments, axis: .vertical)
                             .lineLimit(2...4)
