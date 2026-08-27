@@ -10,6 +10,10 @@ struct ShareSheetView: View {
     let onCancel: () -> Void
     let onComplete: () -> Void
     let extensionItems: [NSExtensionItem]
+    /// Opens the main app via `extensionContext?.open(_:completionHandler:)`
+    /// — a share extension has no `UIApplication.shared`, so this is the only
+    /// sandbox-safe way back. See ShareViewController for the actual call.
+    let onOpenMainApp: () -> Void
 
     @State private var attachment: SharedAttachment?
     @State private var batchAttachments: [SharedAttachment]?
@@ -40,6 +44,23 @@ struct ShareSheetView: View {
                     }
                 }
             }
+        }
+        // A low-key way back for someone meeting this app for the first time
+        // via the share sheet — they've never seen an AI-provider setup
+        // screen or their receipt history, and nothing else in this extension
+        // hints those exist. Sits below every state (loading, single-receipt,
+        // batch) rather than inside any one of them, so it doesn't compete
+        // with the actual submit flow and doesn't require touching
+        // ReceiptSubmitView.
+        .safeAreaInset(edge: .bottom) {
+            Button(action: onOpenMainApp) {
+                Text("Connect an AI provider or see all your receipts — open Receipts4Tax")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(.bar)
         }
         .onAppear(perform: loadAttachments)
     }

@@ -6,6 +6,15 @@ enum AppConstants {
     /// between the main app and the share extension.
     static let appGroupID = "group.com.datatechnologygroup.receipts4tax"
 
+    /// Custom URL scheme the main app registers (see ReceiptDrop/Info.plist's
+    /// CFBundleURLTypes) so the share extension has a way back to it. A
+    /// share-extension process has no `UIApplication.shared` and so can't call
+    /// `.open(_:)` directly — `extensionContext?.open(_:completionHandler:)`
+    /// with this scheme is the sandbox-safe equivalent. No path/query is ever
+    /// read on the receiving end today; this just launches the app to its
+    /// normal entry point (see ReceiptDropApp's `onOpenURL`).
+    static let urlScheme = "receiptdrop"
+
     /// Claude model used for receipt extraction. Haiku-class is fast and
     /// cheap and is sufficient for reading receipts. Change here if needed.
     static let claudeModel = "claude-haiku-4-5"

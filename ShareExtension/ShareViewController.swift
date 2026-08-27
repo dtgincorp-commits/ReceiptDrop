@@ -16,7 +16,15 @@ final class ShareViewController: UIViewController {
             onComplete: { [weak self] in
                 self?.extensionContext?.completeRequest(returningItems: nil)
             },
-            extensionItems: (extensionContext?.inputItems as? [NSExtensionItem]) ?? []
+            extensionItems: (extensionContext?.inputItems as? [NSExtensionItem]) ?? [],
+            onOpenMainApp: { [weak self] in
+                // `UIApplication.shared` doesn't exist in an extension's
+                // process — `extensionContext?.open` is the sandbox-approved
+                // substitute, and only works for a URL scheme the host app
+                // has registered (ReceiptDrop/Info.plist's CFBundleURLTypes).
+                guard let url = URL(string: "\(AppConstants.urlScheme)://") else { return }
+                self?.extensionContext?.open(url, completionHandler: nil)
+            }
         )
 
         let host = UIHostingController(rootView: rootView)

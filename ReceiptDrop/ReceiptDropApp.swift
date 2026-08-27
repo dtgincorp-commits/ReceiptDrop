@@ -13,6 +13,14 @@ struct ReceiptDropApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                // `onOpenURL` is a View modifier, not a Scene one — it has to
+                // sit on the content, not chained onto WindowGroup itself.
+                // The share extension's "open the main app" link (see
+                // ShareSheetView) uses this scheme purely to bring the app to
+                // the foreground — there's no path/query payload to route on,
+                // so landing on the normal ContentView is already the whole
+                // job.
+                .onOpenURL { _ in }
         }
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {

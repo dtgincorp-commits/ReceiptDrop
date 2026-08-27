@@ -58,6 +58,15 @@ targets:
         # Exposes Documents/Receipts in the Files app under "On My iPhone > ReceiptDrop".
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # Lets the share extension hand off to the main app via
+        # receiptdrop://; must stay in sync with AppConstants.urlScheme.
+        # Declared here (not just hand-edited into Info.plist) because
+        # `xcodegen generate` regenerates Info.plist from this file and
+        # silently drops any key not declared here.
+        CFBundleURLTypes:
+          - CFBundleURLName: $(PRODUCT_BUNDLE_IDENTIFIER)
+            CFBundleURLSchemes:
+              - receiptdrop
 
   ShareExtension:
     type: app-extension
