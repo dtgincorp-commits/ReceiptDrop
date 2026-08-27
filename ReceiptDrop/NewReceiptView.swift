@@ -302,6 +302,11 @@ struct CameraCaptureView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
+        // Without this, flash behavior on capture falls back to UIKit's
+        // undocumented default. `.auto` lets the camera's own exposure
+        // sensors decide whether low light warrants a flash; harmless on
+        // devices with no flash hardware — UIKit simply omits the flash UI.
+        picker.cameraFlashMode = .auto
         picker.delegate = context.coordinator
         return picker
     }
