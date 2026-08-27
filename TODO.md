@@ -100,7 +100,7 @@ collapses everything that isn't `.available` into false.
 
 **Change:** detect and surface "downloading" distinctly from "not supported."
 
-## 6. Surface "turn on Apple Intelligence" — FIRST RUN + PERMANENT SETTINGS ENTRY
+## 6. Surface "turn on Apple Intelligence" — DONE (2a978e9)
 
 There is a gap between *device supports it* and *device has it enabled*. A
 capable iPhone with Apple Intelligence switched off falls back to OCR silently,
