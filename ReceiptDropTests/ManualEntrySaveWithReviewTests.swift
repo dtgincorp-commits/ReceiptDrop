@@ -104,6 +104,50 @@ final class ManualEntrySaveWithReviewTests: XCTestCase {
         XCTAssertEqual(entry.amount, "42.10")
     }
 
+    // MARK: - SubmissionPipeline.saveWithoutExtraction allowDuplicate
+
+    /// Default behavior (`allowDuplicate` omitted, i.e. `false`) — a second
+    /// save with the same category/date/amount must still be rejected as a
+    /// duplicate. This is the existing, unchanged safety net; the point of
+    /// this test is to lock in that adding the bypass parameter didn't
+    /// quietly loosen the default path.
+    func testSaveWithoutExtractionStillRejectsDuplicateByDefault() throws {
+        _ = try SubmissionPipeline.saveWithoutExtraction(
+            data: Data("first".utf8), kind: .image, category: testCategory,
+            vendor: "Coffee Shop", workDate: "2026-08-18", amount: "4.50", comments: "")
+
+        XCTAssertThrowsError(try SubmissionPipeline.saveWithoutExtraction(
+            data: Data("second".utf8), kind: .image, category: testCategory,
+            vendor: "A Different Coffee Shop", workDate: "2026-08-18", amount: "4.50", comments: "")
+        ) { error in
+            guard case SubmissionError.duplicate = error else {
+                return XCTFail("expected SubmissionError.duplicate, got \(error)")
+            }
+        }
+    }
+
+    /// `allowDuplicate: true` is the "Save Anyway" bypass — an otherwise
+    /// identical category/date/amount match must be allowed through
+    /// instead of thrown, and the second entry must actually land in
+    /// history as its own row rather than being silently absorbed into the
+    /// first (the whole point: a repeat coffee order on the same day for
+    /// the same total is a real, distinct receipt).
+    func testSaveWithoutExtractionAllowDuplicateBypassesTheCheck() throws {
+        let first = try SubmissionPipeline.saveWithoutExtraction(
+            data: Data("first".utf8), kind: .image, category: testCategory,
+            vendor: "Coffee Shop", workDate: "2026-08-18", amount: "4.50", comments: "")
+
+        let second = try SubmissionPipeline.saveWithoutExtraction(
+            data: Data("second".utf8), kind: .image, category: testCategory,
+            vendor: "A Different Coffee Shop", workDate: "2026-08-18", amount: "4.50", comments: "",
+            allowDuplicate: true)
+
+        XCTAssertNotEqual(first.id, second.id)
+        let history = SubmissionStore.loadHistory()
+        XCTAssertTrue(history.contains { $0.id == first.id })
+        XCTAssertTrue(history.contains { $0.id == second.id })
+    }
+
     // MARK: - SubmissionPipeline.confirmReviewed
 
     /// Covers the "Confirm" swipe action / "Looks Good" button in

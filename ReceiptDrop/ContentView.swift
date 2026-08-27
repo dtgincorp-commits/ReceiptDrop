@@ -280,8 +280,19 @@ struct RetryQueueView: View {
             LocalReceiptStore.drainSpoolIntoDocuments()
             SubmissionStore.remove(entry)
             reload()
-        } catch is SubmissionError {
-            // Already recorded elsewhere — drop the stale queue entry, nothing to retry.
+        } catch let duplicate as SubmissionError {
+            // Already recorded elsewhere — retrying again would just hit the
+            // same duplicate check, so there's nothing to gain by leaving it
+            // queued. But the match only checks category/date/amount (not
+            // vendor), so this could genuinely be a different receipt —
+            // silently dropping the entry with no trace (the old behavior)
+            // left the user no way to know that happened or why. Surface
+            // the same message `ReceiptSubmitView` would, in the existing
+            // error banner, before removing it. This is a background/batch
+            // context, not an interactive moment, so unlike
+            // `ReceiptSubmitView`'s "Save Anyway" there's no bypass offered
+            // here — just visibility.
+            errorText = duplicate.localizedDescription
             SubmissionStore.remove(entry)
             reload()
         } catch {
@@ -351,6 +362,14 @@ private struct QueueOfflineChoiceView: View {
     @State private var isPreparingManualEntry = false
     @State private var showManualEntry = false
     @State private var manualAttachment: SharedAttachment?
+    /// Set when `useAppleIntelligence()` hits `SubmissionError.duplicate` —
+    /// swaps this sheet's content over to an "Already Saved" notice instead
+    /// of silently removing the queue entry and dismissing with no trace
+    /// (the old behavior). Kept simple relative to `ReceiptSubmitView`'s
+    /// "Save Anyway": this is a background-queue retry, not the interactive
+    /// moment that check was really designed to guard, so the only action
+    /// offered is acknowledging and dismissing — see `useAppleIntelligence()`.
+    @State private var duplicateNotice: String?
 
     init(entry: QueueEntry, reason: String, canUseAppleIntelligence: Bool,
          onResolved: @escaping () -> Void, onDismiss: @escaping () -> Void) {
@@ -364,6 +383,30 @@ private struct QueueOfflineChoiceView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let duplicateNotice {
+                    // Replaces the whole Apple Intelligence / Continue
+                    // Without AI fork below — there's nothing left to retry
+                    // once the pipeline says this is already recorded, so
+                    // the only thing left to do is show why before the
+                    // entry goes, then let the user dismiss.
+                    Section {
+                        Label("Already Saved", systemImage: "checkmark.circle.badge.questionmark")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.blue)
+                        Text(duplicateNotice)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Section {
+                        Button {
+                            SubmissionStore.remove(entry)
+                            onResolved()
+                        } label: {
+                            HStack { Spacer(); Text("OK").bold(); Spacer() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else {
                 Section {
                     Label("Couldn't reach AI extraction", systemImage: "wifi.exclamationmark")
                         .font(.subheadline.weight(.semibold))
@@ -434,6 +477,7 @@ private struct QueueOfflineChoiceView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                         .disabled(isRetrying || isPreparingManualEntry)
+                }
                 }
             }
             .navigationTitle("Retry Failed")
@@ -523,9 +567,14 @@ private struct QueueOfflineChoiceView: View {
             LocalReceiptStore.drainSpoolIntoDocuments()
             SubmissionStore.remove(entry)
             onResolved()
-        } catch is SubmissionError {
-            SubmissionStore.remove(entry)
-            onResolved()
+        } catch let duplicate as SubmissionError {
+            // Same reasoning as `RetryQueueView.retry`'s duplicate catch —
+            // show why before the entry goes instead of vanishing it
+            // silently. Doesn't remove the entry or dismiss immediately;
+            // `duplicateNotice` swaps this sheet's content to the notice
+            // above, and its "OK" button is what actually removes the
+            // entry and calls `onResolved()`, once the user has seen it.
+            duplicateNotice = duplicate.localizedDescription
         } catch {
             reason = error.localizedDescription
             canUseAppleIntelligence = false

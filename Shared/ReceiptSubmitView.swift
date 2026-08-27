@@ -102,6 +102,22 @@ struct ReceiptSubmitView: View {
     }
     @State private var pendingOfflineSubmission: PendingSubmission?
 
+    /// Held only while `.duplicate` is on screen — everything `saveDuplicateAnyway()`
+    /// needs to redo the exact save that was just blocked, this time with
+    /// `allowDuplicate: true`. A closure would be a simpler way to carry
+    /// "what to retry", but `SubmitState` (below) has to stay a plain,
+    /// inspectable enum the same way `.offlineChoice` already is — so the
+    /// retry's data lives here, keyed off which of the three save paths in
+    /// this file (`SubmissionPipeline.run`, forced or not, vs.
+    /// `saveWithoutExtraction`) actually threw the duplicate.
+    private enum PendingDuplicateRetry {
+        case run(data: Data, kind: ReceiptKind, category: String, forcedProvider: ExtractionProvider?)
+        case saveWithoutExtraction(data: Data, kind: ReceiptKind, category: String,
+                                    vendor: String, workDate: String, amount: String, comments: String,
+                                    needsReview: Bool, reviewReason: String)
+    }
+    @State private var pendingDuplicateRetry: PendingDuplicateRetry?
+
     // Same App Group store + key SettingsView writes, so the symbol shown
     // here always matches whatever the user picked — shared with the share
     // extension since this view is too.
@@ -129,7 +145,14 @@ struct ReceiptSubmitView: View {
     private static let amountNotPrintedMarker = "isn't printed on this receipt"
 
     /// Drives the Submit section's UI while the pipeline runs.
-    private enum SubmitState: Equatable {
+    ///
+    /// Not `Equatable` — one case below (`.duplicate`) would need
+    /// `HistoryEntry: Equatable` for that, and nothing here actually
+    /// compares whole `SubmitState` values; every check either pattern-matches
+    /// a single case (`controlsDisabled`, `isOfflineChoicePrompt`) or, for the
+    /// one place that used to write `submitState == .queued`, pattern-matches
+    /// too now (see the message color logic below).
+    private enum SubmitState {
         case idle
         case running
         case success
@@ -147,6 +170,16 @@ struct ReceiptSubmitView: View {
         /// because the configured provider *was* Apple On-Device and just
         /// failed, so offering it again would be pointless.
         case offlineChoice(reason: String, canUseAppleIntelligence: Bool)
+        /// A save was blocked because a history entry already matches this
+        /// receipt's category/date/amount (see `SubmissionError.duplicate`).
+        /// Deliberately its own case rather than reusing `.success` — the
+        /// save didn't actually happen, and the old behavior (showing the
+        /// green "Submitted" checkmark, which never even reads `message`)
+        /// was actively misleading. Carries the *existing* entry so the UI
+        /// can show what it matched against, and stays on screen — no
+        /// auto-dismiss timer — until the user picks "Save Anyway" or
+        /// "Discard".
+        case duplicate(existing: HistoryEntry)
     }
 
     private var controlsDisabled: Bool {
@@ -159,6 +192,14 @@ struct ReceiptSubmitView: View {
     /// (reported on an iPhone with a Dynamic Island, not just small screens).
     private var isOfflineChoicePrompt: Bool {
         if case .offlineChoice = submitState { return true }
+        return false
+    }
+
+    /// True when the queued-for-retry message should read as an error (red)
+    /// rather than a routine status note. Was `submitState == .queued`
+    /// before `SubmitState` dropped `Equatable` (see that enum's comment).
+    private var isQueuedState: Bool {
+        if case .queued = submitState { return true }
         return false
     }
 
@@ -338,7 +379,7 @@ struct ReceiptSubmitView: View {
                     if let message {
                         Text(message)
                             .font(.caption)
-                            .foregroundStyle(submitState == .queued ? .red : .secondary)
+                            .foregroundStyle(isQueuedState ? .red : .secondary)
                     }
                 }
             }
@@ -606,6 +647,44 @@ struct ReceiptSubmitView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.red)
             }
+        case .duplicate(let existing):
+            // Info-colored (blue), not green — this is explicitly not a
+            // "Submitted" confirmation. The match that triggered this only
+            // checks category/date/amount, not vendor, so it's a real
+            // false-positive risk (a repeat coffee order, a flat fee
+            // charged twice); showing the existing entry's details is what
+            // lets the user actually judge whether that's what happened.
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Already Saved", systemImage: "checkmark.circle.badge.questionmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.blue)
+                Text("A receipt already matches this category, date, and amount:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("\(existing.vendor.isEmpty ? "this vendor" : existing.vendor) — \(existing.workDate) — $\(existing.amount)")
+                    .font(.caption.weight(.medium))
+                Text("If this is a different receipt, save it anyway. Otherwise, discard this one — nothing further needs to happen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button {
+                    saveDuplicateAnyway()
+                } label: {
+                    HStack { Spacer(); Text("Save Anyway").bold(); Spacer() }
+                }
+                .buttonStyle(.borderedProminent)
+                // "Discard" mirrors the old default behavior (this receipt
+                // was already treated as done), just chosen explicitly by
+                // the user now instead of assumed on their behalf after a
+                // timer. `onComplete()`, not `onCancel()`, since every call
+                // site's `onComplete` is what actually closes out this
+                // submission (removing a retry-queue entry, draining the
+                // spool, dismissing the sheet) — the same cleanup that ran
+                // automatically before this fix.
+                Button(role: .destructive, action: onComplete) {
+                    HStack { Spacer(); Text("Discard"); Spacer() }
+                }
+                .buttonStyle(.bordered)
+            }
         }
     }
 
@@ -645,6 +724,73 @@ struct ReceiptSubmitView: View {
             newAmount: normalizedAmount, newComments: existingComments,
             newVendorType: entry.vendorType)
         onComplete()
+    }
+
+    /// Shared "what to show next" after a successful `SubmissionPipeline.run`
+    /// — used by `submit()`, `useAppleIntelligence()`, and the AI-extraction
+    /// branch of `saveDuplicateAnyway()`, all three of which run the same
+    /// pipeline call and need the same needsDate/needsAmount/success fork
+    /// (previously duplicated three ways; a fourth copy for Save Anyway was
+    /// the reason to pull it out).
+    private func finishAfterSave(_ entry: HistoryEntry) async {
+        if entry.verificationStatus == .needsReview,
+           entry.reviewReason.hasSuffix(Self.unreadableDateReasonSuffix) {
+            pendingDateEntry = entry
+            pickedDate = Date()
+            submitState = .needsDate
+        } else if entry.verificationStatus == .needsReview,
+                  entry.reviewReason.contains(Self.amountNotPrintedMarker) {
+            pendingAmountEntry = entry
+            pickedAmount = entry.amount
+            submitState = .needsAmount
+        } else {
+            submitState = .success
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            onComplete()
+        }
+    }
+
+    /// "Save Anyway" out of the `.duplicate` prompt — reruns the exact save
+    /// that was just blocked, this time with `allowDuplicate: true` so
+    /// `SubmissionPipeline` skips its category+date+amount match entirely.
+    /// This is the one place in the app that ever passes `allowDuplicate: true`
+    /// — an explicit, user-initiated retry of a save the user has already
+    /// been shown was flagged as a possible duplicate, not a blanket bypass.
+    private func saveDuplicateAnyway() {
+        guard let retry = pendingDuplicateRetry else { onComplete(); return }
+        pendingDuplicateRetry = nil
+        message = nil
+        submitState = .running
+
+        Task {
+            do {
+                switch retry {
+                case .run(let data, let kind, let category, let forcedProvider):
+                    statusText = SubmissionPipeline.Stage.reading.statusText
+                    let entry = try await SubmissionPipeline().run(
+                        data: data, kind: kind, category: category,
+                        forcedProvider: forcedProvider, allowDuplicate: true) { stage in
+                        statusText = stage.statusText
+                    }
+                    await finishAfterSave(entry)
+                case .saveWithoutExtraction(let data, let kind, let category, let vendor, let workDate,
+                                             let amount, let comments, let needsReview, let reviewReason):
+                    statusText = SubmissionPipeline.Stage.saving.statusText
+                    _ = try SubmissionPipeline.saveWithoutExtraction(
+                        data: data, kind: kind, category: category,
+                        vendor: vendor, workDate: workDate, amount: amount, comments: comments,
+                        needsReview: needsReview, reviewReason: reviewReason, allowDuplicate: true)
+                    submitState = .success
+                    try? await Task.sleep(nanoseconds: 800_000_000)
+                    onComplete()
+                }
+            } catch {
+                // `allowDuplicate: true` means this can't throw `.duplicate`
+                // again — only a real save failure (disk, etc.) lands here.
+                message = "Couldn't save: \(error.localizedDescription)"
+                submitState = .idle
+            }
+        }
     }
 
     /// "Continue Without AI" out of the `.offlineChoice` prompt — switches
@@ -705,27 +851,14 @@ struct ReceiptSubmitView: View {
                     statusText = stage.statusText
                 }
                 pendingOfflineSubmission = nil
-                if entry.verificationStatus == .needsReview,
-                   entry.reviewReason.hasSuffix(Self.unreadableDateReasonSuffix) {
-                    pendingDateEntry = entry
-                    pickedDate = Date()
-                    submitState = .needsDate
-                } else if entry.verificationStatus == .needsReview,
-                          entry.reviewReason.contains(Self.amountNotPrintedMarker) {
-                    pendingAmountEntry = entry
-                    pickedAmount = entry.amount
-                    submitState = .needsAmount
-                } else {
-                    submitState = .success
-                    try? await Task.sleep(nanoseconds: 800_000_000)
-                    onComplete()
-                }
-            } catch let duplicate as SubmissionError {
+                await finishAfterSave(entry)
+            } catch SubmissionError.duplicate(let existing) {
                 pendingOfflineSubmission = nil
-                message = duplicate.localizedDescription
-                submitState = .success
-                try? await Task.sleep(nanoseconds: 1_200_000_000)
-                onComplete()
+                // See `SubmitState.duplicate` — held so "Save Anyway" can
+                // redo this exact forced-provider save with the bypass.
+                pendingDuplicateRetry = .run(data: pending.data, kind: pending.kind,
+                                              category: pending.category, forcedProvider: .appleOnDevice)
+                submitState = .duplicate(existing: existing)
             } catch {
                 // Don't offer Apple Intelligence again — it just failed on
                 // this receipt. Keep the same pending bytes so Continue
@@ -768,27 +901,14 @@ struct ReceiptSubmitView: View {
                 // If the date couldn't be read, don't quietly keep today's date
                 // — stop and ask the user to set it (works for library images
                 // too, where retaking a photo isn't possible).
-                if entry.verificationStatus == .needsReview,
-                   entry.reviewReason.hasSuffix(Self.unreadableDateReasonSuffix) {
-                    pendingDateEntry = entry
-                    pickedDate = Date()
-                    submitState = .needsDate
-                } else if entry.verificationStatus == .needsReview,
-                          entry.reviewReason.contains(Self.amountNotPrintedMarker) {
-                    pendingAmountEntry = entry
-                    pickedAmount = entry.amount
-                    submitState = .needsAmount
-                } else {
-                    submitState = .success
-                    try? await Task.sleep(nanoseconds: 800_000_000)
-                    onComplete()
-                }
-            } catch let duplicate as SubmissionError {
-                // Already recorded — nothing to save, nothing to retry.
-                message = duplicate.localizedDescription
-                submitState = .success
-                try? await Task.sleep(nanoseconds: 1_200_000_000)
-                onComplete()
+                await finishAfterSave(entry)
+            } catch SubmissionError.duplicate(let existing) {
+                // Already recorded by category/date/amount — but that match
+                // doesn't check vendor, so this could genuinely be a
+                // different receipt. Hold what's needed to redo this exact
+                // save with the bypass if the user says so via "Save Anyway".
+                pendingDuplicateRetry = .run(data: data, kind: kind, category: category, forcedProvider: nil)
+                submitState = .duplicate(existing: existing)
             } catch {
                 if ExtractionFailureClass.classify(error) == .connectivity {
                     // AI just couldn't be reached — the receipt itself is
@@ -869,11 +989,16 @@ struct ReceiptSubmitView: View {
                 submitState = .success
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 onComplete()
-            } catch let duplicate as SubmissionError {
-                message = duplicate.localizedDescription
-                submitState = .success
-                try? await Task.sleep(nanoseconds: 1_200_000_000)
-                onComplete()
+            } catch SubmissionError.duplicate(let existing) {
+                // Hold everything needed to redo this exact hand-typed save
+                // with the bypass — including the resolved vendor/needsReview
+                // values (not the raw `manualVendor` text), so "Save Anyway"
+                // writes the identical entry this attempt would have.
+                pendingDuplicateRetry = .saveWithoutExtraction(
+                    data: data, kind: kind, category: category,
+                    vendor: vendor, workDate: workDate, amount: normalizedAmount, comments: comments,
+                    needsReview: vendorNeedsReview, reviewReason: vendorReviewReason)
+                submitState = .duplicate(existing: existing)
             } catch {
                 message = "Couldn't save: \(error.localizedDescription)"
                 submitState = .idle

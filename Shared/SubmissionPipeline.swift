@@ -65,17 +65,27 @@ struct SubmissionPipeline {
     /// which needs to retry through the on-device model without touching the
     /// user's actually-configured (and shared, App-Group-persisted) provider
     /// setting. Leave nil for the normal path.
+    ///
+    /// `allowDuplicate`, when true, skips the category/date/amount match
+    /// below entirely. The match has a real false-positive risk — it
+    /// doesn't compare vendor, so two genuine receipts (a repeat coffee
+    /// order, a flat fee charged twice) on the same day for the same total
+    /// look identical to it. Every caller defaults this to false; the only
+    /// place it's ever passed `true` is `ReceiptSubmitView`'s "Save Anyway"
+    /// button, offered once a duplicate has already been shown to the user
+    /// and they've explicitly said this one is real.
     @discardableResult
     func run(data: Data,
              kind: ReceiptKind,
              category: String,
              forcedProvider: ExtractionProvider? = nil,
+             allowDuplicate: Bool = false,
              onStage: @MainActor (Stage) -> Void = { _ in }) async throws -> HistoryEntry {
         await onStage(.reading)
         let categoryContext = CategoryStore.shared.description(for: category)
         let extracted = try await Self.extractWithFallback(data: data, kind: kind, categoryContext: categoryContext, forcedProvider: forcedProvider)
 
-        if let existing = SubmissionStore.loadHistory().first(where: {
+        if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == extracted.workDate && $0.amount == extracted.amount
         }) {
             throw SubmissionError.duplicate(existing)
@@ -142,10 +152,13 @@ struct SubmissionPipeline {
     /// Records a receipt with no photo/PDF attached — the user typed the
     /// details in by hand. Same duplicate check and CSV/history bookkeeping
     /// as `run`, just skipping Claude extraction and the file save.
+    /// `allowDuplicate` — see `run(allowDuplicate:)` above; same bypass,
+    /// same default, same "only from an explicit Save Anyway" contract.
     @discardableResult
     static func recordManualEntry(vendor: String, workDate: String, amount: String,
-                                  comments: String, category: String) throws -> HistoryEntry {
-        if let existing = SubmissionStore.loadHistory().first(where: {
+                                  comments: String, category: String,
+                                  allowDuplicate: Bool = false) throws -> HistoryEntry {
+        if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == workDate && $0.amount == amount
         }) {
             throw SubmissionError.duplicate(existing)
@@ -178,12 +191,15 @@ struct SubmissionPipeline {
     /// original behavior (a hand-typed entry is `.verified` — a human already
     /// looked at every field before tapping Submit) for the one other case
     /// that matters: everything really was filled in by hand.
+    /// `allowDuplicate` — see `run(allowDuplicate:)` above; same bypass,
+    /// same default, same "only from an explicit Save Anyway" contract.
     @discardableResult
     static func saveWithoutExtraction(data: Data, kind: ReceiptKind, category: String,
                                        vendor: String, workDate: String, amount: String,
                                        comments: String,
-                                       needsReview: Bool = false, reviewReason: String = "") throws -> HistoryEntry {
-        if let existing = SubmissionStore.loadHistory().first(where: {
+                                       needsReview: Bool = false, reviewReason: String = "",
+                                       allowDuplicate: Bool = false) throws -> HistoryEntry {
+        if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == workDate && $0.amount == amount
         }) {
             throw SubmissionError.duplicate(existing)
@@ -206,15 +222,18 @@ struct SubmissionPipeline {
     /// Records a receipt read via the Live Text scanner — Claude reads text
     /// already recognized on-device (VisionKit), and no photo is saved, same
     /// as `recordManualEntry` but auto-filled by Claude instead of typed in.
+    /// `allowDuplicate` — see `run(allowDuplicate:)` above; same bypass,
+    /// same default, same "only from an explicit Save Anyway" contract.
     @discardableResult
     func runTextOnly(ocrText: String, category: String,
+                     allowDuplicate: Bool = false,
                      onStage: @MainActor (Stage) -> Void = { _ in }) async throws -> HistoryEntry {
         await onStage(.reading)
         try ExtractionSettings.assertProviderAllowed()
         let categoryContext = CategoryStore.shared.description(for: category)
         let extracted = try await ExtractionSettings.currentExtractor().extract(ocrText: ocrText, categoryContext: categoryContext)
 
-        if let existing = SubmissionStore.loadHistory().first(where: {
+        if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == extracted.workDate && $0.amount == extracted.amount
         }) {
             throw SubmissionError.duplicate(existing)
