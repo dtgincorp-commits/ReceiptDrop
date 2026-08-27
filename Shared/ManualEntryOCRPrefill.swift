@@ -193,16 +193,64 @@ enum ManualEntryOCRPrefill {
     /// customer's own email sometimes appears in loyalty-program context on
     /// a receipt, and "Gmail" would be a strictly worse guess than falling
     /// through to the line heuristic or nil.
+    ///
+    /// Falls back to a bare `domain.tld` match (no `@` required) when the
+    /// email pattern finds nothing. OCR frequently mangles the single `@`
+    /// character an email match depends on — real-device testing on a Home
+    /// Depot receipt read `ALEXANDER_S_PULA@HOMEDEPOT.COM` as
+    /// `PULACHOMEDEPÖT.COM`, silently dropping the `@` entirely, which made
+    /// the email-only version of this function find nothing and fall
+    /// through to the line heuristic, which then confidently prefilled the
+    /// customer's own handwriting from elsewhere on the receipt. The same
+    /// receipt still prints its domain in the clear a few lines down
+    /// ("Learn more at homedepot.com/credit"), so a bare-domain fallback
+    /// recovers the correct vendor.
     private static func likelyVendorFromDomain(in text: String) -> String? {
-        guard let regex = try? NSRegularExpression(
+        // Preferred path: a literal "user@domain.tld" is the stronger
+        // signal — an email address is unambiguously the business's own
+        // domain, never a third-party URL mentioned in marketing copy.
+        if let emailRegex = try? NSRegularExpression(
             pattern: #"[A-Za-z0-9_.+-]+@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})"#
+        ) {
+            let range = NSRange(text.startIndex..., in: text)
+            if let match = emailRegex.firstMatch(in: text, range: range),
+               let domainRange = Range(match.range(at: 1), in: text),
+               let name = registrableVendorName(fromDomain: String(text[domainRange])) {
+                return name
+            }
+        }
+
+        // Fallback: no usable "@" survived OCR. Scan for a bare
+        // domain-shaped token instead and take the first *valid* one in
+        // reading order (matches are visited top-to-bottom since the text
+        // is laid out that way) — earliest on the receipt is more likely
+        // to be the merchant's own masthead/header than a third-party URL
+        // (a payment processor's domain, an unrelated brand's promo link)
+        // buried further down in footer marketing copy. This is weaker
+        // evidence than an "@" match, which is why it only runs when that
+        // path finds nothing.
+        guard let domainRegex = try? NSRegularExpression(
+            pattern: #"\b((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})\b"#
         ) else { return nil }
 
         let range = NSRange(text.startIndex..., in: text)
-        guard let match = regex.firstMatch(in: text, range: range),
-              let domainRange = Range(match.range(at: 1), in: text) else { return nil }
+        for match in domainRegex.matches(in: text, range: range) {
+            guard let domainRange = Range(match.range(at: 1), in: text) else { continue }
+            if let name = registrableVendorName(fromDomain: String(text[domainRange])) {
+                return name
+            }
+        }
+        return nil
+    }
 
-        let labels = String(text[domainRange]).lowercased().split(separator: ".").map(String.init)
+    /// Shared by both the `@domain.tld` match and the bare-`domain.tld`
+    /// fallback above: extracts the registrable brand label from a raw
+    /// domain capture and title-cases it, or returns nil when the domain is
+    /// too short/generic to trust, or belongs to a personal email provider,
+    /// payment processor, or other domain that would be a worse vendor
+    /// guess than falling through to the line heuristic.
+    private static func registrableVendorName(fromDomain domain: String) -> String? {
+        let labels = domain.lowercased().split(separator: ".").map(String.init)
         guard labels.count >= 2 else { return nil }
 
         // Drop a leading generic subdomain label ("www", "mail", "shop", ...)
@@ -223,11 +271,23 @@ enum ManualEntryOCRPrefill {
         let registrable = registrableCandidates[registrableCandidates.count - 2]
         guard registrable.count >= 3 else { return nil }
 
-        let personalEmailProviders: Set<String> = [
+        let excludedDomains: Set<String> = [
+            // Personal email providers — a customer's own address sometimes
+            // appears in loyalty-program context; "Gmail" would be a
+            // strictly worse guess than falling through to the line
+            // heuristic or nil.
             "gmail", "yahoo", "hotmail", "outlook", "icloud", "aol",
             "protonmail", "live", "msn", "comcast", "verizon",
+            // Payment processors / card networks / issuers that print their
+            // own domain on a receipt footer (surcharge notices, store-card
+            // "powered by" branding) without being the merchant that
+            // actually sold the goods — a risk unique to the bare-domain
+            // fallback, since these rarely appear as "user@domain" emails.
+            "visa", "mastercard", "amex", "americanexpress", "discover",
+            "paypal", "venmo", "squareup", "square", "stripe", "clover",
+            "synchrony", "syf", "comenity",
         ]
-        guard !personalEmailProviders.contains(registrable) else { return nil }
+        guard !excludedDomains.contains(registrable) else { return nil }
 
         return registrable.prefix(1).uppercased() + registrable.dropFirst()
     }

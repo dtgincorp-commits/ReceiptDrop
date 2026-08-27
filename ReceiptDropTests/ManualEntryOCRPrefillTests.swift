@@ -301,6 +301,75 @@ final class ManualEntryOCRPrefillTests: XCTestCase {
         """
         XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Ace Hardware")
     }
+
+    func testVendorFallsBackToBareDomainWhenAtSignIsMangled() {
+        // Real-device OCR on a Home Depot receipt read
+        // "ALEXANDER_S_PULA@HOMEDEPOT.COM" as "PULACHOMEDEPÖT.COM" — the
+        // "@" vanished entirely, so the email-based match finds nothing.
+        // The same receipt still prints "homedepot.com" in the clear a few
+        // lines down ("Learn more at homedepot.com/credit"); the
+        // bare-domain fallback must still find it rather than falling all
+        // the way through to the line heuristic (which would otherwise
+        // grab whatever plausible-looking line comes first).
+        let text = """
+        ALEXANDER S_PULACHOMEDEPÖT.COM
+        0603  00053  01304   07/09/26  01:05 PM
+        SUBTOTAL     134.73
+        TOTAL       $145.17
+        Learn more at homedepot.com/credit
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Homedepot")
+    }
+
+    func testVendorBareDomainFallbackStillIgnoresPersonalEmailProviders() {
+        // A bare "gmail.com" printed without an "@" (e.g. a mangled
+        // customer-email loyalty line) must be excluded from the fallback
+        // the same way the "@"-based path excludes it.
+        let text = """
+        Ace Hardware
+        Loyalty account gmail.com
+        Total                   42.10
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Ace Hardware")
+    }
+
+    func testVendorBareDomainFallbackIgnoresPaymentProcessorDomains() {
+        // A card network or payment processor often prints its own domain
+        // on the receipt footer without being the merchant that sold the
+        // goods — this must not be picked up as the vendor.
+        let text = """
+        Ace Hardware
+        123 Main St
+        Powered by squareup.com
+        Total                   42.10
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Ace Hardware")
+    }
+
+    func testVendorPrefersEmailMatchOverBareDomainWhenBothPresent() {
+        // The "@"-based match is the stronger signal and must win even
+        // when a bare domain for a different, unrelated site also appears
+        // on the receipt.
+        let text = """
+        cashier@westcoasthardware.com
+        Learn more at unrelatedadvertiser.com
+        Total                   42.10
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Westcoasthardware")
+    }
+
+    func testVendorBareDomainFallbackPrefersEarlierOccurrenceOverFooter() {
+        // When no "@" survives OCR at all, and multiple distinct bare
+        // domains are printed, the fallback should prefer the one that
+        // appears earlier (closer to the merchant's own header) over one
+        // buried further down in footer/marketing copy.
+        let text = """
+        Visit westcoasthardware.com for hours
+        Financing details at somebank.com/apply
+        Total                   42.10
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Westcoasthardware")
+    }
 }
 
 /// Regression tests for the range-wording filter in `ReceiptDateDetector`.
