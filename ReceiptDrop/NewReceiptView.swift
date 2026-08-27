@@ -27,6 +27,14 @@ struct NewReceiptView: View {
     @State private var showCamera = false
     @State private var showDocumentScanner = false
     @State private var showTextScanner = false
+    /// Gates all three camera-backed triggers below (.camera,
+    /// .scanDocument, .scanText all end up touching the camera hardware —
+    /// a plain photo, VisionKit's document scanner, and VisionKit's live
+    /// text scanner respectively). `presentCameraTrigger` is the single
+    /// place that decides whether to prime first; see
+    /// `CameraPermissionPriming.swift`.
+    @State private var showCameraPriming = false
+    @State private var pendingCameraPresentation: (() -> Void)?
     @State private var showPhotoPicker = false
     @State private var showFileImporter = false
     @State private var showManualEntry = false
@@ -85,6 +93,13 @@ struct NewReceiptView: View {
                 ProgressView()
             } else {
                 Color.clear
+            }
+        }
+        .fullScreenCover(isPresented: $showCameraPriming) {
+            CameraPermissionPrimingView {
+                showCameraPriming = false
+                pendingCameraPresentation?()
+                pendingCameraPresentation = nil
             }
         }
         .fullScreenCover(isPresented: $showCamera) {
@@ -179,13 +194,27 @@ struct NewReceiptView: View {
         }
         .onAppear {
             switch source {
-            case .camera: showCamera = true
-            case .scanDocument: showDocumentScanner = true
-            case .scanText: showTextScanner = true
+            case .camera: presentCameraTrigger { showCamera = true }
+            case .scanDocument: presentCameraTrigger { showDocumentScanner = true }
+            case .scanText: presentCameraTrigger { showTextScanner = true }
             case .library: showPhotoPicker = true
             case .file: showFileImporter = true
             case .manual: showManualEntry = true
             }
+        }
+    }
+
+    /// Routes any camera-backed source through the one-time priming screen
+    /// when (and only when) the system hasn't resolved camera permission
+    /// yet — see `shouldPrimeCameraPermission()`. Once resolved (either
+    /// way), this is a pass-through: `present` runs immediately, exactly
+    /// as it did before priming existed.
+    private func presentCameraTrigger(_ present: @escaping () -> Void) {
+        if shouldPrimeCameraPermission() {
+            pendingCameraPresentation = present
+            showCameraPriming = true
+        } else {
+            present()
         }
     }
 

@@ -34,6 +34,12 @@ struct BillCaptureView: View {
     @State private var showPermissionAlert = false
     @State private var showCaptureFailedAlert = false
     @State private var showLibraryImportFailedAlert = false
+    /// Shown instead of jumping straight to `camera.start()` (which fires
+    /// `AVCaptureDevice.requestAccess` and, on first run, the cold system
+    /// dialog) whenever permission hasn't been decided yet — see
+    /// `CameraPermissionPriming.swift` for why this can't nag on repeat
+    /// visits.
+    @State private var showCameraPriming = false
     /// Guards against `onCaptured` firing twice — e.g. a stray auto-capture
     /// frame landing while a library photo is still being processed. Only
     /// the first genuine capture (whichever source wins) is delivered.
@@ -151,15 +157,19 @@ struct BillCaptureView: View {
                 hasCaptured = true
                 onCaptured(data)
             }
-            camera.start { authorized in
-                if authorized {
-                    camera.setTorch(on: torchOn, level: torchBrightness)
-                } else {
-                    showPermissionAlert = true
-                }
+            if shouldPrimeCameraPermission() {
+                showCameraPriming = true
+            } else {
+                startCamera()
             }
         }
         .onDisappear { camera.stop() }
+        .fullScreenCover(isPresented: $showCameraPriming) {
+            CameraPermissionPrimingView {
+                showCameraPriming = false
+                startCamera()
+            }
+        }
         .photosPicker(isPresented: $showLibraryPicker, selection: $photoPickerItem, matching: .images)
         .onChange(of: showLibraryPicker) { isOpen in
             // While the library picker is up, the user isn't using the live
@@ -223,6 +233,21 @@ struct BillCaptureView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("If it's still uploading from iCloud, wait for it to finish downloading in Photos and try again — or take a new photo instead.")
+        }
+    }
+
+    /// Actually starts the AVFoundation session — pulled out of `onAppear`
+    /// so it can run either immediately (permission already resolved) or
+    /// after the priming screen's Continue tap (permission still
+    /// `.notDetermined`), without duplicating the `authorized`/`showPermissionAlert`
+    /// handling in both places.
+    private func startCamera() {
+        camera.start { authorized in
+            if authorized {
+                camera.setTorch(on: torchOn, level: torchBrightness)
+            } else {
+                showPermissionAlert = true
+            }
         }
     }
 

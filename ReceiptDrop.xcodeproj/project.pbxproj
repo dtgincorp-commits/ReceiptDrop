@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 56;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -25,6 +25,7 @@
 		222AB11BDCCC95A76EEE9A7A /* BillModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE72A7EE2EB472CB550F4F88 /* BillModels.swift */; };
 		22D8A781125DF11A585649F7 /* BillItemizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F671CC05560D0329CB8D2F /* BillItemizationService.swift */; };
 		2758563DD364D2869806A2C4 /* TorchPreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF53CB390C89FC9984BDC13 /* TorchPreferenceStore.swift */; };
+		2B49F9F5E944FE86389D3C10 /* CameraPermissionPrimingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73AC06E4421B3B7CA2D9CDF9 /* CameraPermissionPrimingTests.swift */; };
 		2CAE2204791C62216D81F2DE /* ClaudeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7730A1380B462CC48DB1C5E /* ClaudeService.swift */; };
 		308E182BEAEFEEB3A2BB9BD7 /* FoundationModelsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874DB9B5F6B131E4EF1B14AB /* FoundationModelsService.swift */; };
 		31E47729BD1490BD30CC4104 /* LiveTextScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B105A03343BABE54825F3461 /* LiveTextScannerView.swift */; };
@@ -39,6 +40,7 @@
 		47A99C2F4083B3B48436F481 /* CategoryDeleteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF380D2280F12372F67471C0 /* CategoryDeleteService.swift */; };
 		48B4716DBEE24027E4094340 /* ClaudeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7730A1380B462CC48DB1C5E /* ClaudeService.swift */; };
 		4AECB132A2B48C728708FA5F /* AttachmentThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDBA80332CC2662CA3FB1FD8 /* AttachmentThumbnail.swift */; };
+		51EB76036581B8CD91509E30 /* CameraPermissionPriming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30A7F1706C37944B9CABAD00 /* CameraPermissionPriming.swift */; };
 		53A231EDE5EC0E17EDAF8BC0 /* BillModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE72A7EE2EB472CB550F4F88 /* BillModels.swift */; };
 		54EBDEACA67CDD0340D4C3E1 /* SubmissionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57FF61EB58699460FE16D612 /* SubmissionStore.swift */; };
 		54ED10E6932E78F13E41BA9E /* AppCurrency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */; };
@@ -156,6 +158,7 @@
 		24F99E4477C2AFEDD8DC698B /* ShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		2BA4083781DB6C6A6F55D792 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptModels.swift; sourceTree = "<group>"; };
+		30A7F1706C37944B9CABAD00 /* CameraPermissionPriming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPermissionPriming.swift; sourceTree = "<group>"; };
 		3126EACE7989CA12C3083A98 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		3363F7383B194313AE1C80FF /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		35A1A78E48AAD20590B47E39 /* ExtractionLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionLogicTests.swift; sourceTree = "<group>"; };
@@ -181,6 +184,7 @@
 		6CEFB96E5673FBC20796DFAE /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		6D5D15E75C57846F860C9D3B /* AttachmentThumbnailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentThumbnailTests.swift; sourceTree = "<group>"; };
 		6EE145F3A4C712818F908A82 /* ReceiptCropService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCropService.swift; sourceTree = "<group>"; };
+		73AC06E4421B3B7CA2D9CDF9 /* CameraPermissionPrimingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPermissionPrimingTests.swift; sourceTree = "<group>"; };
 		75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCurrency.swift; sourceTree = "<group>"; };
 		789972440BA93C2739F33479 /* ManualEntrySaveWithReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualEntrySaveWithReviewTests.swift; sourceTree = "<group>"; };
 		7B3295A349899BF8290F0B97 /* ScannedTextSubmitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannedTextSubmitView.swift; sourceTree = "<group>"; };
@@ -232,6 +236,7 @@
 			isa = PBXGroup;
 			children = (
 				6D5D15E75C57846F860C9D3B /* AttachmentThumbnailTests.swift */,
+				73AC06E4421B3B7CA2D9CDF9 /* CameraPermissionPrimingTests.swift */,
 				3F2D0A26164BC1EB50AC9510 /* CategoriesViewTests.swift */,
 				974E714CBE6D526E00CE9477 /* ExtractionFailureClassTests.swift */,
 				35A1A78E48AAD20590B47E39 /* ExtractionLogicTests.swift */,
@@ -315,6 +320,7 @@
 				E03258CA24E3618F36E11AE7 /* BillCaptureView.swift */,
 				D7CE5CF9262C43188D5295AB /* BillEvalView.swift */,
 				CEC8FCD6E9B669200EEEC134 /* BillReviewView.swift */,
+				30A7F1706C37944B9CABAD00 /* CameraPermissionPriming.swift */,
 				40594EEE43B6E118DC837A56 /* CategoriesView.swift */,
 				3B5E0049BD90BDFDE54268AE /* ConnectAIView.swift */,
 				6CEFB96E5673FBC20796DFAE /* ContentView.swift */,
@@ -419,6 +425,7 @@
 				};
 			};
 			buildConfigurationList = 42022B79418640C684641B2A /* Build configuration list for PBXProject "ReceiptDrop" */;
+			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -472,6 +479,7 @@
 				222AB11BDCCC95A76EEE9A7A /* BillModels.swift in Sources */,
 				125D3BCF0814C82BF2153235 /* BillPhotoViewerView.swift in Sources */,
 				10EBDAD489DA8B06819F4551 /* BillReviewView.swift in Sources */,
+				51EB76036581B8CD91509E30 /* CameraPermissionPriming.swift in Sources */,
 				CF06EAD2DC7F665E546AF5DB /* CategoriesView.swift in Sources */,
 				47A99C2F4083B3B48436F481 /* CategoryDeleteService.swift in Sources */,
 				38789BB5235E9A416422F54C /* CategoryMergeService.swift in Sources */,
@@ -561,6 +569,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				390DB692A79E23CA647F6C80 /* AttachmentThumbnailTests.swift in Sources */,
+				2B49F9F5E944FE86389D3C10 /* CameraPermissionPrimingTests.swift in Sources */,
 				E20C16E9ECEDB4D1F9D8706A /* CategoriesViewTests.swift in Sources */,
 				8F48CC0DC6C42F2C928F1C82 /* ExtractionFailureClassTests.swift in Sources */,
 				E1B43E5E39B38CC08C3A7824 /* ExtractionLogicTests.swift in Sources */,
