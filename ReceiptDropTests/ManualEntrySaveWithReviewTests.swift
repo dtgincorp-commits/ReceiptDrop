@@ -103,4 +103,48 @@ final class ManualEntrySaveWithReviewTests: XCTestCase {
         XCTAssertEqual(entry.vendor, "Home Depot")
         XCTAssertEqual(entry.amount, "42.10")
     }
+
+    // MARK: - SubmissionPipeline.confirmReviewed
+
+    /// Covers the "Confirm" swipe action / "Looks Good" button in
+    /// ReceiptsView: the tester decides an already-extracted, flagged
+    /// receipt was fine all along and just wants the flag gone — a pure
+    /// status flip, not a field edit. Must flip status, clear the reason,
+    /// and leave every other field — including the CSV Comments column,
+    /// which `confirmReviewed` never touches — exactly as it was.
+    func testConfirmReviewedClearsFlagAndPreservesEverythingElse() throws {
+        let entry = try SubmissionPipeline.saveWithoutExtraction(
+            data: Data("fake image bytes".utf8), kind: .image, category: testCategory,
+            vendor: "Ambiguous Vendor", workDate: "2026-08-18", amount: "42.10",
+            comments: "some note", needsReview: true,
+            reviewReason: "Ambiguous total and unclear date formatting")
+
+        let updated = SubmissionPipeline.confirmReviewed(entry)
+
+        XCTAssertEqual(updated.verificationStatus, .verified)
+        XCTAssertEqual(updated.reviewReason, "")
+        // Everything else about the entry is untouched — same id, same data.
+        XCTAssertEqual(updated.id, entry.id)
+        XCTAssertEqual(updated.vendor, entry.vendor)
+        XCTAssertEqual(updated.amount, entry.amount)
+        XCTAssertEqual(updated.workDate, entry.workDate)
+        XCTAssertEqual(updated.category, entry.category)
+        XCTAssertEqual(updated.receiptLink, entry.receiptLink)
+        XCTAssertEqual(updated.vendorType, entry.vendorType)
+        XCTAssertEqual(updated.extraFiles, entry.extraFiles)
+
+        // Persisted, not just returned in memory — the App Group History
+        // store must reflect the change too, or it would revert on next
+        // launch (this is the same store `reload()` reads from).
+        let stored = SubmissionStore.loadHistory().first { $0.id == entry.id }
+        XCTAssertEqual(stored?.verificationStatus, .verified)
+        XCTAssertEqual(stored?.reviewReason, "")
+
+        // The CSV row is untouched entirely — confirmReviewed never rewrites
+        // it, since verificationStatus/reviewReason aren't CSV columns.
+        let comments = LocalReceiptStore.comments(
+            category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
+            amount: entry.amount, receiptFilename: entry.receiptLink)
+        XCTAssertEqual(comments, "some note")
+    }
 }

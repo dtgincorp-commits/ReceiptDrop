@@ -320,4 +320,24 @@ struct SubmissionPipeline {
         SubmissionStore.updateHistory(updated)
         return updated
     }
+
+    /// Clears a HITL `.needsReview` flag without touching anything else about
+    /// the entry — for the common case where the tester looks at the
+    /// extracted vendor/amount/date, decides it's fine, and just wants the
+    /// flag dismissed. Deliberately not routed through `updateEntry`: that
+    /// function exists for real field edits and does a full CSV row rewrite
+    /// (remove + re-append, which also reorders the row to the end of the
+    /// file) plus file-move/attachment bookkeeping that a pure status flip
+    /// doesn't need. `verificationStatus`/`reviewReason` also aren't CSV
+    /// columns at all (see `AppConstants.sheetHeader`) — they only live in
+    /// the App Group History store — so updating `SubmissionStore` is the
+    /// only persistence this requires.
+    @discardableResult
+    static func confirmReviewed(_ entry: HistoryEntry) -> HistoryEntry {
+        var updated = entry
+        updated.verificationStatus = .verified
+        updated.reviewReason = ""
+        SubmissionStore.updateHistory(updated)
+        return updated
+    }
 }

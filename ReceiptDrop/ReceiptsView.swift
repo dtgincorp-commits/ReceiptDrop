@@ -550,6 +550,7 @@ struct ReceiptsView: View {
                         } else {
                             ForEach(effectiveSearchResults) { entry in
                                 ReceiptRow(entry: entry, onReview: { editingEntry = entry },
+                                           onConfirm: { confirmReviewed(entry) },
                                            isDuplicate: duplicateEntryIDs.contains(entry.id))
                                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -567,6 +568,18 @@ struct ReceiptsView: View {
                                             Label("Edit", systemImage: "pencil")
                                         }
                                         .tint(Theme.skyBlue)
+                                        // Only surfaced when there's actually a flag to
+                                        // dismiss — this is the "the extracted data was
+                                        // fine all along" shortcut, not a general-purpose
+                                        // action that belongs on every row.
+                                        if entry.verificationStatus == .needsReview {
+                                            Button {
+                                                confirmReviewed(entry)
+                                            } label: {
+                                                Label("Confirm", systemImage: "checkmark.circle.fill")
+                                            }
+                                            .tint(.green)
+                                        }
                                     }
                             }
                         }
@@ -639,6 +652,17 @@ struct ReceiptsView: View {
                                             Label("Edit", systemImage: "pencil")
                                         }
                                         .tint(Theme.skyBlue)
+                                        // Same "flag was a false alarm" shortcut as the
+                                        // search-results list above — only shown when
+                                        // the entry is actually flagged.
+                                        if entry.verificationStatus == .needsReview {
+                                            Button {
+                                                confirmReviewed(entry)
+                                            } label: {
+                                                Label("Confirm", systemImage: "checkmark.circle.fill")
+                                            }
+                                            .tint(.green)
+                                        }
                                     }
                                 }
                         }
@@ -1060,6 +1084,18 @@ struct ReceiptsView: View {
         }
     }
 
+    /// Dismisses a `.needsReview` flag in place — for when the tester looks
+    /// at the already-extracted vendor/amount/date and decides it was right
+    /// all along, so the only thing worth doing is clearing the flag, not
+    /// resaving the whole entry through Edit. Unlike `delete`, this never
+    /// touches the CSV or filesystem — `SubmissionPipeline.confirmReviewed`
+    /// only rewrites the App Group History store, which is fast enough to
+    /// call straight from the main thread, no `Task`/off-main hop needed.
+    private func confirmReviewed(_ entry: HistoryEntry) {
+        SubmissionPipeline.confirmReviewed(entry)
+        reload()
+    }
+
     /// Flattens the Year > Month > Day > receipt tree into a single list of
     /// rows, skipping children of anything collapsed. Every row shares the
     /// same list-row insets, so headers and receipts all share one left
@@ -1098,6 +1134,7 @@ struct ReceiptsView: View {
                      isExpanded: expandedBinding(for: row.id))
         case .entry(let entry):
             ReceiptRow(entry: entry, onReview: { editingEntry = entry },
+                       onConfirm: { confirmReviewed(entry) },
                        isDuplicate: duplicateEntryIDs.contains(entry.id))
         }
     }
@@ -1262,6 +1299,7 @@ private struct YearGroup: Identifiable {
 private struct ReceiptRow: View {
     let entry: HistoryEntry
     let onReview: () -> Void
+    let onConfirm: () -> Void
     var isDuplicate: Bool = false
 
     @State private var showPreview = false
@@ -1399,6 +1437,16 @@ private struct ReceiptRow: View {
                     Text("Needs review — \(entry.reviewReason)")
                         .font(.caption2)
                         .foregroundStyle(.orange)
+                    // Right where the flag is actually read, not just on a
+                    // swipe gesture someone might never discover — this is
+                    // the moment they're already deciding whether the flag
+                    // is worth acting on.
+                    Button(action: onConfirm) {
+                        Label("Looks Good", systemImage: "checkmark.circle.fill")
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.green)
                 }
             }
         }
