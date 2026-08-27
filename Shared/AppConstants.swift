@@ -57,13 +57,19 @@ enum AppConstants {
     /// Date format written to the Work_Date column.
     static let sheetDateFormat = "yyyy-MM-dd"
 
-    /// Default categories on first launch — a placeholder for a brand-new
-    /// user to rename/replace via Manage Categories, not real business names.
-    /// Uppercase to match `CategoryStore.add`'s own convention — every other
-    /// category the app ever creates goes through `add`, which uppercases;
-    /// this one didn't, which is how a restored backup could end up with
-    /// both "Sample Category" and "SAMPLE CATEGORY" as separate entries.
-    static let defaultCategories = ["SAMPLE CATEGORY"]
+    /// Default categories on first launch — a real, generically-useful
+    /// bucket a brand-new user can file an actual receipt into immediately,
+    /// not demo/placeholder data (a prior seed of "SAMPLE CATEGORY" read as
+    /// leftover test data rather than something the app was ready for real
+    /// use with). Still just a starting point to rename/replace via Manage
+    /// Categories. Uppercase to match `CategoryStore.add`'s own convention —
+    /// every other category the app ever creates goes through `add`, which
+    /// uppercases; this constant is seeded directly instead, so it must
+    /// already be uppercase or a restored backup could end up with both the
+    /// lowercase-ish and uppercase spellings as separate entries (exactly
+    /// what happened with the old "Sample Category" / "SAMPLE CATEGORY"
+    /// pair — see `CategoryStore.add` and `bfcac55`).
+    static let defaultCategories = ["BUSINESS EXPENSES"]
 
     /// CSV header row, written when a category's local log file is first created.
     static let sheetHeader = [
