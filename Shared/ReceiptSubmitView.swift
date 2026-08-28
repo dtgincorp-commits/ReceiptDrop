@@ -187,6 +187,13 @@ struct ReceiptSubmitView: View {
         return true
     }
 
+    /// True only in the pre-submit state — the one state whose Submit button
+    /// lives in the toolbar (see the `.confirmationAction` item in `body`).
+    /// Inverse of `controlsDisabled`, but named for what the toolbar actually
+    /// asks ("are we still waiting for the user to submit?") rather than for
+    /// whether the form's fields happen to be editable.
+    private var isIdle: Bool { !controlsDisabled }
+
     /// True while the `.offlineChoice` prompt is on screen — used to shrink
     /// the receipt thumbnail so its buttons stay reachable without scrolling
     /// (reported on an iPhone with a Dynamic Island, not just small screens).
@@ -238,8 +245,15 @@ struct ReceiptSubmitView: View {
     /// Human-readable reason Submit is currently disabled, or nil when it
     /// isn't. `canSubmit` used to just disable the button with nothing
     /// explaining why — see TODO.md item 1, "Never block the save" — so
-    /// this is shown right under the button whenever something still blocks
-    /// it, rather than leaving a silently-dead control.
+    /// this is shown whenever something still blocks it, rather than leaving
+    /// a silently-dead control. Since Submit moved to the toolbar (it was
+    /// being clipped as the Form's last row in the share extension's short
+    /// sheet), this text no longer sits directly under the button. It renders
+    /// twice instead: as the Category section's footer, which is high enough
+    /// to survive that same short sheet and sits against the control that
+    /// most often triggers it, and again in the Section where the button used
+    /// to be, which is where the eye lands on the main app's taller screen.
+    /// Duplication is intentional — see the footer's comment in `body`.
     private var blockedSubmitReason: String? {
         guard !canSubmit else { return nil }
         if selectedCategory.isEmpty {
@@ -366,20 +380,54 @@ struct ReceiptSubmitView: View {
                     }
                 }
 
-                Section("Category") {
+                Section {
                     Picker("Category", selection: $selectedCategory) {
                         ForEach(categoryStore.categories, id: \.self) { Text($0) }
                     }
                     .adaptiveCategoryPickerStyle(count: categoryStore.categories.count)
                     .disabled(controlsDisabled)
+                } header: {
+                    Text("Category")
+                } footer: {
+                    // The same `blockedSubmitReason` shown further down, hoisted
+                    // to sit against the control that most often causes it.
+                    // Moving Submit to the toolbar made the *button* immune to
+                    // the share extension's short sheet, but not this
+                    // explanation: it stayed where the button used to be, at the
+                    // bottom of the Form, i.e. below exactly the fold that
+                    // clipped the button in the first place. A disabled Submit
+                    // that can't say why is the thing TODO.md item 1 ("Never
+                    // block the save") exists to prevent, so the reason has to
+                    // live above the fold too — and this footer is the highest
+                    // point in the Form that's still adjacent to its cause.
+                    // Deliberately duplicated rather than moved: on the main
+                    // app's tall screen the copy next to Submit's old position
+                    // is the one in the user's eyeline.
+                    if let blockedSubmitReason {
+                        Text(blockedSubmitReason)
+                            // Red is this file's error tone (see the no-AI
+                            // banner and the in-body copy of this same text).
+                            // No `.font(.caption)` — footers already render at
+                            // caption size, so setting it again would be a
+                            // no-op modifier.
+                            .foregroundStyle(.red)
+                    }
                 }
 
-                Section {
-                    submitContent
-                    if let message {
-                        Text(message)
-                            .font(.caption)
-                            .foregroundStyle(isQueuedState ? .red : .secondary)
+                // Rendered only when it has something in it. In the `.idle`
+                // state `submitContent` is now just the blocked-submit
+                // explanation (the Submit button itself moved to the toolbar),
+                // so with nothing blocking Submit and no status message this
+                // Section would otherwise draw as an empty grey block under
+                // the Category picker.
+                if !isIdle || blockedSubmitReason != nil || message != nil {
+                    Section {
+                        submitContent
+                        if let message {
+                            Text(message)
+                                .font(.caption)
+                                .foregroundStyle(isQueuedState ? .red : .secondary)
+                        }
                     }
                 }
             }
@@ -389,6 +437,26 @@ struct ReceiptSubmitView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
                         .disabled(controlsDisabled)
+                }
+                // Submit lives here, not at the bottom of the Form, because
+                // the share extension presents this view in a short,
+                // height-constrained sheet: as the Form's last row the button
+                // fell below the fold and was clipped in half by the sheet's
+                // bottom edge, with the extension's "open Receipts4Tax" footer
+                // overlapping what was left of it. In the toolbar it's always
+                // visible whatever the sheet height or scroll position, and it
+                // pairs with Cancel in the standard iOS Cancel-left /
+                // confirm-right idiom. Only shown while `.idle` — every other
+                // state has its own inline controls in `submitContent`
+                // (progress, Save Anyway/Discard, the offline choices), and
+                // leaving a live Submit in the toolbar beside them would let
+                // the user re-fire a pipeline that's already running or done.
+                if isIdle {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Submit", action: submit)
+                            .bold()
+                            .disabled(!canSubmit)
+                    }
                 }
             }
         }
@@ -491,17 +559,13 @@ struct ReceiptSubmitView: View {
     private var submitContent: some View {
         switch submitState {
         case .idle:
-            Button {
-                submit()
-            } label: {
-                HStack {
-                    Spacer()
-                    Text("Submit").bold()
-                    Spacer()
-                }
-            }
-            .disabled(!canSubmit)
-            // Never a silently-dead button — see `blockedSubmitReason`.
+            // The Submit button itself is in the toolbar (see `body`) so the
+            // share extension's short sheet can't clip it. What stays here is
+            // the reason it's disabled: never a silently-dead button — see
+            // `blockedSubmitReason`. Keeping this in the form body rather than
+            // in the toolbar is deliberate; it's a full sentence naming the
+            // field to fix, and it sits directly under the Category picker
+            // that most often causes it.
             if let blockedSubmitReason {
                 Text(blockedSubmitReason)
                     .font(.caption)
