@@ -191,4 +191,85 @@ final class ManualEntrySaveWithReviewTests: XCTestCase {
             amount: entry.amount, receiptFilename: entry.receiptLink)
         XCTAssertEqual(comments, "some note")
     }
+
+    // MARK: - Date fallback confirmation copy + flagging
+
+    // The prompt itself (`ReceiptSubmitView.SubmitState.confirmDate`) isn't
+    // testable here, but everything it says and everything it writes into the
+    // saved entry is.
+
+    func testDateConfirmCopyDistinguishesTheThreeFailureCases() {
+        // "No date is printed here" is routine; "dates are printed and I
+        // couldn't read them" means the right date is probably on the paper;
+        // "I couldn't read this photo at all" points at the photo, not the
+        // receipt. Three different things to do about it, so three different
+        // messages — the manual path can genuinely tell them apart (the AI
+        // path can't, and doesn't try).
+        let noDate = ReceiptSubmitView.dateConfirmTitle(for: .noDatePrinted)
+        let ambiguous = ReceiptSubmitView.dateConfirmTitle(for: .ambiguous(printedDates: 2))
+        let noText = ReceiptSubmitView.dateConfirmTitle(for: .noTextRecognized)
+        XCTAssertNotEqual(noDate, ambiguous)
+        XCTAssertNotEqual(ambiguous, noText)
+        XCTAssertNotEqual(noDate, noText)
+        XCTAssertEqual(ReceiptSubmitView.dateConfirmTitle(for: nil), noText)
+
+        // Every message has to state the consequence — that's the whole
+        // reason the prompt is worth interrupting a save for.
+        for resolution: ManualEntryOCRPrefill.DateResolution? in
+            [.noDatePrinted, .ambiguous(printedDates: 2), .noTextRecognized, nil] {
+            let message = ReceiptSubmitView.dateConfirmMessage(for: resolution)
+            XCTAssertTrue(message.contains("tax year"), "missing consequence: \(message)")
+            XCTAssertTrue(message.contains("Today's date will be used"), "missing fallback: \(message)")
+        }
+        // The ambiguous message names how many dates were actually printed.
+        XCTAssertTrue(ReceiptSubmitView.dateConfirmMessage(for: .ambiguous(printedDates: 3)).contains("3 dates"))
+        XCTAssertTrue(ReceiptSubmitView.dateConfirmMessage(for: .ambiguous(printedDates: 1)).contains("A date is printed"))
+    }
+
+    func testConfirmedTodayReviewReasonStaysOutOfTheAIPathsPromptSuffix() {
+        // `ReceiptSubmitView.finishAfterSave` and `ScannedTextSubmitView`
+        // both raise their own post-save date prompt for any reason ending
+        // "defaulted to today". A date the user has *already* confirmed must
+        // not match that, or confirming would immediately re-prompt.
+        for resolution: ManualEntryOCRPrefill.DateResolution? in
+            [.noDatePrinted, .ambiguous(printedDates: 2), .noTextRecognized, nil] {
+            let reason = ReceiptSubmitView.confirmedTodayReviewReason(for: resolution)
+            XCTAssertFalse(reason.hasSuffix("defaulted to today"), reason)
+            XCTAssertTrue(reason.contains("today's date"), reason)
+            XCTAssertFalse(reason.isEmpty)
+        }
+    }
+
+    func testCombineReviewReasonsKeepsBothCauses() {
+        // A save can be missing a vendor *and* have an unreadable date;
+        // whichever came first used to win and the other vanished.
+        let both = ReceiptSubmitView.combineReviewReasons(["Vendor name missing", "No date printed"])
+        XCTAssertTrue(both.needsReview)
+        XCTAssertTrue(both.reason.contains("Vendor name missing"))
+        XCTAssertTrue(both.reason.contains("No date printed"))
+
+        let one = ReceiptSubmitView.combineReviewReasons(["", "No date printed"])
+        XCTAssertTrue(one.needsReview)
+        XCTAssertEqual(one.reason, "No date printed")
+
+        let none = ReceiptSubmitView.combineReviewReasons(["", "   "])
+        XCTAssertFalse(none.needsReview)
+        XCTAssertEqual(none.reason, "")
+    }
+
+    func testConfirmingTodaysDateStillSavesFlaggedForReview() throws {
+        // The receipts that started this: a confirmed guess is intentional,
+        // not verified — it must stay findable in the "needs review" group
+        // rather than becoming indistinguishable from a date read off paper.
+        let reason = ReceiptSubmitView.confirmedTodayReviewReason(for: .noDatePrinted)
+        let (needsReview, combined) = ReceiptSubmitView.combineReviewReasons(["", reason])
+        let entry = try SubmissionPipeline.saveWithoutExtraction(
+            data: Data("fake image bytes".utf8), kind: .image, category: testCategory,
+            vendor: "Corner Store", workDate: LocalReceiptStore.todayString(),
+            amount: "12.5", comments: "",
+            needsReview: needsReview, reviewReason: combined)
+        XCTAssertEqual(entry.verificationStatus, .needsReview)
+        XCTAssertEqual(entry.reviewReason, reason)
+        XCTAssertEqual(entry.workDate, LocalReceiptStore.todayString())
+    }
 }

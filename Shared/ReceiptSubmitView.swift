@@ -79,6 +79,19 @@ struct ReceiptSubmitView: View {
     /// started typing.
     @State private var isPrefillingManualFields = false
 
+    /// What the deterministic on-device date read concluded, for the
+    /// manual-entry (no-AI / "Continue Without AI") path — see
+    /// `ManualEntryOCRPrefill.resolveDate`. `nil` until OCR prefill has run,
+    /// which `needsDateConfirmation` treats the same as "couldn't read it":
+    /// either way nothing has read a date off this receipt yet.
+    @State private var dateResolution: ManualEntryOCRPrefill.DateResolution?
+
+    /// True once the user has moved the Receipt Date picker themselves. A
+    /// date a human chose is never a silent fallback, so it's never
+    /// second-guessed by the confirmation prompt below — the prompt exists
+    /// only for dates nobody looked at.
+    @State private var userEditedDate = false
+
     /// The just-saved entry whose date couldn't be read — held so the
     /// `.needsDate` nudge can update it once the user sets a date.
     @State private var pendingDateEntry: HistoryEntry?
@@ -101,6 +114,17 @@ struct ReceiptSubmitView: View {
         let reason: String
     }
     @State private var pendingOfflineSubmission: PendingSubmission?
+
+    /// The normalized bytes/kind/category of a manual-entry save paused on
+    /// the `.confirmDate` prompt, held so confirming (or correcting) the
+    /// date completes that exact save without re-deriving it — same pattern
+    /// as `PendingSubmission` above.
+    private struct PendingManualSave {
+        let data: Data
+        let kind: ReceiptKind
+        let category: String
+    }
+    @State private var pendingManualSave: PendingManualSave?
 
     /// Held only while `.duplicate` is on screen — everything `saveDuplicateAnyway()`
     /// needs to redo the exact save that was just blocked, this time with
@@ -159,6 +183,15 @@ struct ReceiptSubmitView: View {
         case queued
         case needsDate
         case needsAmount
+        /// The manual-entry path is about to save with today's date only
+        /// because nothing read a date off the receipt (see
+        /// `ManualEntryOCRPrefill.needsDateConfirmation`). Shown *before* the
+        /// save, unlike `.needsDate` — the manual path knows its date is a
+        /// fallback up front, where the AI path only finds out from the
+        /// entry it already saved. Carries the resolution so the copy can
+        /// name which of the three ways the read failed (nil = OCR hadn't
+        /// finished, treated as "couldn't read it").
+        case confirmDate(ManualEntryOCRPrefill.DateResolution?)
         /// AI extraction failed for a connectivity reason (see
         /// `ExtractionFailureClass`) — the receipt itself is fine, so
         /// instead of silently queuing it for later retry, offer the user
@@ -359,7 +392,17 @@ struct ReceiptSubmitView: View {
                                 .keyboardType(.decimalPad)
                                 .disabled(controlsDisabled)
                         }
-                        DatePicker("Receipt Date", selection: $manualWorkDate, displayedComponents: .date)
+                        // Bound through a setter rather than directly to
+                        // `$manualWorkDate` so touching the picker records
+                        // that a human chose this date (`userEditedDate`),
+                        // which is what suppresses the `.confirmDate` prompt
+                        // below. `.onChange` would also fire when OCR prefill
+                        // writes a date into the field, which is exactly the
+                        // case the prompt must still cover.
+                        DatePicker("Receipt Date", selection: Binding(
+                            get: { manualWorkDate },
+                            set: { manualWorkDate = $0; userEditedDate = true }
+                        ), displayedComponents: .date)
                             .disabled(controlsDisabled)
                         TextField("Comments", text: $manualComments, axis: .vertical)
                             .lineLimit(2...4)
@@ -505,7 +548,13 @@ struct ReceiptSubmitView: View {
         case .pdf:
             imageData = pdfThumbnail(attachment.data)?.pngData()
         }
-        guard let imageData else { return }
+        guard let imageData else {
+            // Nothing renderable to OCR at all (unreadable bytes, a PDF with
+            // no first page) — no text, so no date. Same standing as OCR
+            // returning nothing.
+            dateResolution = .noTextRecognized
+            return
+        }
 
         isPrefillingManualFields = true
 
@@ -537,6 +586,10 @@ struct ReceiptSubmitView: View {
         }
         isPrefillingManualFields = false
 
+        // Recorded even when there's no text — `.noTextRecognized` is a
+        // distinct, reportable outcome, not the absence of one.
+        dateResolution = ManualEntryOCRPrefill.resolveDate(in: text)
+
         guard let text, !text.isEmpty else { return }
 
         // Only fill in fields still at their untouched default — if a fast
@@ -548,7 +601,9 @@ struct ReceiptSubmitView: View {
         if manualVendor.isEmpty, let vendor = ManualEntryOCRPrefill.likelyVendorLine(in: text) {
             manualVendor = vendor
         }
-        if let date = ManualEntryOCRPrefill.likelyReceiptDate(in: text) {
+        // Same "don't stomp on what the user typed" rule as the two fields
+        // above — a date the user already set outranks the OCR guess.
+        if case .found(let date) = dateResolution, !userEditedDate {
             manualWorkDate = date
         }
     }
@@ -602,6 +657,47 @@ struct ReceiptSubmitView: View {
                 .buttonStyle(.borderedProminent)
                 Button("Skip for now — it stays flagged for review") {
                     onComplete()
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        case .confirmDate(let resolution):
+            // Same inline-prompt shape as `.needsDate` / `.offlineChoice`
+            // rather than an alert: the user is already looking at this form,
+            // an alert can't hold a date picker, and the share extension's
+            // short sheet makes anything modal riskier than a few rows in
+            // place. Every button here ends in a save — see
+            // `blockedSubmitReason` and TODO.md item 1, "Never block the
+            // save": this prompt changes *what date* is written, never
+            // whether the receipt can be saved.
+            VStack(alignment: .leading, spacing: 12) {
+                Label(Self.dateConfirmTitle(for: resolution), systemImage: "calendar.badge.exclamationmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text(Self.dateConfirmMessage(for: resolution))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                DatePicker("Receipt Date", selection: $pickedDate, displayedComponents: .date)
+                // One button, not two: whatever the picker shows is what
+                // gets saved. Its title just names which of the two that is,
+                // so "use today" stays a single tap (the common case) while
+                // correcting the date is the same tap after scrolling the
+                // picker — no way to pick a date and then not have it used.
+                Button {
+                    confirmDateAndSave(resolution: resolution)
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text(Calendar.current.isDateInToday(pickedDate)
+                             ? "Use Today's Date"
+                             : "Save with This Date").bold()
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Back to the details") {
+                    pendingManualSave = nil
+                    submitState = .idle
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -951,6 +1047,17 @@ struct ReceiptSubmitView: View {
         submitState = .running
 
         guard ExtractionSettings.aiConfigured && !proceedWithoutAI else {
+            // Nothing read a date off this receipt, so `manualWorkDate` is
+            // still just "today" — the silent fallback that put a pile of
+            // receipts in the wrong tax year. Confirm it (or correct it)
+            // before writing it, instead of after.
+            if ManualEntryOCRPrefill.needsDateConfirmation(resolution: dateResolution,
+                                                            userEditedDate: userEditedDate) {
+                pendingManualSave = PendingManualSave(data: data, kind: kind, category: category)
+                pickedDate = manualWorkDate
+                submitState = .confirmDate(dateResolution)
+                return
+            }
             submitManually(data: data, kind: kind, category: category)
             return
         }
@@ -1009,6 +1116,103 @@ struct ReceiptSubmitView: View {
     /// receipt at all is the actual harm.
     static let unknownVendorPlaceholder = "Unknown Vendor"
 
+    /// Heading for the `.confirmDate` prompt. Each `DateResolution` failure
+    /// gets its own wording because they mean materially different things to
+    /// someone holding the receipt: "no date is printed here" is routine,
+    /// "there are dates here and I couldn't read them" means the right date
+    /// is probably on the paper in front of them, and "I couldn't read this
+    /// photo at all" says the problem is the photo, not the receipt.
+    static func dateConfirmTitle(for resolution: ManualEntryOCRPrefill.DateResolution?) -> String {
+        switch resolution {
+        case .noDatePrinted:
+            return "No date found on this receipt"
+        case .ambiguous:
+            return "Couldn't read the date on this receipt"
+        case .noTextRecognized, .none:
+            return "Couldn't read this receipt"
+        case .found:
+            // Never shown — a found date doesn't prompt. Worded as the
+            // general case rather than trapping, since a prompt with no
+            // heading would be worse than a slightly generic one.
+            return "Check this receipt's date"
+        }
+    }
+
+    /// Body copy for the `.confirmDate` prompt. Every variant states the same
+    /// two facts — today's date is about to be used, and a wrong date lands
+    /// the expense in the wrong tax year — because that consequence is the
+    /// entire reason this prompt exists and is not obvious from "couldn't
+    /// read the date."
+    static func dateConfirmMessage(for resolution: ManualEntryOCRPrefill.DateResolution?) -> String {
+        let consequence = "A wrong date can put this expense in the wrong tax year, so it's worth a look."
+        switch resolution {
+        case .noDatePrinted:
+            return "Nothing on this receipt looked like a date. Today's date will be used unless you set the right one below. \(consequence)"
+        case .ambiguous(let printedDates):
+            let count = printedDates == 1 ? "A date is printed" : "\(printedDates) dates are printed"
+            return "\(count) on this receipt, but it wasn't clear which one is the purchase date. Today's date will be used unless you set the right one below. \(consequence)"
+        case .noTextRecognized, .none:
+            return "No text could be read off this photo, so no date was found. Today's date will be used unless you set the right one below. \(consequence)"
+        case .found:
+            return "Set the date printed on the receipt. \(consequence)"
+        }
+    }
+
+    /// Review reason recorded when the user confirms today's date rather than
+    /// setting one — see `confirmDateAndSave`. Deliberately still flags the
+    /// entry `.needsReview`: the user confirmed a *guess*, not a date they
+    /// read off the paper, so it stays in the Receipts list's "needs review"
+    /// group (and one tap from "Looks Good") until someone checks it against
+    /// the receipt. This is exactly the pile of scan-dated receipts that
+    /// motivated the prompt — a confirmation makes them intentional, not
+    /// verified. Ends in "used today's date", deliberately *not* the AI
+    /// path's "defaulted to today" suffix, which `finishAfterSave` and
+    /// `ScannedTextSubmitView` match on to raise their own post-save date
+    /// prompt — this date has already been confirmed, so re-prompting for it
+    /// would be a loop.
+    static func confirmedTodayReviewReason(for resolution: ManualEntryOCRPrefill.DateResolution?) -> String {
+        switch resolution {
+        case .noDatePrinted:
+            return "No date printed on the receipt — confirmed, used today's date"
+        case .ambiguous:
+            return "Date on the receipt couldn't be read — confirmed, used today's date"
+        case .noTextRecognized, .none, .found:
+            return "No text could be read off this receipt — confirmed, used today's date"
+        }
+    }
+
+    /// Folds however many independent review reasons a single save collected
+    /// (a missing vendor, an unconfirmable date) into the one
+    /// `reviewReason` string `HistoryEntry` carries. Any non-empty reason
+    /// means the entry needs review; the Receipts list shows the whole
+    /// string, so both causes stay visible rather than the first one
+    /// silently winning.
+    static func combineReviewReasons(_ reasons: [String]) -> (needsReview: Bool, reason: String) {
+        let kept = reasons.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return (!kept.isEmpty, kept.joined(separator: " · "))
+    }
+
+    /// "Use Today's Date" / "Save with This Date" out of the `.confirmDate`
+    /// prompt — completes the paused manual save with whatever date the
+    /// picker ended on. Picking a date the user read off the receipt saves
+    /// clean (a human supplied it); keeping today's saves flagged, per
+    /// `confirmedTodayReviewReason`.
+    private func confirmDateAndSave(resolution: ManualEntryOCRPrefill.DateResolution?) {
+        guard let pending = pendingManualSave else { submitState = .idle; return }
+        pendingManualSave = nil
+        manualWorkDate = pickedDate
+        // The user has now made this date their own either way, so the prompt
+        // must not fire again if this save fails and they hit Submit a second
+        // time.
+        userEditedDate = true
+        let dateReviewReason = Calendar.current.isDateInToday(pickedDate)
+            ? Self.confirmedTodayReviewReason(for: resolution)
+            : ""
+        submitState = .running
+        submitManually(data: pending.data, kind: pending.kind, category: pending.category,
+                       dateReviewReason: dateReviewReason)
+    }
+
     /// Resolves what to actually save for Vendor from what the user typed —
     /// pulled out of `submitManually` as its own static function so the
     /// substitution (blank input still saves, as `unknownVendorPlaceholder`,
@@ -1033,14 +1237,18 @@ struct ReceiptSubmitView: View {
     /// requires it to parse before this function ever runs, so by the time
     /// we're here `normalizedAmount` is always a real number the user
     /// confirmed, not a placeholder.
-    private func submitManually(data: Data, kind: ReceiptKind, category: String) {
+    private func submitManually(data: Data, kind: ReceiptKind, category: String,
+                                dateReviewReason: String = "") {
         statusText = SubmissionPipeline.Stage.saving.statusText
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = AppConstants.sheetDateFormat
         let normalizedAmount = Double(manualAmount.trimmingCharacters(in: .whitespacesAndNewlines))
             .map { String($0) } ?? manualAmount
-        let (vendor, vendorNeedsReview, vendorReviewReason) = Self.resolveManualVendor(manualVendor)
+        let (vendor, _, vendorReviewReason) = Self.resolveManualVendor(manualVendor)
+        // Vendor and date can each independently need review; keep both
+        // reasons rather than letting one overwrite the other.
+        let (needsReview, reviewReason) = Self.combineReviewReasons([vendorReviewReason, dateReviewReason])
         let workDate = formatter.string(from: manualWorkDate)
         let comments = manualComments.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -1049,7 +1257,7 @@ struct ReceiptSubmitView: View {
                 _ = try SubmissionPipeline.saveWithoutExtraction(
                     data: data, kind: kind, category: category,
                     vendor: vendor, workDate: workDate, amount: normalizedAmount, comments: comments,
-                    needsReview: vendorNeedsReview, reviewReason: vendorReviewReason)
+                    needsReview: needsReview, reviewReason: reviewReason)
                 submitState = .success
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 onComplete()
@@ -1061,7 +1269,7 @@ struct ReceiptSubmitView: View {
                 pendingDuplicateRetry = .saveWithoutExtraction(
                     data: data, kind: kind, category: category,
                     vendor: vendor, workDate: workDate, amount: normalizedAmount, comments: comments,
-                    needsReview: vendorNeedsReview, reviewReason: vendorReviewReason)
+                    needsReview: needsReview, reviewReason: reviewReason)
                 submitState = .duplicate(existing: existing)
             } catch {
                 message = "Couldn't save: \(error.localizedDescription)"

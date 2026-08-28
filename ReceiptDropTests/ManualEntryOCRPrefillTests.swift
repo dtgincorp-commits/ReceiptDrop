@@ -496,6 +496,91 @@ final class ManualEntryOCRPrefillTests: XCTestCase {
         """
         XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "Westcoasthardware")
     }
+    // MARK: - Date fallback: resolveDate / needsDateConfirmation
+
+    // These back the pre-save confirmation prompt in `ReceiptSubmitView`
+    // (`SubmitState.confirmDate`): before this, the no-AI path silently kept
+    // whatever `manualWorkDate` defaulted to — today — whenever OCR couldn't
+    // read a date, which is how a stack of receipts ended up all carrying
+    // their scan date. The decision to prompt has to be pure and testable;
+    // the prompt itself isn't.
+
+    func testResolveDateReportsFoundWhenExactlyOneDatePrinted() {
+        let text = """
+        HARDWARE STORE
+        08/12/2026
+        Total                   42.10
+        """
+        guard case .found(let date) = ManualEntryOCRPrefill.resolveDate(in: text) else {
+            return XCTFail("expected .found")
+        }
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        XCTAssertEqual(c.year, 2026)
+        XCTAssertEqual(c.month, 8)
+        XCTAssertEqual(c.day, 12)
+    }
+
+    func testResolveDateReportsNoDatePrintedWhenTextHasNoDateAtAll() {
+        // The least alarming of the three failures: plenty of real receipts
+        // simply don't print a date.
+        let text = "GAS STATION\nUnleaded  40.00\nTotal  40.00"
+        XCTAssertEqual(ManualEntryOCRPrefill.resolveDate(in: text), .noDatePrinted)
+    }
+
+    func testResolveDateReportsAmbiguousWhenSeveralDatesPrintedButNoneChosen() {
+        // Two past dates, neither next to a clock time — `likelyReceiptDate`
+        // deliberately refuses to guess, and this is the case where the real
+        // date is almost certainly on the paper, so the prompt says so.
+        let text = """
+        08/12/2020
+        Reward enrolled 09/01/2020
+        Total                   42.10
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.resolveDate(in: text), .ambiguous(printedDates: 2))
+    }
+
+    func testResolveDateReportsAmbiguousForASoleFutureDate() {
+        // A "valid through" date is printed but can't be the transaction
+        // date — a date *was* found on the receipt, it just isn't usable, so
+        // this is ambiguity rather than "no date printed."
+        let futureYear = Calendar.current.component(.year, from: Date()) + 1
+        XCTAssertEqual(ManualEntryOCRPrefill.resolveDate(in: "Policy expires on \(futureYear)-01-01"),
+                       .ambiguous(printedDates: 1))
+    }
+
+    func testResolveDateReportsNoTextRecognizedForMissingOrBlankOCR() {
+        XCTAssertEqual(ManualEntryOCRPrefill.resolveDate(in: nil), .noTextRecognized)
+        XCTAssertEqual(ManualEntryOCRPrefill.resolveDate(in: ""), .noTextRecognized)
+        XCTAssertEqual(ManualEntryOCRPrefill.resolveDate(in: "   \n  "), .noTextRecognized)
+    }
+
+    func testNeedsDateConfirmationOnlyWhenNoDateWasRead() {
+        let someDate = Date(timeIntervalSince1970: 1_760_000_000)
+        XCTAssertFalse(ManualEntryOCRPrefill.needsDateConfirmation(
+            resolution: .found(someDate), userEditedDate: false))
+        XCTAssertTrue(ManualEntryOCRPrefill.needsDateConfirmation(
+            resolution: .noDatePrinted, userEditedDate: false))
+        XCTAssertTrue(ManualEntryOCRPrefill.needsDateConfirmation(
+            resolution: .ambiguous(printedDates: 3), userEditedDate: false))
+        XCTAssertTrue(ManualEntryOCRPrefill.needsDateConfirmation(
+            resolution: .noTextRecognized, userEditedDate: false))
+    }
+
+    func testNeedsDateConfirmationWhenOCRHasNotRunYet() {
+        // nil means nothing has read this receipt at all — the date field is
+        // sitting at its `Date()` default, which is exactly the silent
+        // fallback being prevented.
+        XCTAssertTrue(ManualEntryOCRPrefill.needsDateConfirmation(resolution: nil, userEditedDate: false))
+    }
+
+    func testNeedsNoConfirmationOnceTheUserPickedTheDateThemselves() {
+        // A date a human chose is never a silent fallback — don't interrogate
+        // them about their own input, whatever OCR did or didn't find.
+        XCTAssertFalse(ManualEntryOCRPrefill.needsDateConfirmation(
+            resolution: .noDatePrinted, userEditedDate: true))
+        XCTAssertFalse(ManualEntryOCRPrefill.needsDateConfirmation(
+            resolution: nil, userEditedDate: true))
+    }
 }
 
 /// Regression tests for the range-wording filter in `ReceiptDateDetector`.

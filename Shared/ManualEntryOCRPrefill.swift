@@ -144,6 +144,68 @@ enum ManualEntryOCRPrefill {
         return nil
     }
 
+    /// Why the manual-entry path does or doesn't have a real receipt date —
+    /// the difference between "we read one off the paper" and each distinct
+    /// reason we couldn't, so the confirmation prompt in `ReceiptSubmitView`
+    /// can say which happened instead of a single vague "couldn't read it."
+    ///
+    /// The three failure cases are genuinely distinguishable here (unlike on
+    /// the AI path, where a provider returning an empty string can't tell us
+    /// whether the receipt had no date or the model just failed to find one),
+    /// because this path owns both halves of the read: whether Vision
+    /// recognized any text at all, and whether `ReceiptDateDetector` found
+    /// any date-shaped text in it.
+    enum DateResolution: Equatable {
+        /// A date was read off the receipt with enough confidence to use it.
+        case found(Date)
+        /// OCR came back empty — a blurry, dark, or non-textual image. We
+        /// know nothing about what the receipt says, including whether it
+        /// prints a date, so this can't claim "no date printed."
+        case noTextRecognized
+        /// Text was recognized and contains nothing date-shaped at all. The
+        /// least alarming case: many receipts genuinely don't print a date.
+        case noDatePrinted
+        /// Dates *are* printed but none could be picked as the transaction
+        /// date — several candidates with nothing to disambiguate them, or
+        /// only future-dated ones (a "valid through" / return-window date).
+        /// The most alarming case: the receipt's real date is very likely on
+        /// the paper and we're about to write a different one.
+        case ambiguous(printedDates: Int)
+    }
+
+    /// Classifies what the deterministic date read produced, as the
+    /// `DateResolution` above. `text` is nil or empty when Vision recognized
+    /// nothing (or the attachment couldn't be rendered for OCR at all).
+    ///
+    /// Pure by design — `ReceiptSubmitView` decides whether to prompt purely
+    /// from this value, so the decision is unit-testable without Vision, an
+    /// image, or a running view.
+    static func resolveDate(in text: String?) -> DateResolution {
+        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .noTextRecognized
+        }
+        if let date = likelyReceiptDate(in: text) { return .found(date) }
+        let printed = ReceiptDateDetector.dates(in: text)
+        return printed.isEmpty ? .noDatePrinted : .ambiguous(printedDates: printed.count)
+    }
+
+    /// "Would saving right now silently write today's date into a tax
+    /// record?" — the single question the confirmation prompt exists to
+    /// answer, kept pure and separate from the view that asks it.
+    ///
+    /// `resolution` is nil when OCR hasn't finished (or never ran): treated
+    /// as needing confirmation, since the date field is still sitting at its
+    /// `Date()` default with nothing having read the receipt. `userEditedDate`
+    /// is true once the user has touched the date picker themselves — a date
+    /// a human chose is not a silent fallback, whatever OCR did or didn't
+    /// find, so it's never second-guessed.
+    static func needsDateConfirmation(resolution: DateResolution?, userEditedDate: Bool) -> Bool {
+        if userEditedDate { return false }
+        guard let resolution else { return true }
+        if case .found = resolution { return false }
+        return true
+    }
+
     /// Best guess at the vendor name.
     ///
     /// Vendor is the hardest of the three fields to get right
