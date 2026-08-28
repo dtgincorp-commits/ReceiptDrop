@@ -514,6 +514,21 @@ struct QueryFilterDraft {
 
     @Guide(description: "Maximum amount if the query implies an upper bound (e.g. 'under 20', 'below 50'). Use -1 if none.")
     var amountMax: Double
+
+    // The date half is a descriptor, not actual dates: the on-device model
+    // doesn't know today's date and is poor at date arithmetic, so it names
+    // the period and `SearchDateResolver` does the calendar work in Swift.
+    @Guide(description: "The time period the query names, as one of the descriptor tokens listed in the instructions. Use \"none\" if the query names no time period.")
+    var dateRangeKind: String
+
+    @Guide(description: "Number of days for the last_n_days descriptor (e.g. '2 weeks ago' -> 14). Use -1 for every other descriptor.")
+    var dateCount: Int
+
+    @Guide(description: "Month number 1-12 for the named_month descriptor. Use -1 otherwise.")
+    var dateMonth: Int
+
+    @Guide(description: "Four-digit year for specific_year, or for named_month when the query states one. Use -1 otherwise.")
+    var dateYear: Int
 }
 
 @available(iOS 26.0, *)
@@ -538,6 +553,14 @@ extension SemanticSearchService {
         business type onto the closest token; leave it empty if none is \
         mentioned. Never invent tokens.
 
+        "other" is one of those tokens because it is a real business \
+        category — a business that fits none of the other listed types. It \
+        does NOT mean "unspecified" or "any". If the query names no business \
+        type at all, vendorType must be EMPTY, never "other". Examples: \
+        "anything from 2 weeks ago" -> vendorType empty, NOT "other". \
+        "receipts over 50" -> vendorType empty. "the notary place" -> \
+        vendorType "other".
+
         Amount bounds are usually one-sided, not an exact range. "Over X", \
         "more than X", "above X", and "at least X" mean amountMin = X and \
         amountMax = -1 — do NOT also set amountMax to X. "Under X", "below \
@@ -549,6 +572,12 @@ extension SemanticSearchService {
         hundred" -> 200). Examples: "over hundred dollars" -> amountMin \
         100, amountMax -1. "under fifty" -> amountMax 50, amountMin -1. \
         "between 20 and 40" -> amountMin 20, amountMax 40.
+
+        \(SearchDateResolver.promptGuidance) Use -1 for date_count, \
+        date_month, and date_year wherever the descriptor does not need \
+        them, and put the descriptor token in dateRangeKind, the day count \
+        in dateCount, the month number in dateMonth, and the year in \
+        dateYear.
         """
         let prompt = "Parse this receipt search query: \"\(text)\""
 
@@ -560,10 +589,18 @@ extension SemanticSearchService {
             throw SemanticSearchError.parsing(error.localizedDescription)
         }
 
+        let descriptor = QueryDateDescriptor(
+            kind: QueryDateRangeKind(rawValue: draft.dateRangeKind.trimmingCharacters(in: .whitespaces).lowercased()) ?? .none,
+            count: draft.dateCount > 0 ? draft.dateCount : nil,
+            month: draft.dateMonth > 0 ? draft.dateMonth : nil,
+            year: draft.dateYear > 0 ? draft.dateYear : nil)
+        let dates = SearchDateResolver.resolve(descriptor)
+
         return QueryParseResult(
             vendorType: VendorTypeToken.resolve(draft.vendorType),
             amountMin: draft.amountMin < 0 ? nil : draft.amountMin,
-            amountMax: draft.amountMax < 0 ? nil : draft.amountMax)
+            amountMax: draft.amountMax < 0 ? nil : draft.amountMax,
+            dateFrom: dates?.from, dateTo: dates?.to)
     }
 }
 

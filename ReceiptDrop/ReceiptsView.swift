@@ -214,6 +214,28 @@ struct ReceiptsView: View {
             if let vendorType = semanticFilter.vendorType, !vendorType.isEmpty {
                 guard entry.vendorType == vendorType else { return false }
             }
+            // Date filtering didn't exist here at all until now — every date
+            // phrase in every query ("from last month", "2 weeks ago") was
+            // parsed away and silently dropped, so the search looked like it
+            // had worked while returning the unfiltered set.
+            //
+            // Matched against `periodDate(for:)` — the receipt's own work
+            // date, falling back to its scan date — rather than the raw scan
+            // timestamp, and deliberately NOT switched by the
+            // `receiptsGroupByWorkDate` toggle. "From last month" is a claim
+            // about when the money was spent, which is the work date; if
+            // search followed the toggle, the same query would return
+            // different sets depending on a display preference, and a
+            // receipt scanned in August for a July dinner would vanish from
+            // "July" for anyone left on the default grouping. Same rule
+            // Archive/Backup already uses to decide which period a receipt
+            // belongs to, so a search agrees with what an archive would
+            // contain.
+            if semanticFilter.dateFrom != nil || semanticFilter.dateTo != nil {
+                let date = ArchiveBackupService.periodDate(for: entry)
+                if let from = semanticFilter.dateFrom, date < from { return false }
+                if let to = semanticFilter.dateTo, date > to { return false }
+            }
             guard let amount = Double(entry.amount) else {
                 return semanticFilter.amountMin == nil && semanticFilter.amountMax == nil
             }
@@ -270,20 +292,33 @@ struct ReceiptsView: View {
         HStack(spacing: 8) {
             if let vendorType = filter.vendorType, !vendorType.isEmpty {
                 filterChip(label: VendorTypeToken.displayName(for: vendorType)) {
-                    semanticFilter = QueryParseResult(vendorType: nil, amountMin: filter.amountMin, amountMax: filter.amountMax)
+                    semanticFilter = QueryParseResult(vendorType: nil, amountMin: filter.amountMin, amountMax: filter.amountMax,
+                                                      dateFrom: filter.dateFrom, dateTo: filter.dateTo)
                 }
             }
             if let min = filter.amountMin, let max = filter.amountMax {
                 filterChip(label: "$\(Self.formatAmount(min)) – $\(Self.formatAmount(max))") {
-                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: nil, amountMax: nil)
+                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: nil, amountMax: nil,
+                                                      dateFrom: filter.dateFrom, dateTo: filter.dateTo)
                 }
             } else if let min = filter.amountMin {
                 filterChip(label: "over $\(Self.formatAmount(min))") {
-                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: nil, amountMax: filter.amountMax)
+                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: nil, amountMax: filter.amountMax,
+                                                      dateFrom: filter.dateFrom, dateTo: filter.dateTo)
                 }
             } else if let max = filter.amountMax {
                 filterChip(label: "under $\(Self.formatAmount(max))") {
-                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: filter.amountMin, amountMax: nil)
+                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: filter.amountMin, amountMax: nil,
+                                                      dateFrom: filter.dateFrom, dateTo: filter.dateTo)
+                }
+            }
+            // The date chip the query used to have no way of producing.
+            // Removable exactly like the others: clearing it drops only the
+            // date half of the filter, no new AI call.
+            if let from = filter.dateFrom, let to = filter.dateTo {
+                filterChip(label: SearchDateResolver.label(from: from, to: to)) {
+                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: filter.amountMin,
+                                                      amountMax: filter.amountMax, dateFrom: nil, dateTo: nil)
                 }
             }
             Spacer()

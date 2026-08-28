@@ -673,6 +673,233 @@ final class ExtractionLogicTests: XCTestCase {
     }
 }
 
+/// Tests for the search date resolver — the Swift half of natural-language
+/// date filtering. The parsing itself (phrase -> descriptor) lives in a live
+/// model and has no mockable seam, but everything that decides what a phrase
+/// *means* is here, deterministic and anchored on an injected `now` rather
+/// than the real clock. This is the regression net for the bug these exist
+/// for: date phrases used to be dropped silently, so a query like "anything
+/// from 2 weeks ago" returned the whole history looking like a filtered set.
+final class SearchDateResolverTests: XCTestCase {
+
+    private let calendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        cal.locale = Locale(identifier: "en_US_POSIX")
+        return cal
+    }()
+
+    private func date(_ string: String) -> Date {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = calendar.timeZone
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f.date(from: string)!
+    }
+
+    private func day(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = calendar.timeZone
+        f.dateFormat = AppConstants.sheetDateFormat
+        return f.string(from: date)
+    }
+
+    private func resolve(_ kind: QueryDateRangeKind, count: Int? = nil, month: Int? = nil,
+                         year: Int? = nil, now: String) -> (from: String, to: String)? {
+        let descriptor = QueryDateDescriptor(kind: kind, count: count, month: month, year: year)
+        guard let range = SearchDateResolver.resolve(descriptor, now: date(now), calendar: calendar) else { return nil }
+        return (day(range.from), day(range.to))
+    }
+
+    // MARK: - No date phrase at all
+
+    func testNoDatePhraseProducesNoRange() {
+        // The behavior every pre-existing query depends on: nothing named,
+        // nothing filtered, no chip.
+        XCTAssertNil(resolve(.none, now: "2026-08-18 14:00:00"))
+    }
+
+    func testUnknownTokenFallsBackToNoRange() {
+        // A model that invents a token must not silently produce a range.
+        let dates = SearchDateResolver.range(from: ["date_range_kind": "sometime_recently"],
+                                             now: date("2026-08-18 14:00:00"))
+        XCTAssertNil(dates.from)
+        XCTAssertNil(dates.to)
+    }
+
+    func testLastNDaysWithoutCountProducesNoRange() {
+        XCTAssertNil(resolve(.lastNDays, now: "2026-08-18 14:00:00"))
+    }
+
+    // MARK: - Relative windows
+
+    func testTwoWeeksAgoIsTheLastFourteenDaysIncludingToday() {
+        // "2 weeks ago" is a window, not the single day 14 days back —
+        // Aug 5 through Aug 18 inclusive is 14 days.
+        let range = resolve(.lastNDays, count: 14, now: "2026-08-18 14:00:00")
+        XCTAssertEqual(range?.from, "2026-08-05")
+        XCTAssertEqual(range?.to, "2026-08-18")
+    }
+
+    func testLastNDaysStartsAtMidnightAndEndsAtEndOfToday() {
+        let descriptor = QueryDateDescriptor(kind: .lastNDays, count: 7)
+        let range = SearchDateResolver.resolve(descriptor, now: date("2026-08-18 14:00:00"), calendar: calendar)
+        // A receipt scanned at 11pm today must still be inside the window.
+        XCTAssertEqual(range?.from, date("2026-08-12 00:00:00"))
+        XCTAssertTrue(range!.to > date("2026-08-18 23:00:00"))
+        XCTAssertTrue(range!.to < date("2026-08-19 00:00:00"))
+    }
+
+    func testLastNDaysCrossesAMonthBoundary() {
+        let range = resolve(.lastNDays, count: 14, now: "2026-03-05 09:30:00")
+        XCTAssertEqual(range?.from, "2026-02-20")
+        XCTAssertEqual(range?.to, "2026-03-05")
+    }
+
+    // MARK: - Calendar periods
+
+    func testThisMonthIsMonthToDate() {
+        let range = resolve(.thisMonth, now: "2026-08-18 14:00:00")
+        XCTAssertEqual(range?.from, "2026-08-01")
+        XCTAssertEqual(range?.to, "2026-08-18")
+    }
+
+    func testLastMonthSpansAYearBoundary() {
+        // The edge case worth pinning: "last month" asked in January is the
+        // previous December, not month zero of the same year.
+        let range = resolve(.lastMonth, now: "2026-01-09 08:00:00")
+        XCTAssertEqual(range?.from, "2025-12-01")
+        XCTAssertEqual(range?.to, "2025-12-31")
+    }
+
+    func testLastMonthHandlesShortMonths() {
+        let range = resolve(.lastMonth, now: "2026-03-15 08:00:00")
+        XCTAssertEqual(range?.from, "2026-02-01")
+        XCTAssertEqual(range?.to, "2026-02-28")
+    }
+
+    func testLastYearIsTheWholePreviousYear() {
+        let range = resolve(.lastYear, now: "2026-08-18 14:00:00")
+        XCTAssertEqual(range?.from, "2025-01-01")
+        XCTAssertEqual(range?.to, "2025-12-31")
+    }
+
+    func testThisYearIsYearToDate() {
+        let range = resolve(.thisYear, now: "2026-08-18 14:00:00")
+        XCTAssertEqual(range?.from, "2026-01-01")
+        XCTAssertEqual(range?.to, "2026-08-18")
+    }
+
+    func testLastWeekIsThePreviousCalendarWeek() {
+        // Gregorian week starts Sunday in en_US_POSIX: the week before the
+        // one containing Wed Aug 18 2026 is Sun Aug 8 - Sat Aug 14.
+        let range = resolve(.lastWeek, now: "2026-08-18 14:00:00")
+        XCTAssertEqual(range?.from, "2026-08-09")
+        XCTAssertEqual(range?.to, "2026-08-15")
+    }
+
+    // MARK: - Named months and years
+
+    func testNamedMonthAlreadyPassedResolvesToThisYear() {
+        let range = resolve(.namedMonth, month: 7, now: "2026-08-18 14:00:00")
+        XCTAssertEqual(range?.from, "2026-07-01")
+        XCTAssertEqual(range?.to, "2026-07-31")
+    }
+
+    func testNamedMonthStillInTheFutureResolvesToLastYear() {
+        // "July" said in March: nobody searches receipts they haven't
+        // collected yet, so it means last July.
+        let range = resolve(.namedMonth, month: 7, now: "2026-03-02 14:00:00")
+        XCTAssertEqual(range?.from, "2025-07-01")
+        XCTAssertEqual(range?.to, "2025-07-31")
+    }
+
+    func testNamedMonthIsTheCurrentMonthWhenItIsTheCurrentMonth() {
+        // Boundary of the future-month rule: August in August stays 2026.
+        let range = resolve(.namedMonth, month: 8, now: "2026-08-18 14:00:00")
+        XCTAssertEqual(range?.from, "2026-08-01")
+        XCTAssertEqual(range?.to, "2026-08-31")
+    }
+
+    func testNamedMonthWithExplicitYearIgnoresTheFutureRule() {
+        let range = resolve(.namedMonth, month: 7, year: 2024, now: "2026-03-02 14:00:00")
+        XCTAssertEqual(range?.from, "2024-07-01")
+        XCTAssertEqual(range?.to, "2024-07-31")
+    }
+
+    func testInvalidMonthNumberProducesNoRange() {
+        XCTAssertNil(resolve(.namedMonth, month: 13, now: "2026-08-18 14:00:00"))
+    }
+
+    func testSpecificYear() {
+        let range = resolve(.specificYear, year: 2024, now: "2026-08-18 14:00:00")
+        XCTAssertEqual(range?.from, "2024-01-01")
+        XCTAssertEqual(range?.to, "2024-12-31")
+    }
+
+    // MARK: - Descriptor extraction from provider JSON
+
+    func testRangeFromProviderFieldsTreatsSentinelsAsAbsent() {
+        // The on-device model writes -1 where a field doesn't apply; the
+        // cloud parsers write null. Neither may be read as a real count.
+        let dates = SearchDateResolver.range(
+            from: ["date_range_kind": "last_month", "date_count": -1, "date_month": -1, "date_year": -1],
+            now: date("2026-01-09 08:00:00"))
+        XCTAssertEqual(dates.from.map(day), "2025-12-01")
+        XCTAssertEqual(dates.to.map(day), "2025-12-31")
+    }
+
+    func testRangeFromProviderFieldsReadsLastNDays() {
+        let dates = SearchDateResolver.range(
+            from: ["date_range_kind": "last_n_days", "date_count": 14],
+            now: date("2026-08-18 14:00:00"))
+        XCTAssertEqual(dates.from.map(day), "2026-08-05")
+        XCTAssertEqual(dates.to.map(day), "2026-08-18")
+    }
+
+    // MARK: - Chip labels
+
+    func testWholeMonthLabelsAsMonthAndYear() {
+        let range = SearchDateResolver.resolve(QueryDateDescriptor(kind: .namedMonth, month: 7),
+                                               now: date("2026-08-18 14:00:00"), calendar: calendar)!
+        XCTAssertEqual(SearchDateResolver.label(from: range.from, to: range.to,
+                                                now: date("2026-08-18 14:00:00"), calendar: calendar),
+                       "Jul 2026")
+    }
+
+    func testWindowEndingTodayLabelsAsLastNDays() {
+        let range = SearchDateResolver.resolve(QueryDateDescriptor(kind: .lastNDays, count: 14),
+                                               now: date("2026-08-18 14:00:00"), calendar: calendar)!
+        XCTAssertEqual(SearchDateResolver.label(from: range.from, to: range.to,
+                                                now: date("2026-08-18 14:00:00"), calendar: calendar),
+                       "Last 14 days")
+    }
+
+    func testArbitraryRangeLabelsWithBothEnds() {
+        let range = SearchDateResolver.resolve(QueryDateDescriptor(kind: .lastWeek),
+                                               now: date("2026-08-18 14:00:00"), calendar: calendar)!
+        XCTAssertEqual(SearchDateResolver.label(from: range.from, to: range.to,
+                                                now: date("2026-08-18 14:00:00"), calendar: calendar),
+                       "Aug 9 – Aug 15")
+    }
+
+    // MARK: - QueryParseResult.isEmpty
+
+    func testDateOnlyFilterIsNotEmpty() {
+        // isEmpty gates whether any filter is applied at all: a date-only
+        // query must count as a real filter, or the range would be parsed
+        // and then thrown away — the original bug.
+        let result = QueryParseResult(vendorType: nil, amountMin: nil, amountMax: nil,
+                                      dateFrom: date("2026-08-05 00:00:00"), dateTo: date("2026-08-18 23:59:59"))
+        XCTAssertFalse(result.isEmpty)
+    }
+
+    func testFullyEmptyResultIsEmpty() {
+        XCTAssertTrue(QueryParseResult(vendorType: nil, amountMin: nil, amountMax: nil).isEmpty)
+    }
+}
+
 private extension DateFormatter {
     static let posixDay: DateFormatter = {
         let f = DateFormatter()

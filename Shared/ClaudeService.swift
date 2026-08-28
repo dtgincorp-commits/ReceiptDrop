@@ -918,14 +918,214 @@ struct GeminiService: ReceiptExtractor {
 
 // MARK: - Semantic search
 
+/// The fixed vocabulary of time periods a search query can name. Every
+/// parser — all four cloud providers and the on-device model — returns one
+/// of these tokens plus a number or two; `SearchDateResolver` turns that into
+/// concrete dates in Swift.
+///
+/// Deliberately a descriptor rather than "have the model return ISO dates":
+/// the models don't reliably know today's date, and even when told it, date
+/// arithmetic ("2 weeks ago") is exactly the kind of thing a small on-device
+/// model gets wrong. Just as importantly, if each provider computed its own
+/// dates, "last month" would quietly mean something different on Apple
+/// on-device than on Gemini. One Swift resolver keeps the meaning of every
+/// phrase identical across providers, and unit-testable (see
+/// `ExtractionLogicTests`) — which the live parsing itself is not, since
+/// there's no mockable seam for the models.
+enum QueryDateRangeKind: String, CaseIterable {
+    case none
+    case lastNDays = "last_n_days"
+    case thisWeek = "this_week"
+    case lastWeek = "last_week"
+    case thisMonth = "this_month"
+    case lastMonth = "last_month"
+    case thisYear = "this_year"
+    case lastYear = "last_year"
+    case namedMonth = "named_month"
+    case specificYear = "specific_year"
+
+    /// The `enum` array handed to every provider's schema, so the allowed
+    /// tokens can't drift between the five parsers.
+    static var allValidValues: [String] { allCases.map(\.rawValue) }
+}
+
+/// What a parser read out of the query's time phrase, before resolution.
+/// `count`/`month`/`year` are only meaningful for the kinds that use them.
+struct QueryDateDescriptor {
+    var kind: QueryDateRangeKind = .none
+    var count: Int?
+    var month: Int?
+    var year: Int?
+}
+
+/// Turns a `QueryDateDescriptor` into an absolute, inclusive date range.
+/// Pure Swift, `now` injected (same pattern as `SpendingInsightsService.buildDigest(now:)`)
+/// so the calendar edge cases — "last month" from January, a named month
+/// that hasn't happened yet this year — are testable without waiting for
+/// the real clock to reach them.
+enum SearchDateResolver {
+    /// Inclusive bounds: `from` is the start of the first day, `to` the last
+    /// instant of the last day. Callers compare a receipt's date against both
+    /// with `>=` / `<=`. Returns nil for `.none` (and for a nonsensical
+    /// descriptor, e.g. `last_n_days` with no count) — nil means "no date
+    /// filter", which is what preserves the old behavior for queries that
+    /// name no time period at all.
+    static func resolve(_ descriptor: QueryDateDescriptor,
+                        now: Date = Date(),
+                        calendar: Calendar = .current) -> (from: Date, to: Date)? {
+        let today = calendar.startOfDay(for: now)
+        func endOfDay(_ day: Date) -> Date {
+            calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: day))!.addingTimeInterval(-1)
+        }
+
+        switch descriptor.kind {
+        case .none:
+            return nil
+
+        case .lastNDays:
+            // "2 weeks ago" is read as the last 14 days, not the single day
+            // 14 days back: someone searching that means "recently, about
+            // two weeks back," and the literal reading would return an
+            // almost-always-empty list. Over-inclusive beats silently empty
+            // in a tax app. The window includes today, so N = 14 spans today
+            // plus the previous 13 days.
+            guard let count = descriptor.count, count > 0 else { return nil }
+            guard let start = calendar.date(byAdding: .day, value: -(count - 1), to: today) else { return nil }
+            return (start, endOfDay(today))
+
+        case .thisWeek, .thisMonth, .thisYear:
+            // "This <period>" is period-to-date: it ends today, not at the
+            // period's end. Clamping matters only cosmetically (no receipt is
+            // dated in the future), but it makes the chip label honest —
+            // "Aug 1 – Aug 18", not "Aug 1 – Aug 31".
+            let unit: Calendar.Component = descriptor.kind == .thisWeek ? .weekOfYear
+                : (descriptor.kind == .thisMonth ? .month : .year)
+            guard let interval = calendar.dateInterval(of: unit, for: now) else { return nil }
+            return (interval.start, endOfDay(today))
+
+        case .lastWeek, .lastMonth, .lastYear:
+            // The whole previous calendar period, first day to last — "last
+            // month" in January is the previous December, which is the case
+            // that motivated pinning this down in tests.
+            let unit: Calendar.Component = descriptor.kind == .lastWeek ? .weekOfYear
+                : (descriptor.kind == .lastMonth ? .month : .year)
+            guard let current = calendar.dateInterval(of: unit, for: now),
+                  let previousDate = calendar.date(byAdding: unit, value: -1, to: current.start),
+                  let previous = calendar.dateInterval(of: unit, for: previousDate) else { return nil }
+            return (previous.start, previous.end.addingTimeInterval(-1))
+
+        case .namedMonth:
+            guard let month = descriptor.month, (1...12).contains(month) else { return nil }
+            var year = descriptor.year ?? calendar.component(.year, from: now)
+            if descriptor.year == nil && month > calendar.component(.month, from: now) {
+                // "July" said in March means last July — nobody searches
+                // their receipts for a month that hasn't happened yet.
+                year -= 1
+            }
+            guard let start = calendar.date(from: DateComponents(year: year, month: month, day: 1)),
+                  let interval = calendar.dateInterval(of: .month, for: start) else { return nil }
+            return (interval.start, interval.end.addingTimeInterval(-1))
+
+        case .specificYear:
+            guard let year = descriptor.year, year > 1900,
+                  let start = calendar.date(from: DateComponents(year: year, month: 1, day: 1)),
+                  let interval = calendar.dateInterval(of: .year, for: start) else { return nil }
+            return (interval.start, interval.end.addingTimeInterval(-1))
+        }
+    }
+
+    /// Human-readable label for a resolved range, used by the removable
+    /// filter chip. Recognizes the two shapes users actually see most — a
+    /// whole calendar month, and a window ending today — and falls back to
+    /// spelling out both ends.
+    static func label(from: Date, to: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        let monthInterval = calendar.dateInterval(of: .month, for: from)
+        if let monthInterval, calendar.isDate(from, inSameDayAs: monthInterval.start),
+           calendar.isDate(to, inSameDayAs: monthInterval.end.addingTimeInterval(-1)) {
+            return format(from, "MMM yyyy")
+        }
+        if calendar.isDate(to, inSameDayAs: now) {
+            let days = (calendar.dateComponents([.day], from: calendar.startOfDay(for: from),
+                                                to: calendar.startOfDay(for: now)).day ?? 0) + 1
+            if days > 1 { return "Last \(days) days" }
+            return "Today"
+        }
+        return "\(format(from, "MMM d")) – \(format(to, "MMM d"))"
+    }
+
+    private static func format(_ date: Date, _ pattern: String) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = pattern
+        return formatter.string(from: date)
+    }
+
+    /// Pulls the descriptor fields out of a provider's decoded JSON (or
+    /// Claude's tool input) and resolves them. Shared by all four cloud
+    /// parsers so the key names and the -1/null sentinel handling can't drift.
+    static func range(from fields: [String: Any], now: Date = Date()) -> (from: Date?, to: Date?) {
+        let rawKind = (fields["date_range_kind"] as? String)?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+        func number(_ key: String) -> Int? {
+            guard let value = (fields[key] as? NSNumber)?.intValue, value > 0 else { return nil }
+            return value
+        }
+        let descriptor = QueryDateDescriptor(
+            kind: QueryDateRangeKind(rawValue: rawKind) ?? .none,
+            count: number("date_count"), month: number("date_month"), year: number("date_year"))
+        guard let resolved = resolve(descriptor, now: now) else { return (nil, nil) }
+        return (resolved.from, resolved.to)
+    }
+
+    /// The date half of every parser's prompt. One string for all five
+    /// parsers — the on-device instructions and the four cloud prompts —
+    /// so a phrase can't mean one thing on one provider and something else
+    /// on another.
+    static let promptGuidance = """
+    Time periods: if the query names one, describe it with date_range_kind \
+    (one of: \(QueryDateRangeKind.allValidValues.joined(separator: ", "))) plus \
+    date_count / date_month / date_year. Never work out actual calendar dates \
+    yourself — you do not know today's date; the app resolves the descriptor. \
+    Use "none" when the query names no time period. Examples: "anything from 2 \
+    weeks ago" or "past two weeks" -> last_n_days with date_count 14 (a phrase \
+    like "N weeks ago" means the whole recent window, not one single day); \
+    "in the last 30 days" -> last_n_days, date_count 30; "yesterday" -> \
+    last_n_days, date_count 2; "this week" -> this_week; "from last month" -> \
+    last_month; "so far this month" -> this_month; "in July" -> named_month \
+    with date_month 7 and no date_year; "July 2025" -> named_month, date_month \
+    7, date_year 2025; "in 2025" -> specific_year with date_year 2025.
+    """
+}
+
 /// A search query broken into a structured filter, e.g. "restaurant receipts
 /// over 100" → vendorType "restaurant", amountMin 100.
+///
+/// `dateFrom`/`dateTo` are already resolved to absolute dates by
+/// `SearchDateResolver` — the parsers never hand a relative phrase further
+/// down. Before these existed, every date phrase in every query on every
+/// provider was silently dropped: "anything from 2 weeks ago" parsed, showed
+/// no date chip, and returned the user's entire history as if it had been
+/// filtered. Silent wrong results are the worst failure mode in a tax app,
+/// which is why the range is carried here rather than being left to the
+/// plain text search.
 struct QueryParseResult {
     let vendorType: String?
     let amountMin: Double?
     let amountMax: Double?
+    let dateFrom: Date?
+    let dateTo: Date?
 
-    var isEmpty: Bool { vendorType == nil && amountMin == nil && amountMax == nil }
+    init(vendorType: String?, amountMin: Double?, amountMax: Double?,
+         dateFrom: Date? = nil, dateTo: Date? = nil) {
+        self.vendorType = vendorType
+        self.amountMin = amountMin
+        self.amountMax = amountMax
+        self.dateFrom = dateFrom
+        self.dateTo = dateTo
+    }
+
+    var isEmpty: Bool {
+        vendorType == nil && amountMin == nil && amountMax == nil && dateFrom == nil && dateTo == nil
+    }
 }
 
 enum SemanticSearchError: LocalizedError {
@@ -989,11 +1189,15 @@ enum SemanticSearchService {
             "input_schema": [
                 "type": "object",
                 "properties": [
-                    "vendor_type": ["type": ["string", "null"], "enum": VendorTypeToken.allValidValues + [NSNull()], "description": "The kind of business being searched for, mapped onto the closest fit from the enum. Null if the query doesn't mention a business type at all — do not force \"other\" just because the query has no type in it."],
+                    "vendor_type": ["type": ["string", "null"], "enum": VendorTypeToken.allValidValues + [NSNull()], "description": "The kind of business being searched for, mapped onto the closest fit from the enum. Null if the query doesn't mention a business type at all. Note that \"other\" is itself a real business category — a business that fits none of the listed types — NOT a value meaning \"unspecified\" or \"any\". A query naming no business type (e.g. \"anything from 2 weeks ago\") must be null, never \"other\"."],
                     "amount_min": ["type": ["number", "null"], "description": "Minimum amount if the query implies a lower bound (e.g. 'over 100', 'at least 50'). Null if none."],
                     "amount_max": ["type": ["number", "null"], "description": "Maximum amount if the query implies an upper bound (e.g. 'under 20', 'below $50'). Null if none."],
+                    "date_range_kind": ["type": "string", "enum": QueryDateRangeKind.allValidValues, "description": "The time period the query names, as a descriptor token. \"none\" if it names no time period. Do not compute calendar dates — the app resolves the descriptor."],
+                    "date_count": ["type": ["integer", "null"], "description": "Number of days for last_n_days (e.g. \"2 weeks ago\" -> 14). Null otherwise."],
+                    "date_month": ["type": ["integer", "null"], "description": "Month number 1-12 for named_month. Null otherwise."],
+                    "date_year": ["type": ["integer", "null"], "description": "Four-digit year for specific_year, or for named_month when the query states one. Null otherwise."],
                 ],
-                "required": ["vendor_type", "amount_min", "amount_max"],
+                "required": ["vendor_type", "amount_min", "amount_max", "date_range_kind", "date_count", "date_month", "date_year"],
             ],
         ]
         let body: [String: Any] = [
@@ -1001,7 +1205,7 @@ enum SemanticSearchService {
             "max_tokens": 512,
             "tools": [tool],
             "tool_choice": ["type": "tool", "name": "parse_search_query"],
-            "messages": [["role": "user", "content": "Parse this receipt search query: \"\(text)\""]],
+            "messages": [["role": "user", "content": "Parse this receipt search query: \"\(text)\"\n\n\(SearchDateResolver.promptGuidance)"]],
         ]
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
@@ -1020,10 +1224,12 @@ enum SemanticSearchService {
               let input = toolUse["input"] as? [String: Any] else {
             throw SemanticSearchError.parsing("Malformed response")
         }
+        let dates = SearchDateResolver.range(from: input)
         return QueryParseResult(
             vendorType: VendorTypeToken.resolve(input["vendor_type"] as? String),
             amountMin: (input["amount_min"] as? NSNumber)?.doubleValue,
-            amountMax: (input["amount_max"] as? NSNumber)?.doubleValue)
+            amountMax: (input["amount_max"] as? NSNumber)?.doubleValue,
+            dateFrom: dates.from, dateTo: dates.to)
     }
 
     // MARK: OpenAI
@@ -1038,13 +1244,17 @@ enum SemanticSearchService {
                 "vendor_type": ["type": ["string", "null"], "enum": VendorTypeToken.allValidValues + [NSNull()]],
                 "amount_min": ["type": ["number", "null"]],
                 "amount_max": ["type": ["number", "null"]],
+                "date_range_kind": ["type": "string", "enum": QueryDateRangeKind.allValidValues],
+                "date_count": ["type": ["integer", "null"]],
+                "date_month": ["type": ["integer", "null"]],
+                "date_year": ["type": ["integer", "null"]],
             ],
-            "required": ["vendor_type", "amount_min", "amount_max"],
+            "required": ["vendor_type", "amount_min", "amount_max", "date_range_kind", "date_count", "date_month", "date_year"],
             "additionalProperties": false,
         ]
         let body: [String: Any] = [
             "model": AppConstants.openAIModel,
-            "messages": [["role": "user", "content": "Parse this receipt search query into a structured filter. Map any mentioned business type onto the closest enum value; use null (not a forced guess) if no business type is mentioned: \"\(text)\""]],
+            "messages": [["role": "user", "content": "Parse this receipt search query into a structured filter. Map any mentioned business type onto the closest enum value; use null (not a forced guess) if no business type is mentioned. \"other\" is a real business category (a business fitting none of the listed types), NOT a value meaning \"unspecified\" or \"any\" — a query naming no business type at all, such as \"anything from 2 weeks ago\", must be null and never \"other\". \(SearchDateResolver.promptGuidance) Query: \"\(text)\""]],
             "response_format": ["type": "json_schema", "json_schema": ["name": "parse_search_query", "strict": true, "schema": schema]],
         ]
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
@@ -1065,10 +1275,12 @@ enum SemanticSearchService {
               let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any] else {
             throw SemanticSearchError.parsing("Malformed response")
         }
+        let dates = SearchDateResolver.range(from: fields)
         return QueryParseResult(
             vendorType: VendorTypeToken.resolve(fields["vendor_type"] as? String),
             amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
-            amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue)
+            amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue,
+            dateFrom: dates.from, dateTo: dates.to)
     }
 
     // MARK: Perplexity
@@ -1083,13 +1295,17 @@ enum SemanticSearchService {
                 "vendor_type": ["type": ["string", "null"], "enum": VendorTypeToken.allValidValues + [NSNull()]],
                 "amount_min": ["type": ["number", "null"]],
                 "amount_max": ["type": ["number", "null"]],
+                "date_range_kind": ["type": "string", "enum": QueryDateRangeKind.allValidValues],
+                "date_count": ["type": ["integer", "null"]],
+                "date_month": ["type": ["integer", "null"]],
+                "date_year": ["type": ["integer", "null"]],
             ],
-            "required": ["vendor_type", "amount_min", "amount_max"],
+            "required": ["vendor_type", "amount_min", "amount_max", "date_range_kind", "date_count", "date_month", "date_year"],
             "additionalProperties": false,
         ]
         let body: [String: Any] = [
             "model": AppConstants.perplexityModel,
-            "messages": [["role": "user", "content": "Parse this receipt search query into a structured filter. Map any mentioned business type onto the closest enum value; use null (not a forced guess) if no business type is mentioned: \"\(text)\""]],
+            "messages": [["role": "user", "content": "Parse this receipt search query into a structured filter. Map any mentioned business type onto the closest enum value; use null (not a forced guess) if no business type is mentioned. \"other\" is a real business category (a business fitting none of the listed types), NOT a value meaning \"unspecified\" or \"any\" — a query naming no business type at all, such as \"anything from 2 weeks ago\", must be null and never \"other\". \(SearchDateResolver.promptGuidance) Query: \"\(text)\""]],
             "response_format": ["type": "json_schema", "json_schema": ["schema": schema]],
         ]
         var request = URLRequest(url: URL(string: "https://api.perplexity.ai/chat/completions")!)
@@ -1110,10 +1326,12 @@ enum SemanticSearchService {
               let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any] else {
             throw SemanticSearchError.parsing("Malformed response")
         }
+        let dates = SearchDateResolver.range(from: fields)
         return QueryParseResult(
             vendorType: VendorTypeToken.resolve(fields["vendor_type"] as? String),
             amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
-            amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue)
+            amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue,
+            dateFrom: dates.from, dateTo: dates.to)
     }
 
     // MARK: Gemini
@@ -1134,10 +1352,14 @@ enum SemanticSearchService {
                 "vendor_type": ["type": "STRING", "enum": VendorTypeToken.allValidValues, "nullable": true],
                 "amount_min": ["type": "NUMBER", "nullable": true],
                 "amount_max": ["type": "NUMBER", "nullable": true],
+                "date_range_kind": ["type": "STRING", "enum": QueryDateRangeKind.allValidValues, "nullable": true],
+                "date_count": ["type": "INTEGER", "nullable": true],
+                "date_month": ["type": "INTEGER", "nullable": true],
+                "date_year": ["type": "INTEGER", "nullable": true],
             ],
         ]
         let body: [String: Any] = [
-            "contents": [["parts": [["text": "Parse this receipt search query into a structured filter. Map any mentioned business type onto the closest enum value; use null if the query doesn't mention a business type — do not force \"other\" onto a query with no type in it: \"\(text)\""]]]],
+            "contents": [["parts": [["text": "Parse this receipt search query into a structured filter. Map any mentioned business type onto the closest enum value; use null if the query doesn't mention a business type. \"other\" is a real business category (a business fitting none of the listed types), NOT a value meaning \"unspecified\" or \"any\" — a query naming no business type at all, such as \"anything from 2 weeks ago\", must be null and never \"other\". \(SearchDateResolver.promptGuidance) Query: \"\(text)\""]]]],
             "generationConfig": ["responseMimeType": "application/json", "responseSchema": schema],
         ]
         let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(AppConstants.geminiModel):generateContent?key=\(apiKey)")!
@@ -1159,10 +1381,12 @@ enum SemanticSearchService {
               let fields = try JSONSerialization.jsonObject(with: fieldsData) as? [String: Any] else {
             throw SemanticSearchError.parsing("Malformed response")
         }
+        let dates = SearchDateResolver.range(from: fields)
         return QueryParseResult(
             vendorType: VendorTypeToken.resolve(fields["vendor_type"] as? String),
             amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
-            amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue)
+            amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue,
+            dateFrom: dates.from, dateTo: dates.to)
     }
 }
 
