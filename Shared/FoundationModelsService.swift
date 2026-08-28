@@ -537,6 +537,18 @@ extension SemanticSearchService {
         filter. Allowed vendor-type tokens: \(vocabulary). Map any mentioned \
         business type onto the closest token; leave it empty if none is \
         mentioned. Never invent tokens.
+
+        Amount bounds are usually one-sided, not an exact range. "Over X", \
+        "more than X", "above X", and "at least X" mean amountMin = X and \
+        amountMax = -1 — do NOT also set amountMax to X. "Under X", "below \
+        X", and "less than X" mean amountMax = X and amountMin = -1 — do NOT \
+        also set amountMin to X. Only set both amountMin and amountMax when \
+        the query describes a closed range, such as "between X and Y" or \
+        "from X to Y". Always convert spelled-out number words to digits \
+        before using them (e.g. "hundred" -> 100, "fifty" -> 50, "two \
+        hundred" -> 200). Examples: "over hundred dollars" -> amountMin \
+        100, amountMax -1. "under fifty" -> amountMax 50, amountMin -1. \
+        "between 20 and 40" -> amountMin 20, amountMax 40.
         """
         let prompt = "Parse this receipt search query: \"\(text)\""
 
