@@ -6,6 +6,7 @@ import SwiftUI
 /// and never sees anything but the already-computed digest.
 struct InsightsView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("receiptsGroupByWorkDate") private var groupByWorkDate = false
     @State private var digest = SpendingDigest(
         months: [], currentMonthTotal: 0, currentMonthCount: 0, previousMonthTotal: 0,
         byCategory: [], byVendorType: [], topVendors: [], biggestReceipt: nil, unusualFlags: [])
@@ -26,9 +27,36 @@ struct InsightsView: View {
                 }
             }
             .navigationTitle("Receipt Insights")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Button {
+                            groupByWorkDate = false
+                        } label: {
+                            if !groupByWorkDate {
+                                Label("Group by Scan Date", systemImage: "checkmark")
+                            } else {
+                                Text("Group by Scan Date")
+                            }
+                        }
+                        Button {
+                            groupByWorkDate = true
+                        } label: {
+                            if groupByWorkDate {
+                                Label("Group by Receipt Date", systemImage: "checkmark")
+                            } else {
+                                Text("Group by Receipt Date")
+                            }
+                        }
+                    } label: {
+                        Label("Options", systemImage: "line.3.horizontal")
+                    }
+                }
+            }
         }
         .onAppear(perform: reload)
         .onChange(of: scenePhase) { if $0 == .active { reload() } }
+        .onChange(of: groupByWorkDate) { _ in reload() }
     }
 
     private var insightsList: some View {
@@ -134,7 +162,7 @@ struct InsightsView: View {
     }
 
     private func reload() {
-        digest = SpendingInsightsService.buildDigest()
+        digest = SpendingInsightsService.buildDigest(groupByWorkDate: groupByWorkDate)
     }
 
     private func generateNarrative() {

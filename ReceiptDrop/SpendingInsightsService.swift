@@ -14,9 +14,12 @@ import FoundationModels
 // and nothing ever leaves the phone: insights work in Offline mode too.
 
 /// Spending statistics over the last six calendar months, grouped the same
-/// way the Receipts screen groups entries (work date, falling back to scan
-/// date — `ArchiveBackupService.periodDate`), so the totals here match what
-/// you'd add up reading that screen.
+/// way the Receipts screen groups entries — and using the same stored
+/// preference (`receiptsGroupByWorkDate`), so the two screens never disagree.
+/// Two modes: work date, falling back to scan date when the work date is
+/// missing/unparseable (`ArchiveBackupService.periodDate`), or pure scan
+/// date. Whichever mode is picked, the totals here match what you'd add up
+/// reading the Receipts screen in that same mode.
 struct SpendingDigest {
     struct MonthTotal: Identifiable {
         var id: Date { monthStart }
@@ -67,7 +70,8 @@ enum SpendingInsightsService {
     /// skipped (they're already HITL-flagged in the Receipts list; silently
     /// counting them as $0 would understate a month and hide the problem).
     static func buildDigest(from entries: [HistoryEntry] = SubmissionStore.loadHistory(),
-                            now: Date = Date()) -> SpendingDigest {
+                            now: Date = Date(),
+                            groupByWorkDate: Bool = true) -> SpendingDigest {
         let calendar = Calendar.current
         let currentMonthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
         guard let windowStart = calendar.date(byAdding: .month, value: -(monthsWindow - 1), to: currentMonthStart) else {
@@ -77,9 +81,11 @@ enum SpendingInsightsService {
         }
 
         // (entry, periodDate, amount) for everything in-window with a real amount.
+        // Mirrors YearGroup.build's groupByWorkDate branch in ReceiptsView.swift:
+        // work date (falling back to scan date) when true, pure scan date when false.
         let dated: [(entry: HistoryEntry, date: Date, amount: Double)] = entries.compactMap { entry in
             guard let amount = Double(entry.amount), amount > 0 else { return nil }
-            let date = ArchiveBackupService.periodDate(for: entry)
+            let date = groupByWorkDate ? ArchiveBackupService.periodDate(for: entry) : entry.timestamp
             guard date >= windowStart, date < calendar.date(byAdding: .month, value: 1, to: currentMonthStart)! else { return nil }
             return (entry, date, amount)
         }
