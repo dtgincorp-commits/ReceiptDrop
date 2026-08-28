@@ -47,6 +47,13 @@ targets:
       path: ReceiptDrop/Info.plist
       properties:
         CFBundleDisplayName: Receipts4Tax
+        # Version keys are declared explicitly because XcodeGen otherwise
+        # falls back to its own defaults (1.0 / 1) when generating this
+        # Info.plist. The build number MUST stay in lockstep with the
+        # ShareExtension target's below — App Store Connect rejects an
+        # upload whose embedded extension build number differs from the app's.
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "2"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -86,6 +93,9 @@ targets:
       path: ShareExtension/Info.plist
       properties:
         CFBundleDisplayName: Receipts4Tax
+        # Must match the ReceiptDrop target's version keys exactly.
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "2"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
