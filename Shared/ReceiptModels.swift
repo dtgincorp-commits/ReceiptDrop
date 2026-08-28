@@ -164,6 +164,53 @@ struct ExtractedReceipt {
     let needsReview: Bool
     let reviewReason: String
 
+    /// How old a date has to be before it is treated as impossible rather
+    /// than merely surprising — the second, harder tier above the existing
+    /// 15-month "please confirm" flag.
+    ///
+    /// The two tiers answer different questions. 15 months asks "are you
+    /// sure?", because legitimately old receipts genuinely exist: amending a
+    /// prior year's return, a reimbursement filed late, a box of paper
+    /// finally being scanned. Those must keep saving with their real date,
+    /// which is why that tier stays flag-only and why this threshold has to
+    /// sit far enough above it to never catch one.
+    ///
+    /// Ten years clears that bar with room to spare. The longest ordinary
+    /// reason to hold a receipt at all is the 7-year record-retention
+    /// window, and amended returns close after 3; nothing older than a
+    /// decade is an expense anyone is filing. A date past it is not a stale
+    /// receipt, it is a different kind of date that happened to be printed
+    /// on the page — a date of birth, a "member since", an archival
+    /// reference — and storing it would put the expense in a tax year that
+    /// may predate the business.
+    static let absurdlyOldYears = 10
+
+    /// Today, in the sheet's date format — what an absurd or unreadable date
+    /// falls back to.
+    static func todayString() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = AppConstants.sheetDateFormat
+        return formatter.string(from: Date())
+    }
+
+    /// A human-scale description of how far back `parsed` is ("57 years",
+    /// "16 months"), so a review reason can be proportional to what was
+    /// actually found instead of saying "over a year old" about a
+    /// half-century discrepancy. Coarse by design — the reader needs the
+    /// order of magnitude, not a day count.
+    static func approximateAge(of parsed: Date, asOf now: Date = Date(),
+                               calendar: Calendar = .current) -> String {
+        let from = calendar.startOfDay(for: parsed)
+        let to = calendar.startOfDay(for: now)
+        let components = calendar.dateComponents([.year, .month], from: from, to: to)
+        let years = max(components.year ?? 0, 0)
+        if years >= 2 { return "\(years) years" }
+        let months = max((years * 12) + (components.month ?? 0), 0)
+        if months >= 2 { return "\(months) months" }
+        return months == 1 ? "1 month" : "less than a month"
+    }
+
     /// Heuristic safety net shared by every `ReceiptExtractor` — independent
     /// of whatever confidence the model itself reports, catches empty
     /// vendor/amount, an unparseable date (which `ClaudeService.normalizeDate`
@@ -179,6 +226,16 @@ struct ExtractedReceipt {
     /// reporting a *different* date as workDate — it recognized the date
     /// fine, it just populated the wrong field). `nil` (full-image paths that
     /// never OCR) skips this check entirely — behavior identical to before.
+    ///
+    /// Dates get two plausibility tiers, not one. Anything older than 15
+    /// months is flagged but kept ("please confirm") — old receipts are
+    /// unusual, not impossible. Anything older than `absurdlyOldYears` is
+    /// *discarded*: at that distance the value is not a stale receipt date
+    /// but a different kind of date entirely, and the presence cross-check
+    /// above cannot catch it, because such a date genuinely is printed on
+    /// the page (see `ReceiptDateDetector.namesNonTransactionDate`, which
+    /// attacks the same failure from the other side by never reporting a
+    /// labelled non-transaction date in the first place).
     static func build(vendor: String, rawWorkDate: String, amount: String, comments: String,
                       rawVendorType: String, modelReportedLowConfidence: Bool, modelReason: String,
                       sourceText: String? = nil) -> ExtractedReceipt {
@@ -227,15 +284,49 @@ struct ExtractedReceipt {
             // plausible-looking date rather than admitting none was found —
             // this catches that even though it passes the parse check above.
             let calendar = Calendar.current
-            if parsed > calendar.date(byAdding: .day, value: 1, to: Date())! {
+            let now = Date()
+            // Set when the date is thrown away entirely (see the absurd tier
+            // below). The printed-text cross-check underneath is then moot —
+            // there is no longer a model-reported date to cross-check, and
+            // running it would "correct" the discarded value straight back in.
+            var dateRejected = false
+            if parsed > calendar.date(byAdding: .day, value: 1, to: now)! {
                 needsReview = true
                 if reason.isEmpty { reason = "Date is in the future" }
-            } else if parsed < calendar.date(byAdding: .month, value: -15, to: Date())! {
+            } else if parsed < calendar.date(byAdding: .year, value: -absurdlyOldYears, to: now)! {
+                // Tier 2 — absurd, not merely stale. Reject the date rather
+                // than store it. See `absurdlyOldYears` for the threshold's
+                // rationale; the confirmed case was a medical bill with no
+                // transaction date printed at all, whose patient date of
+                // birth (01/30/1969) was read as the work date, flagged, and
+                // saved anyway.
+                //
+                // Rejecting means "this receipt has no date", which is a
+                // state the app already knows how to handle: the reason ends
+                // in the same "defaulted to today" suffix
+                // `ReceiptSubmitView.finishAfterSave` and
+                // `ScannedTextSubmitView` match on to raise their date
+                // prompt, so this routes into that existing ask-the-user flow
+                // with no new plumbing. Appended rather than assigned, so an
+                // earlier reason (a missing vendor, the model's own
+                // low-confidence note) survives while the suffix stays last.
                 needsReview = true
-                if reason.isEmpty { reason = "Date is over a year old — please confirm" }
+                dateRejected = true
+                resolvedWorkDate = todayString()
+                let rejection = "Date \(ClaudeService.normalizeDate(rawWorkDate)) is \(approximateAge(of: parsed, asOf: now, calendar: calendar)) old — that isn't a purchase date, so it was ignored and defaulted to today"
+                reason = reason.isEmpty ? rejection : "\(reason) · \(rejection)"
+            } else if parsed < calendar.date(byAdding: .month, value: -15, to: now)! {
+                needsReview = true
+                // Say how old, not just "old" — "over a year" reads the same
+                // for a 16-month-old receipt (routine, probably fine) and a
+                // 9-year-old one (something is wrong), and the user is being
+                // asked to judge exactly that difference.
+                if reason.isEmpty {
+                    reason = "Date \(ClaudeService.normalizeDate(rawWorkDate)) is \(approximateAge(of: parsed, asOf: now, calendar: calendar)) old — please confirm"
+                }
             }
 
-            if let sourceText {
+            if let sourceText, !dateRejected {
                 let printed = ReceiptDateDetector.dates(in: sourceText)
                 let parsedDay = calendar.startOfDay(for: parsed)
                 // Empty means the receipt's date format isn't one
@@ -332,7 +423,7 @@ enum ExtractionPrompt {
             ? "Output it as yyyy-MM-dd, expanding a 2-digit year to 20YY (so 3/20/24 becomes 2024-03-20). "
             : "Copy the date exactly as it is printed on the receipt — do not convert, reformat, or reorder it, and never substitute a date from anywhere else. "
 
-        var lines = [dateGrounding + "The transaction date can appear near the top (often beside a check or order number) or in the payment / card-approval block near the bottom — check both. Look for labels like \"Date\", \"Ordered\", \"Order Date\", \"Transaction Date\", \"Sale Date\", or \"Served\" (e.g. a line like \"Date: 3/20/24\" or \"Ordered: 8/8/26\"). " + formatInstruction + "Only if there is genuinely no date anywhere, return an empty string — never guess or invent one."]
+        var lines = [dateGrounding + "The transaction date can appear near the top (often beside a check or order number) or in the payment / card-approval block near the bottom — check both. Look for labels like \"Date\", \"Ordered\", \"Order Date\", \"Transaction Date\", \"Sale Date\", or \"Served\" (e.g. a line like \"Date: 3/20/24\" or \"Ordered: 8/8/26\"). " + formatInstruction + "Only if there is genuinely no date anywhere, return an empty string — never guess or invent one. Some documents, especially medical and utility bills, print dates that are not the transaction date: a date of birth, a due date, an expiry, a statement or coverage period. Never report one of those as the date; if the only dates on the page are labelled that way, the correct answer is an empty string."]
         if !categoryContext.isEmpty {
             lines.append("This receipt is being filed under a category described by the user as: \"\(categoryContext)\". Use this to write more specific Comments, and lower your confidence if the receipt looks unrelated to this description.")
         }

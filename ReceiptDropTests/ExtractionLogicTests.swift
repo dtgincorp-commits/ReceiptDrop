@@ -1222,3 +1222,254 @@ final class SearchQueryGuardTests: XCTestCase {
         XCTAssertEqual(SearchDateResolver.label(from: from, to: to, now: now, calendar: cal), "Today")
     }
 }
+
+/// Regression tests for the medical-bill date-of-birth bug: a patient
+/// billing statement with **no transaction date printed anywhere** whose
+/// guarantor date of birth (01/30/1969) was extracted as the work date,
+/// flagged only as "over a year old", and saved.
+///
+/// Every pre-existing guard passed it, and none of them were wrong to:
+/// the date parses, it isn't in the future, and — the crux — it really is
+/// printed on the document, so `ReceiptDateDetector`'s presence cross-check
+/// correctly found it there. The failure is one of *kind*, not presence:
+/// correctly reading a date that is not a transaction date. The two fixes
+/// below attack it from opposite ends.
+final class NonTransactionDateTests: XCTestCase {
+
+    /// The reported document, transcribed. Note there is no transaction
+    /// date on it at all — the only date is the DOB.
+    private let medicalBillText = """
+        Newport-Huntington Medical Group
+        Patient Billing Portal
+        JANE R. DOE
+        01/30/1969 • Guarantor
+        Account #4471023
+        Current Balance $126.15
+        """
+
+    private var posix: DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = AppConstants.sheetDateFormat
+        return f
+    }
+
+    private func string(monthsAgo: Int) -> String {
+        posix.string(from: Calendar.current.date(byAdding: .month, value: -monthsAgo, to: Date())!)
+    }
+
+    private var today: String { posix.string(from: Date()) }
+
+    // MARK: - Direction A: the absurdity tier in ExtractedReceipt.build
+
+    func testDateOfBirthIsRejectedNotStored() {
+        // The exact reported case. The old behavior stored 1969-01-30.
+        let r = ExtractedReceipt.build(
+            vendor: "Newport-Huntington Medical Group", rawWorkDate: "1969-01-30",
+            amount: "126.15", comments: "", rawVendorType: "",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: medicalBillText)
+        XCTAssertTrue(r.needsReview)
+        XCTAssertEqual(r.workDate, today, "an absurd date must be discarded, not stored")
+        XCTAssertTrue(r.reviewReason.contains("1969-01-30"),
+                      "the reason should name the date that was thrown away")
+        XCTAssertTrue(r.reviewReason.contains("years old"))
+    }
+
+    func testRejectedDateRoutesIntoTheExistingAskTheUserFlow() {
+        // `ReceiptSubmitView.finishAfterSave` and `ScannedTextSubmitView`
+        // both raise their date prompt by matching this exact suffix, so
+        // ending the reason with it is what makes a rejected date ask the
+        // user instead of silently keeping today's.
+        let r = ExtractedReceipt.build(
+            vendor: "Clinic", rawWorkDate: "1969-01-30", amount: "126.15",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertTrue(r.reviewReason.hasSuffix("defaulted to today"))
+    }
+
+    func testRejectionKeepsAnEarlierReasonAndStillEndsInTheSuffix() {
+        // A missing vendor and an absurd date are independent problems; the
+        // first must not be erased, and the suffix must stay last so the
+        // prompt still fires.
+        let r = ExtractedReceipt.build(
+            vendor: "", rawWorkDate: "1969-01-30", amount: "126.15",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertTrue(r.reviewReason.contains("Vendor name missing"))
+        XCTAssertTrue(r.reviewReason.hasSuffix("defaulted to today"))
+    }
+
+    func testTwoYearOldReceiptIsKeptNotRejected() {
+        // Guards against over-aggression. Filing an old receipt is a real
+        // thing people do (an amended return, a late reimbursement) — it
+        // gets flagged, never thrown away.
+        let old = string(monthsAgo: 24)
+        let r = ExtractedReceipt.build(
+            vendor: "Cafe", rawWorkDate: old, amount: "8.00", comments: "",
+            rawVendorType: "", modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertTrue(r.needsReview)
+        XCTAssertEqual(r.workDate, old)
+        XCTAssertFalse(r.reviewReason.hasSuffix("defaulted to today"))
+    }
+
+    func testNineYearOldReceiptIsStillKept() {
+        // Just inside the 10-year absurdity threshold — beyond any real
+        // filing need, but the line has to be drawn somewhere unambiguous,
+        // and "kept and flagged" is the safe side of it.
+        let old = string(monthsAgo: 9 * 12)
+        let r = ExtractedReceipt.build(
+            vendor: "Cafe", rawWorkDate: old, amount: "8.00", comments: "",
+            rawVendorType: "", modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertEqual(r.workDate, old)
+        XCTAssertTrue(r.needsReview)
+    }
+
+    func testElevenYearOldDateIsRejected() {
+        let old = string(monthsAgo: 11 * 12)
+        let r = ExtractedReceipt.build(
+            vendor: "Cafe", rawWorkDate: old, amount: "8.00", comments: "",
+            rawVendorType: "", modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertEqual(r.workDate, today)
+        XCTAssertTrue(r.reviewReason.hasSuffix("defaulted to today"))
+    }
+
+    func testFifteenMonthFlagStillFires() {
+        let old = string(monthsAgo: 16)
+        let r = ExtractedReceipt.build(
+            vendor: "Cafe", rawWorkDate: old, amount: "8.00", comments: "",
+            rawVendorType: "", modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertTrue(r.needsReview)
+        XCTAssertEqual(r.workDate, old)
+        XCTAssertTrue(r.reviewReason.contains("please confirm"))
+    }
+
+    func testRecentDateIsNeitherFlaggedNorRejected() {
+        let recent = string(monthsAgo: 2)
+        let r = ExtractedReceipt.build(
+            vendor: "Cafe", rawWorkDate: recent, amount: "8.00", comments: "",
+            rawVendorType: "", modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertFalse(r.needsReview)
+        XCTAssertEqual(r.workDate, recent)
+    }
+
+    func testFutureDateBehaviorIsUnchanged() {
+        let future = posix.string(from: Calendar.current.date(byAdding: .day, value: 10, to: Date())!)
+        let r = ExtractedReceipt.build(
+            vendor: "Cafe", rawWorkDate: future, amount: "8.00", comments: "",
+            rawVendorType: "", modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertTrue(r.needsReview)
+        XCTAssertEqual(r.reviewReason, "Date is in the future")
+        XCTAssertEqual(r.workDate, future, "a future date is still flagged, not discarded")
+    }
+
+    // MARK: - Proportional wording
+
+    func testAgeWordingIsProportionalToWhatWasFound() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        let now = cal.date(from: DateComponents(year: 2026, month: 8, day: 28))!
+        func age(_ y: Int, _ m: Int, _ d: Int) -> String {
+            ExtractedReceipt.approximateAge(
+                of: cal.date(from: DateComponents(year: y, month: m, day: d))!,
+                asOf: now, calendar: cal)
+        }
+        XCTAssertEqual(age(1969, 1, 30), "57 years")
+        XCTAssertEqual(age(2024, 8, 28), "2 years")
+        XCTAssertEqual(age(2025, 4, 28), "16 months")
+        XCTAssertEqual(age(2026, 6, 28), "2 months")
+    }
+
+    // MARK: - Direction B: label context in ReceiptDateDetector
+
+    func testGuarantorDateOfBirthIsNotReportedAsAPrintedDate() {
+        // The other half of the fix: this document has no transaction date,
+        // so the honest answer is that no date is printed on it.
+        XCTAssertTrue(ReceiptDateDetector.dates(in: medicalBillText).isEmpty)
+    }
+
+    func testMedicalBillResolvesToNoDatePrintedOnTheNoAIPath() {
+        // Which routes the manual path into `SubmitState.confirmDate` —
+        // asking the user — instead of prefilling 1969.
+        XCTAssertNil(ManualEntryOCRPrefill.likelyReceiptDate(in: medicalBillText))
+        XCTAssertEqual(ManualEntryOCRPrefill.resolveDate(in: medicalBillText), .noDatePrinted)
+    }
+
+    func testEachExcludedLabelSuppressesItsDate() {
+        let labelled = [
+            "DOB 01/30/1969",
+            "D.O.B.: 01/30/1969",
+            "Date of Birth: 01/30/1969",
+            "Birth Date 01/30/1969",
+            "Birthdate 01/30/1969",
+            "Born 01/30/1969",
+            "01/30/1969 • Guarantor",
+            "Patient: Jane Doe 01/30/1969",
+            "Member since 05/14/2019",
+            "Due date: 09/15/2026",
+            "Payment due 09/15/2026",
+            "Pay by 09/15/2026",
+            "Statement period 07/01/2026",
+            "Billing period 07/01/2026",
+            "Service period 07/01/2026",
+            "Coverage period 07/01/2026",
+        ]
+        for line in labelled {
+            XCTAssertTrue(ReceiptDateDetector.dates(in: line).isEmpty,
+                          "\(line) should not be reported as a printed transaction date")
+        }
+    }
+
+    func testOrdinaryReceiptWordingIsStillAccepted() {
+        // The other half of the guarantee: the exclusion list must not eat
+        // real transaction dates. None of these lines is labelled as
+        // anything but a purchase.
+        let ordinary = [
+            "Order Date: 08/12/2026",
+            "Sale Date: 08/12/2026",
+            "Transaction Date 08/12/2026",
+            "Served 08/12/2026 by Arvyn",
+            "0603 00053 01304 08/12/2026 01:05 PM",
+            "Reborn Coffee 08/12/2026",
+            "Balance Due 08/12/2026",
+        ]
+        for line in ordinary {
+            let dates = ReceiptDateDetector.dates(in: line)
+            XCTAssertEqual(dates.count, 1, "\(line) should still yield its printed date")
+            let c = Calendar.current.dateComponents([.year, .month, .day], from: dates[0])
+            XCTAssertEqual([c.year, c.month, c.day], [2026, 8, 12], "\(line)")
+        }
+    }
+
+    func testLabelledDateDoesNotMaskARealDateOnAnotherLine() {
+        let text = """
+            Patient: Jane Doe
+            01/30/1969 • Guarantor
+            Visit charge 08/12/2026    $126.15
+            """
+        let dates = ReceiptDateDetector.dates(in: text)
+        XCTAssertEqual(dates.count, 1)
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: dates[0])
+        XCTAssertEqual([c.year, c.month, c.day], [2026, 8, 12])
+    }
+
+    func testCrossCheckNoLongerCorrectsAGoodDateIntoADateOfBirth() {
+        // Before the label rule, the DOB was the single "printed" date on
+        // this document, so a model that got the date right would have had
+        // it *overwritten* with 1969 by the auto-correct branch.
+        let recent = string(monthsAgo: 1)
+        let r = ExtractedReceipt.build(
+            vendor: "Newport-Huntington Medical Group", rawWorkDate: recent,
+            amount: "126.15", comments: "", rawVendorType: "",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: medicalBillText)
+        XCTAssertEqual(r.workDate, recent)
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testNamesNonTransactionDateIsWholeTokenMatched() {
+        XCTAssertTrue(ReceiptDateDetector.namesNonTransactionDate("D.O.B. 01/30/1969"))
+        XCTAssertTrue(ReceiptDateDetector.namesNonTransactionDate("01/30/1969 • Guarantor"))
+        XCTAssertFalse(ReceiptDateDetector.namesNonTransactionDate("Reborn Coffee"))
+        XCTAssertFalse(ReceiptDateDetector.namesNonTransactionDate("Doborn Ltd"))
+        XCTAssertFalse(ReceiptDateDetector.namesNonTransactionDate("TOTAL $12.00"))
+    }
+}

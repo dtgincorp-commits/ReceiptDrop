@@ -25,9 +25,21 @@ import Foundation
 ///    exists to catch what the first pass misses; it does not replace it,
 ///    since `NSDataDetector` still covers date shapes the regex doesn't
 ///    attempt (month names, ordinals, relative wording).
+/// A third rule cuts across both passes: a date printed under a label that
+/// marks it as something *other* than the transaction date — a date of
+/// birth, a due date, a policy or statement period, an expiry — is not
+/// reported at all. See `namesNonTransactionDate`. This is a *kind* check
+/// rather than a presence check, and it exists because the presence check
+/// alone provably isn't enough: a medical bill with no transaction date
+/// printed anywhere returned its patient's date of birth (01/30/1969) as
+/// the work date, and every existing guard passed it, because that date
+/// really is printed on the page. Correctly reading the wrong kind of date
+/// is a distinct failure from inventing one, and only this rule catches it.
 enum ReceiptDateDetector {
     /// Dates actually printed in `text`, normalized to day granularity and
-    /// de-duplicated. Order is not meaningful.
+    /// de-duplicated. Dates on a line labelled as a non-transaction date
+    /// (see `namesNonTransactionDate`) are excluded. Order is not
+    /// meaningful.
     static func dates(in text: String) -> [Date] {
         var days: [Date] = dataDetectorDates(in: text)
         days.append(contentsOf: numericDates(in: text))
@@ -37,6 +49,94 @@ enum ReceiptDateDetector {
         return days
             .map { calendar.startOfDay(for: $0) }
             .filter { seen.insert($0).inserted }
+    }
+
+    // MARK: - Label context
+
+    /// Phrases that, when printed on the same line as a date, mean that date
+    /// is not the receipt's transaction date.
+    ///
+    /// Deliberately enforced here in Swift rather than by asking the model
+    /// more nicely: the on-device model has now failed three separate
+    /// prompt-only date fixes (see `ExtractionPrompt.preamble` and
+    /// commit a11d3f7's "enforce it in Swift instead of trusting the
+    /// prompt"), and a rule this mechanical does not need a language model
+    /// to apply it.
+    ///
+    /// Kept tight on purpose. Every phrase here has essentially no other
+    /// meaning on a receipt line that also carries a date, and the
+    /// multi-word ones ("due date", not bare "due") exist so an ordinary
+    /// word can't disqualify a real purchase date. Ordinary receipt
+    /// vocabulary — "order", "sale", "served", "transaction", "paid",
+    /// "total" — is emphatically *not* here.
+    static let nonTransactionDateLabels: [String] = [
+        // Date of birth. The confirmed failure: a patient billing statement
+        // printing "01/30/1969 • Guarantor" beneath the patient's name, with
+        // no transaction date anywhere on the page.
+        "dob", "d o b", "date of birth", "birth date", "birthdate", "born",
+        // Who the bill is *about*, on a line that therefore carries their
+        // personal details rather than the visit's.
+        "guarantor", "patient",
+        // When an account started, not when anything was bought.
+        "member since",
+        // A deadline is not a purchase: the money was spent on some other
+        // day, or hasn't been spent yet at all.
+        "due date", "date due", "payment due", "pay by",
+        // Spans, not days. A statement covering a period is not a purchase
+        // made on the period's first day.
+        "statement period", "billing period", "service period",
+        "coverage period",
+    ]
+
+    // Deliberately **not** in the list above, though they look like they
+    // belong: "expires", "expiry", "policy", "valid through", "valid
+    // until".
+    //
+    // Two existing mechanisms already cover them, and both do it better.
+    // Range wording ("valid through 09/01/2026") is dropped by the
+    // `duration == 0` guard in the first pass and the explicit
+    // through/until check in the second. A future expiry — the common
+    // shape, since an expiry is a deadline — is dropped by
+    // `ManualEntryOCRPrefill.likelyReceiptDate`'s future-date rule.
+    //
+    // Adding them here would also actively cost the user something: on the
+    // no-AI path, a receipt whose only printed date is a policy expiry
+    // currently resolves to `.ambiguous`, which raises the *loud*
+    // confirmation prompt ("dates are printed here and the right one is
+    // probably in front of you"). Excluding the date outright would
+    // downgrade that to `.noDatePrinted`, the deliberately calmest of the
+    // three prompts — a quieter warning about the same receipt. The rule
+    // here exists to stop a wrong date being *stored*, not to suppress a
+    // correct warning.
+
+    /// Whether `line` labels its date as something other than the
+    /// transaction date.
+    ///
+    /// Scope is the whole line containing the date, both sides of it — the
+    /// motivating bill prints the label *after* the date ("01/30/1969 •
+    /// Guarantor"), while "DOB: 01/30/1969" puts it before, and neither
+    /// ordering is more canonical than the other. Line granularity is the
+    /// honest compromise: a single line carrying both a labelled and an
+    /// unlabelled date loses both. That errs toward reporting no date,
+    /// which downstream treats as "ask the user" — the safe direction, and
+    /// the opposite of what this bug did.
+    ///
+    /// Matching is on whole space-delimited tokens of a punctuation-stripped
+    /// line, so "born" can't fire inside "reborn" and "d o b" catches
+    /// "D.O.B.:".
+    static func namesNonTransactionDate(_ line: String) -> Bool {
+        let stripped = String(line.lowercased().map { ($0.isLetter || $0.isNumber) ? $0 : " " })
+        let normalized = " " + stripped.split(separator: " ").joined(separator: " ") + " "
+        return nonTransactionDateLabels.contains { normalized.contains(" \($0) ") }
+    }
+
+    /// The full text line containing `range` — used to judge a date by the
+    /// words printed alongside it.
+    private static func line(containing range: NSRange, in text: String) -> String {
+        guard let r = Range(range, in: text) else { return "" }
+        let start = text[..<r.lowerBound].lastIndex(of: "\n").map { text.index(after: $0) } ?? text.startIndex
+        let end = text[r.upperBound...].firstIndex(of: "\n") ?? text.endIndex
+        return String(text[start..<end])
     }
 
     // MARK: - Pass 1: NSDataDetector
@@ -72,6 +172,9 @@ enum ReceiptDateDetector {
             // clock-time case above: today's date looks printed on the
             // receipt. A genuinely printed date always has zero duration.
             guard match.duration == 0 else { continue }
+            // Right shape, wrong kind — a date of birth, a due date, a
+            // policy period. See `namesNonTransactionDate`.
+            if namesNonTransactionDate(line(containing: match.range, in: text)) { continue }
             days.append(date)
         }
         return days
@@ -215,6 +318,11 @@ enum ReceiptDateDetector {
                     continue
                 }
             }
+
+            // Same label check the NSDataDetector pass applies — this pass
+            // reads digits directly and would otherwise happily report a
+            // date of birth that the other pass correctly excluded.
+            if namesNonTransactionDate(line(containing: match.range, in: text)) { continue }
 
             results.append(date)
         }
