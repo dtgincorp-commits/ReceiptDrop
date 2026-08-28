@@ -52,6 +52,8 @@ struct EditReceiptView: View {
     @State private var extraPickerItems: [PhotosPickerItem] = []
     @State private var remainingExtraFiles: [String]
     @State private var newExtraImages: [(image: UIImage, data: Data)] = []
+    @State private var showExtraCamera = false
+    @State private var showExtraDocumentScanner = false
 
     init(entry: HistoryEntry, onCancel: @escaping () -> Void, onComplete: @escaping () -> Void) {
         self.entry = entry
@@ -223,6 +225,24 @@ struct EditReceiptView: View {
                 extraPickerItems = []
             }
         }
+        .fullScreenCover(isPresented: $showExtraCamera) {
+            CameraCaptureView { image in
+                showExtraCamera = false
+                if let image, let jpeg = image.jpegData(compressionQuality: 0.85) {
+                    newExtraImages.append((image, jpeg))
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .fullScreenCover(isPresented: $showExtraDocumentScanner) {
+            DocumentScannerView { image in
+                showExtraDocumentScanner = false
+                if let image, let jpeg = image.jpegData(compressionQuality: 0.85) {
+                    newExtraImages.append((image, jpeg))
+                }
+            }
+            .ignoresSafeArea()
+        }
         .alert("Add Custom Type", isPresented: $showAddCustomType) {
             TextField("e.g. Tiki Bar", text: $newCustomTypeName)
             Button("Cancel", role: .cancel) { newCustomTypeName = "" }
@@ -360,8 +380,24 @@ struct EditReceiptView: View {
     private var attachmentsSection: some View {
         Section {
             attachmentsStrip
-            PhotosPicker("Add Photos", selection: $extraPickerItems, matching: .images)
-                .disabled(isSaving)
+            Menu {
+                Button {
+                    showExtraDocumentScanner = true
+                } label: {
+                    Label("Scan Receipt", systemImage: "doc.text.viewfinder")
+                }
+                Button {
+                    showExtraCamera = true
+                } label: {
+                    Label("Take Photo", systemImage: "camera")
+                }
+                PhotosPicker(selection: $extraPickerItems, matching: .images) {
+                    Label("Choose from Library", systemImage: "photo.on.rectangle")
+                }
+            } label: {
+                Text("Add Photos")
+            }
+            .disabled(isSaving)
         } header: {
             Text("Attachments")
         } footer: {
