@@ -58,14 +58,15 @@ struct EditReceiptView: View {
     /// Tapping a saved attachment thumbnail (`remainingExtraFiles`, which has
     /// a real file on disk) opens the same Quick Look machinery the main
     /// photo uses, pointed at just that one file.
-    @State private var showAttachmentPreview = false
-    @State private var attachmentPreviewURL: URL?
+    ///
+    /// Held as a single optional value, not a `Bool` + separate optional:
+    /// see the `.sheet(item:)` note in `body`.
+    @State private var attachmentPreview: AttachmentPreviewTarget?
 
     /// Tapping a just-captured/picked attachment thumbnail (`newExtraImages`,
     /// in-memory only, not yet written to disk) can't go through Quick Look —
     /// there's no file for it yet — so it gets a plain fit-to-screen viewer.
-    @State private var showUnsavedAttachmentPreview = false
-    @State private var unsavedAttachmentPreviewImage: UIImage?
+    @State private var unsavedAttachmentPreview: UnsavedAttachmentPreviewTarget?
 
     init(entry: HistoryEntry, onCancel: @escaping () -> Void, onComplete: @escaping () -> Void) {
         self.entry = entry
@@ -196,15 +197,22 @@ struct EditReceiptView: View {
                 ReceiptPreviewSheet(entry: entry, urls: previewURLs)
             }
         }
-        .sheet(isPresented: $showAttachmentPreview) {
-            if let attachmentPreviewURL {
-                ReceiptPreviewSheet(entry: entry, urls: [attachmentPreviewURL])
-            }
+        // `item:`, not `isPresented:` + a separate optional. With the bool
+        // form, tapping a thumbnail set the optional and the bool in the same
+        // tick, and SwiftUI would sometimes evaluate this closure before the
+        // optional's update had propagated — the `if let` failed and the
+        // sheet presented completely blank. `item:` binds the value to the
+        // presentation atomically, so that's structurally impossible. Don't
+        // "simplify" these back to a bool.
+        .sheet(item: $attachmentPreview) { target in
+            ReceiptPreviewSheet(entry: entry, urls: [target.url])
         }
-        .fullScreenCover(isPresented: $showUnsavedAttachmentPreview) {
-            if let unsavedAttachmentPreviewImage {
-                ImageQuickPreview(image: unsavedAttachmentPreviewImage)
-            }
+        // Same race, worse outcome here: `ImageQuickPreview` carries the only
+        // "Done" button, so a blank full-screen cover had no dismiss control
+        // at all and stranded the user. `item:` guarantees there's always a
+        // view — and therefore always a way out.
+        .fullScreenCover(item: $unsavedAttachmentPreview) { target in
+            ImageQuickPreview(image: target.image)
         }
         .fullScreenCover(isPresented: $showCamera) {
             CameraCaptureView { image in
@@ -436,16 +444,15 @@ struct EditReceiptView: View {
                         attachmentThumbnail(existingImage(for: filename), onTap: {
                             guard let url = LocalReceiptStore.existingFileURL(
                                 category: entry.category, filename: filename) else { return }
-                            attachmentPreviewURL = url
-                            showAttachmentPreview = true
+                            attachmentPreview = AttachmentPreviewTarget(url: url)
                         }, onRemove: {
                             remainingExtraFiles.removeAll { $0 == filename }
                         })
                     }
                     ForEach(newExtraImages.indices, id: \.self) { index in
                         attachmentThumbnail(newExtraImages[index].image, onTap: {
-                            unsavedAttachmentPreviewImage = newExtraImages[index].image
-                            showUnsavedAttachmentPreview = true
+                            unsavedAttachmentPreview = UnsavedAttachmentPreviewTarget(
+                                image: newExtraImages[index].image)
                         }, onRemove: {
                             newExtraImages.remove(at: index)
                         })
@@ -561,6 +568,21 @@ struct EditReceiptView: View {
         formatter.dateFormat = AppConstants.sheetDateFormat
         return formatter.date(from: raw) ?? Date()
     }
+}
+
+/// `URL` isn't `Identifiable`, so it can't drive `.sheet(item:)` directly —
+/// this wraps it. The fresh `id` per tap is deliberate: re-tapping the same
+/// attachment is a new presentation, not a no-op.
+private struct AttachmentPreviewTarget: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+/// Same wrapping, for the in-memory (unsaved) attachment case — `UIImage`
+/// isn't `Identifiable` either.
+private struct UnsavedAttachmentPreviewTarget: Identifiable {
+    let id = UUID()
+    let image: UIImage
 }
 
 /// Plain fit-to-screen viewer for an attachment that's only in memory (just
