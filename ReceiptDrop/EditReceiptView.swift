@@ -55,6 +55,18 @@ struct EditReceiptView: View {
     @State private var showExtraCamera = false
     @State private var showExtraDocumentScanner = false
 
+    /// Tapping a saved attachment thumbnail (`remainingExtraFiles`, which has
+    /// a real file on disk) opens the same Quick Look machinery the main
+    /// photo uses, pointed at just that one file.
+    @State private var showAttachmentPreview = false
+    @State private var attachmentPreviewURL: URL?
+
+    /// Tapping a just-captured/picked attachment thumbnail (`newExtraImages`,
+    /// in-memory only, not yet written to disk) can't go through Quick Look —
+    /// there's no file for it yet — so it gets a plain fit-to-screen viewer.
+    @State private var showUnsavedAttachmentPreview = false
+    @State private var unsavedAttachmentPreviewImage: UIImage?
+
     init(entry: HistoryEntry, onCancel: @escaping () -> Void, onComplete: @escaping () -> Void) {
         self.entry = entry
         self.onCancel = onCancel
@@ -182,6 +194,16 @@ struct EditReceiptView: View {
         .sheet(isPresented: $showPreview) {
             if !previewURLs.isEmpty {
                 ReceiptPreviewSheet(entry: entry, urls: previewURLs)
+            }
+        }
+        .sheet(isPresented: $showAttachmentPreview) {
+            if let attachmentPreviewURL {
+                ReceiptPreviewSheet(entry: entry, urls: [attachmentPreviewURL])
+            }
+        }
+        .fullScreenCover(isPresented: $showUnsavedAttachmentPreview) {
+            if let unsavedAttachmentPreviewImage {
+                ImageQuickPreview(image: unsavedAttachmentPreviewImage)
             }
         }
         .fullScreenCover(isPresented: $showCamera) {
@@ -411,14 +433,22 @@ struct EditReceiptView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(remainingExtraFiles, id: \.self) { filename in
-                        attachmentThumbnail(existingImage(for: filename)) {
+                        attachmentThumbnail(existingImage(for: filename), onTap: {
+                            guard let url = LocalReceiptStore.existingFileURL(
+                                category: entry.category, filename: filename) else { return }
+                            attachmentPreviewURL = url
+                            showAttachmentPreview = true
+                        }, onRemove: {
                             remainingExtraFiles.removeAll { $0 == filename }
-                        }
+                        })
                     }
                     ForEach(newExtraImages.indices, id: \.self) { index in
-                        attachmentThumbnail(newExtraImages[index].image) {
+                        attachmentThumbnail(newExtraImages[index].image, onTap: {
+                            unsavedAttachmentPreviewImage = newExtraImages[index].image
+                            showUnsavedAttachmentPreview = true
+                        }, onRemove: {
                             newExtraImages.remove(at: index)
-                        }
+                        })
                     }
                 }
                 .padding(.vertical, 4)
@@ -427,17 +457,22 @@ struct EditReceiptView: View {
     }
 
     @ViewBuilder
-    private func attachmentThumbnail(_ image: UIImage?, onRemove: @escaping () -> Void) -> some View {
+    private func attachmentThumbnail(
+        _ image: UIImage?, onTap: @escaping () -> Void, onRemove: @escaping () -> Void
+    ) -> some View {
         ZStack(alignment: .topTrailing) {
-            Group {
-                if let image {
-                    Image(uiImage: image).resizable().scaledToFill()
-                } else {
-                    Color.gray.opacity(0.2)
+            Button(action: onTap) {
+                Group {
+                    if let image {
+                        Image(uiImage: image).resizable().scaledToFill()
+                    } else {
+                        Color.gray.opacity(0.2)
+                    }
                 }
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            .frame(width: 72, height: 72)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .buttonStyle(.plain)
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.white, .black.opacity(0.6))
@@ -525,5 +560,32 @@ struct EditReceiptView: View {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = AppConstants.sheetDateFormat
         return formatter.date(from: raw) ?? Date()
+    }
+}
+
+/// Plain fit-to-screen viewer for an attachment that's only in memory (just
+/// captured/picked, not yet saved to disk) — Quick Look needs a real file
+/// URL, which this doesn't have yet, so this stands in with a much smaller
+/// feature set (no zoom/share/markup) until the receipt is saved.
+private struct ImageQuickPreview: View {
+    let image: UIImage
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Color.black
+                .ignoresSafeArea()
+                .overlay {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                }
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+        }
     }
 }
