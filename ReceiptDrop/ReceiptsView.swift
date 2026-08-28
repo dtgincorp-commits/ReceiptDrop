@@ -551,6 +551,7 @@ struct ReceiptsView: View {
                             ForEach(effectiveSearchResults) { entry in
                                 ReceiptRow(entry: entry, onReview: { editingEntry = entry },
                                            onConfirm: { confirmReviewed(entry) },
+                                           onEdit: { editingEntry = entry },
                                            isDuplicate: duplicateEntryIDs.contains(entry.id))
                                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -1135,6 +1136,7 @@ struct ReceiptsView: View {
         case .entry(let entry):
             ReceiptRow(entry: entry, onReview: { editingEntry = entry },
                        onConfirm: { confirmReviewed(entry) },
+                       onEdit: { editingEntry = entry },
                        isDuplicate: duplicateEntryIDs.contains(entry.id))
         }
     }
@@ -1300,9 +1302,17 @@ private struct ReceiptRow: View {
     let entry: HistoryEntry
     let onReview: () -> Void
     let onConfirm: () -> Void
+    /// Opens Edit for this entry on the parent screen — rows can't present
+    /// `EditReceiptView` themselves because `editingEntry`/its sheet live up
+    /// on `ReceiptsView`. Same callback-up pattern as `onReview`/`onConfirm`.
+    let onEdit: () -> Void
     var isDuplicate: Bool = false
 
     @State private var showPreview = false
+    /// Set when the user taps the preview's summary bar, and acted on only
+    /// once the preview sheet has actually finished dismissing (see the
+    /// `onDismiss` below).
+    @State private var editAfterPreview = false
     @State private var missingFileAlert = false
     @State private var missingCSVAlert = false
 
@@ -1460,10 +1470,25 @@ private struct ReceiptRow: View {
                 missingFileAlert = true
             }
         }
-        .sheet(isPresented: $showPreview) {
+        // `onDismiss`, deliberately — do NOT "simplify" this into calling
+        // `onEdit()` straight from the tap. Edit is presented by a different
+        // sheet (`.sheet(item: $editingEntry)`) on `ReceiptsView`, and SwiftUI
+        // won't reliably present a second sheet while this one is still up:
+        // the request is either dropped or fights the dismissal. So the tap
+        // only records the intent and dismisses; `onDismiss` fires after the
+        // preview is genuinely gone, which is the deterministic moment the
+        // Edit sheet is free to present.
+        .sheet(isPresented: $showPreview, onDismiss: {
+            guard editAfterPreview else { return }
+            editAfterPreview = false
+            onEdit()
+        }) {
             let urls = previewURLs()
             if !urls.isEmpty {
-                ReceiptPreviewSheet(entry: entry, urls: urls)
+                ReceiptPreviewSheet(entry: entry, urls: urls, onEdit: {
+                    editAfterPreview = true
+                    showPreview = false
+                })
             }
         }
         .alert("File not found", isPresented: $missingFileAlert) {

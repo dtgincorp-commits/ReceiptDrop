@@ -25,6 +25,9 @@ struct DuplicateReviewView: View {
     /// the moment you need to look closely at the actual paper, and the row
     /// only had a 48pt thumbnail — the rest of the row still opens Edit.
     @State private var previewEntry: HistoryEntry?
+    /// Held from the moment the preview's summary bar is tapped until that
+    /// preview sheet has finished dismissing — see the `onDismiss` below.
+    @State private var pendingEditEntry: HistoryEntry?
 
     var body: some View {
         Group {
@@ -48,10 +51,22 @@ struct DuplicateReviewView: View {
         }
         .navigationTitle("Possible Duplicates")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $previewEntry) { entry in
+        // `onDismiss`, not a direct `editingEntry = entry` from the tap — do
+        // not "simplify" it back. Edit is a second sheet on this same view,
+        // and SwiftUI won't reliably present it while the preview sheet is
+        // still up. Recording the intent and handing it over once dismissal
+        // has completed is the deterministic version of that hand-off.
+        .sheet(item: $previewEntry, onDismiss: {
+            guard let pending = pendingEditEntry else { return }
+            pendingEditEntry = nil
+            editingEntry = pending
+        }) { entry in
             let urls = ReceiptPreviewSheet.urls(for: entry)
             if !urls.isEmpty {
-                ReceiptPreviewSheet(entry: entry, urls: urls)
+                ReceiptPreviewSheet(entry: entry, urls: urls, onEdit: {
+                    pendingEditEntry = entry
+                    previewEntry = nil
+                })
             }
         }
         .sheet(item: $editingEntry) { entry in

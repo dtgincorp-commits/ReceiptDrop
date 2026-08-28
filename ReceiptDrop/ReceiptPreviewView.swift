@@ -61,6 +61,12 @@ extension ReceiptPreviewSheet {
 struct ReceiptPreviewSheet: View {
     let entry: HistoryEntry
     let urls: [URL]
+    /// Optional, and opt-in per call site, because `EditReceiptView` itself
+    /// presents this same sheet (for the main photo and for attachments) —
+    /// offering "Edit" from inside Edit would be recursive nonsense. Left
+    /// nil, the summary bar stays exactly what it has always been: inert
+    /// text with a Done button, no tap target and no affordance.
+    var onEdit: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -71,30 +77,17 @@ struct ReceiptPreviewSheet: View {
             Divider()
 
             HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(entry.category)
-                            .font(.caption2.weight(.heavy))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Theme.skyBlueBright)
-                            .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-                        Text(entry.vendor.isEmpty ? "Unknown vendor" : entry.vendor)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                    }
-                    HStack(spacing: 10) {
-                        if !entry.workDate.isEmpty {
-                            Label(entry.workDate, systemImage: "calendar")
-                        }
-                        if !entry.amount.isEmpty {
-                            Label("$\(entry.amount)", systemImage: "dollarsign.circle")
-                                .fontWeight(.semibold)
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                // Only the summary text becomes the Edit target — never the
+                // whole bar. Done sits right beside it and has to stay an
+                // unambiguous, separate hit area.
+                if let onEdit {
+                    Button(action: onEdit) { summary }
+                        // Plain, or the vendor name renders in the accent
+                        // tint and reads like a hyperlink instead of the
+                        // receipt's own title.
+                        .buttonStyle(.plain)
+                } else {
+                    summary
                 }
 
                 Spacer(minLength: 8)
@@ -114,5 +107,48 @@ struct ReceiptPreviewSheet: View {
             .padding(.vertical, 10)
             .background(.ultraThinMaterial)
         }
+    }
+
+    /// The category/vendor/date/amount block. Identical either way except
+    /// for the trailing chevron, which is only drawn when there's actually
+    /// somewhere to go — an affordance with no action behind it is worse
+    /// than none at all.
+    private var summary: some View {
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(entry.category)
+                        .font(.caption2.weight(.heavy))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Theme.skyBlueBright)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                    Text(entry.vendor.isEmpty ? "Unknown vendor" : entry.vendor)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                }
+                HStack(spacing: 10) {
+                    if !entry.workDate.isEmpty {
+                        Label(entry.workDate, systemImage: "calendar")
+                    }
+                    if !entry.amount.isEmpty {
+                        Label("$\(entry.amount)", systemImage: "dollarsign.circle")
+                            .fontWeight(.semibold)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if onEdit != nil {
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        // So the gap between the text lines is tappable too, not just the
+        // glyphs themselves.
+        .contentShape(Rectangle())
     }
 }
