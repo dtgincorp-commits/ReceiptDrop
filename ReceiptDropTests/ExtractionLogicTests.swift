@@ -519,11 +519,13 @@ final class ExtractionLogicTests: XCTestCase {
         XCTAssertFalse(r.needsReview)
     }
 
-    // MARK: - Duplicate detection: tip-shaped amounts waive the date window
+    // MARK: - Duplicate detection: tip-shaped amounts widen the date window
 
-    private func entry(_ vendor: String, _ date: String, _ amount: String) -> HistoryEntry {
+    private func entry(_ vendor: String, _ date: String, _ amount: String,
+                       vendorType: String = "") -> HistoryEntry {
         HistoryEntry(category: "DTG", vendor: vendor, workDate: date, amount: amount,
-                     receiptLink: "\(UUID().uuidString).jpg", timestamp: Date())
+                     receiptLink: "\(UUID().uuidString).jpg", timestamp: Date(),
+                     vendorType: vendorType)
     }
 
     func testTipShapedPairFlaggedDespiteDateGapBeyondWindow() {
@@ -582,6 +584,92 @@ final class ExtractionLogicTests: XCTestCase {
             entry("Water Grill", "2026-07-27", "297.39"),
         ])
         XCTAssertEqual(pairs.count, 1)
+    }
+
+    // MARK: - Duplicate detection: the tip waiver is bounded and type-aware
+
+    func testUnrelatedHomeDepotReceiptsNotFlaggedAsTipPair() {
+        // The device-testing false positive that motivated the narrowing:
+        // two genuinely unrelated Home Depot runs (Costa Mesa vs. Laguna
+        // Niguel, different cards, no shared line items) whose totals happen
+        // to sit 25% apart — 417.55/333.63 = 1.2515, inside tipRatioRange.
+        // 43 days apart and a non-tipping vendor type: both new guards
+        // reject it, and nothing else should pair them either.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Home Depot", "2026-07-07", "417.55", vendorType: "hardware_home_improvement"),
+            entry("Home Depot", "2026-08-19", "333.63", vendorType: "hardware_home_improvement"),
+        ])
+        XCTAssertTrue(pairs.isEmpty)
+    }
+
+    func testTipShapedPairBeyondTipWindowNotFlaggedEvenAtRestaurant() {
+        // Same amounts and dates as the Home Depot case, but at a vendor
+        // type where tipping is real — proving the date bound alone rejects
+        // it, independently of the vendor-type rule. 43 days is not a
+        // misread work date on the same bill.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Water Grill", "2026-07-07", "417.55", vendorType: "restaurant"),
+            entry("Water Grill", "2026-08-19", "333.63", vendorType: "restaurant"),
+        ])
+        XCTAssertTrue(pairs.isEmpty)
+    }
+
+    func testTipShapedRestaurantPairWithinTipWindowStillFlagged() {
+        // The original Water Grill case the exception exists for — 4 days
+        // apart, one day past the normal window but well inside the 14-day
+        // tip window, at a restaurant. Must still be caught.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Water Grill South Coast Plaza", "2026-07-26", "342.39", vendorType: "restaurant"),
+            entry("Water Grill South Coast Plaza", "2026-07-30", "297.39", vendorType: "restaurant"),
+        ])
+        XCTAssertEqual(pairs.count, 1)
+        XCTAssertEqual(pairs.first?.confidence, .possibleTipAdded)
+    }
+
+    func testTipShapedHardwarePairWithinTipWindowNotLabeledTip() {
+        // Same 4-day gap as the case above, so the date bound alone would
+        // allow it — only the vendor-type rule stops it. Nobody tips at a
+        // hardware store, so a 15% ratio there is two different-sized
+        // shopping trips. With the tip signal suppressed the pair falls back
+        // to the ordinary date rule, and 4 days is outside the 3-day
+        // nearbyDateWindow, so it isn't flagged at all.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Home Depot", "2026-07-26", "342.39", vendorType: "hardware_home_improvement"),
+            entry("Home Depot", "2026-07-30", "297.39", vendorType: "hardware_home_improvement"),
+        ])
+        XCTAssertTrue(pairs.allSatisfy { $0.confidence != .possibleTipAdded })
+        XCTAssertTrue(pairs.isEmpty)
+    }
+
+    func testSuppressedTipSignalStillFlagsViaNearbyDateRule() {
+        // The interaction worth pinning down: suppressing the tip signal
+        // must not suppress the pair. Two days apart at a hardware store is
+        // still within nearbyDateWindow, so Signal 2 flags it — just with
+        // the honest "check the date and amount" label instead of claiming
+        // a tip explains the difference.
+        let pairs = DuplicateDetectionService.findPairs(in: [
+            entry("Home Depot", "2026-07-26", "342.39", vendorType: "hardware_home_improvement"),
+            entry("Home Depot", "2026-07-28", "297.39", vendorType: "hardware_home_improvement"),
+        ])
+        XCTAssertEqual(pairs.count, 1)
+        XCTAssertEqual(pairs.first?.confidence, .possibleDifferentDateAndAmount)
+    }
+
+    func testTipSignalAllowedWhenVendorTypeUnknown() {
+        // Conservative rule: only a POSITIVELY known non-tipping type
+        // suppresses. Empty (manual entries and everything saved before the
+        // field existed), a user-defined custom type, and `other` are all
+        // unclassifiable, so the tip signal still applies — otherwise this
+        // change would silently switch the rule off for the whole existing
+        // history.
+        for type in ["", "Tiki Bar", "other"] {
+            let pairs = DuplicateDetectionService.findPairs(in: [
+                entry("Water Grill", "2026-07-26", "342.39", vendorType: type),
+                entry("Water Grill", "2026-07-30", "297.39", vendorType: type),
+            ])
+            XCTAssertEqual(pairs.count, 1, "vendorType \"\(type)\"")
+            XCTAssertEqual(pairs.first?.confidence, .possibleTipAdded, "vendorType \"\(type)\"")
+        }
     }
 }
 

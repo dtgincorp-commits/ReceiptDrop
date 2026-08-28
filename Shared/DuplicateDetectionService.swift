@@ -24,13 +24,25 @@ import Foundation
 ///    distinctly rather than "likely," with the label reflecting exactly
 ///    which field(s) actually differ.
 ///
-///    One exception relaxes the date part of (2): if the two amounts differ
-///    by a plausible tip (see `isTipShaped`), the dates don't have to be
-///    close at all. That covers the same bill entered twice — once before
-///    the tip was written in, once after — where the work date on one copy
-///    was read wrong and landed outside the window. Vendor still gates it,
-///    so the date requirement is waived only in this specific, narrow case
-///    rather than loosened generally.
+///    One exception widens (never removes) the date part of (2): if the two
+///    amounts differ by a plausible tip (see `isTipShaped`), the dates only
+///    have to be within the wider `tipDateWindow` rather than
+///    `nearbyDateWindow`. That covers the same bill entered twice — once
+///    before the tip was written in, once after — where the work date on one
+///    copy was read wrong and landed just outside the normal window.
+///
+///    This exception used to waive the date check entirely, which turned out
+///    to be far too loose in the field: two genuinely unrelated Home Depot
+///    receipts (Costa Mesa, 2026-07-07, $417.55 and Laguna Niguel,
+///    2026-08-19, $333.63 — different stores, different cards, no shared
+///    line items) were flagged "One May Include Tip" purely because
+///    417.55/333.63 = 1.2515 lands inside `tipRatioRange`. With the date
+///    requirement gone, any two same-vendor receipts sitting 10–30% apart
+///    paired up at unlimited distance in time — extremely common at a store
+///    someone shops at repeatedly. Two independent guards now bound it:
+///    the finite `tipDateWindow`, and a vendor-type check (see
+///    `tipPlausible`) that suppresses the tip signal entirely at businesses
+///    where nobody tips. Vendor name still gates it as before.
 ///
 /// Amount comparisons throughout are numeric, not exact-string — "245.60"
 /// and "245.6" are the same amount, but different extraction passes don't
@@ -69,6 +81,14 @@ enum DuplicateDetectionService {
     /// day or two earlier, without pairing up unrelated visits weeks apart.
     private static let nearbyDateWindow: TimeInterval = 3 * 24 * 60 * 60
 
+    /// How far apart two work dates can be when the amounts are tip-shaped —
+    /// wider than `nearbyDateWindow` because the motivating Water Grill case
+    /// had a misread work date landing 4 days apart (one day past the normal
+    /// window), but finite, unlike the unbounded waiver this replaced. 14
+    /// days leaves comfortable margin over that 4-day case while rejecting
+    /// the 43-day Home Depot false positive described in the type comment.
+    private static let tipDateWindow: TimeInterval = 14 * 24 * 60 * 60
+
     /// Ratio band for "these are the same bill, one of them tipped." Covers
     /// the realistic US restaurant range — 10%, 15%, 18%, 20%, 25% all land
     /// inside it, and the 1.30 ceiling absorbs a generous tipper or a tip
@@ -76,7 +96,45 @@ enum DuplicateDetectionService {
     /// past ~30% this starts colliding with genuinely separate visits to the
     /// same restaurant (a $100 dinner and a $140 dinner are 40% apart and
     /// are not the same bill).
+    ///
+    /// Note this band is narrow in ratio but not remotely rare in practice —
+    /// two unrelated Home Depot runs came in at $417.55 and $333.63 (ratio
+    /// 1.2515, squarely inside the band). That's why the ratio alone was
+    /// never enough to waive the date check, and why `tipPlausible` also has
+    /// to agree the vendor is somewhere a tip could exist at all.
     private static let tipRatioRange: ClosedRange<Double> = 1.10...1.30
+
+    /// Vendor types where a tip is simply not part of the transaction, so a
+    /// tip-shaped ratio between two receipts there carries no information —
+    /// it's just two different-sized shopping trips. Gas, groceries,
+    /// hardware, retail, medical, utilities, auto repair and professional
+    /// services all bill a fixed amount; the Home Depot false positive that
+    /// motivated this was `hardware_home_improvement`. Restaurant, lodging
+    /// and entertainment are deliberately absent — tipping is real at all
+    /// three.
+    private static let nonTippingVendorTypes: Set<VendorType> = [
+        .gasStation, .grocery, .hardwareHomeImprovement, .retail,
+        .medical, .utilities, .autoRepair, .professionalServices,
+    ]
+
+    /// Whether the tip signal is allowed for this pair. Deliberately
+    /// asymmetric: it suppresses only when we POSITIVELY know a vendor type
+    /// that doesn't tip. `VendorType.from` returns nil for anything
+    /// unrecognized — an empty string (manual entries and everything saved
+    /// before the field existed), or a user-defined custom type from
+    /// `CustomVendorTypeStore` ("Tiki Bar" tips; we can't know) — and nil,
+    /// like `.other`, allows the signal. Suppressing on unknown types would
+    /// silently switch the tip rule off for the entire pre-existing history,
+    /// which is the opposite of the narrowing intended here. Either entry
+    /// being a known non-tipping type is enough to suppress.
+    private static func tipPlausible(_ a: HistoryEntry, _ b: HistoryEntry) -> Bool {
+        for entry in [a, b] {
+            if let type = VendorType.from(entry.vendorType), nonTippingVendorTypes.contains(type) {
+                return false
+            }
+        }
+        return true
+    }
 
     /// True when the two amounts differ by a plausible tip. Direction is
     /// deliberately NOT constrained to "the later receipt is the larger one":
@@ -85,6 +143,10 @@ enum DuplicateDetectionService {
     /// total ($297.39 on Jul 30) — a direction rule would have rejected the
     /// actual duplicate it exists to catch. Ordering of scans and dates is
     /// too unreliable here; the ratio itself is the signal.
+    ///
+    /// The ratio is only ever half the test — callers must also check the
+    /// pair is inside `tipDateWindow` and passes `tipPlausible`, since a
+    /// ratio in this band happens routinely between unrelated receipts.
     private static func isTipShaped(_ a: String, _ b: String) -> Bool {
         guard let x = Double(a), let y = Double(b), x > 0, y > 0 else { return false }
         let ratio = max(x, y) / min(x, y)
@@ -138,15 +200,20 @@ enum DuplicateDetectionService {
                 let sameAmount = normalizedAmountKey(a.amount) == normalizedAmountKey(b.amount)
                 if sameDate && sameAmount { continue } // Signal 1 already covers this exact case
                 // The date requirement stands as before, with one specific
-                // exception: a tip-shaped amount difference is strong enough
-                // evidence on its own that the dates needn't be close. This
-                // is what catches the same bill re-entered with the tip
-                // filled in, where the work date on one copy was simply read
-                // wrong (a 4-day gap, one day past the window). Kept as one
-                // merged condition rather than a separate pass so a pair
-                // that satisfies both can't be flagged twice.
-                let datesClose = abs(dateA.timeIntervalSince(dateB)) <= nearbyDateWindow
+                // exception: a tip-shaped amount difference at a vendor where
+                // tipping actually happens buys a wider date window — enough
+                // to catch the same bill re-entered with the tip filled in
+                // when the work date on one copy was read wrong (a 4-day gap,
+                // one day past the normal window). It buys a WIDER window,
+                // not exemption from one: waiving the date check outright
+                // paired two unrelated Home Depot receipts 43 days apart.
+                // Kept as one merged condition rather than a separate pass so
+                // a pair that satisfies both can't be flagged twice.
+                let gap = abs(dateA.timeIntervalSince(dateB))
+                let datesClose = gap <= nearbyDateWindow
                 let tipShaped = isTipShaped(a.amount, b.amount)
+                    && gap <= tipDateWindow
+                    && tipPlausible(a, b)
                 guard datesClose || tipShaped else { continue }
                 guard BillEvalScorer.namesMatch(a.vendor, b.vendor) else { continue }
                 // Tip takes priority over the generic labels — it explains
