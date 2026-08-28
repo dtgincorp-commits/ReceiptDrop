@@ -720,12 +720,42 @@ final class SearchDateResolverTests: XCTestCase {
         XCTAssertNil(resolve(.none, now: "2026-08-18 14:00:00"))
     }
 
-    func testUnknownTokenFallsBackToNoRange() {
-        // A model that invents a token must not silently produce a range.
+    func testUnknownTokenProducesNoRangeButIsReported() {
+        // CHANGED BEHAVIOR (was `testUnknownTokenFallsBackToNoRange`). This
+        // test used to assert only the first half — no range — which is the
+        // silent-drop bug written down as a specification: an invented token
+        // meant the date half of the query vanished and the caller could not
+        // tell the difference between "the query named no time period" and
+        // "the query named one I couldn't express". The user then saw an
+        // unfiltered history with a filter chip on it. Producing no range is
+        // still correct; staying quiet about it is not.
         let dates = SearchDateResolver.range(from: ["date_range_kind": "sometime_recently"],
                                              now: date("2026-08-18 14:00:00"))
         XCTAssertNil(dates.from)
         XCTAssertNil(dates.to)
+        XCTAssertEqual(dates.unrecognizedToken, "sometime_recently")
+    }
+
+    func testExplicitNoneIsNotReportedAsUnrecognized() {
+        // "none" is a legitimate answer and must stay distinguishable from an
+        // invented token, or every ordinary query would start erroring.
+        for token in ["none", "", "null", "  None  "] {
+            let dates = SearchDateResolver.range(from: ["date_range_kind": token],
+                                                 now: date("2026-08-18 14:00:00"))
+            XCTAssertNil(dates.unrecognizedToken, "token \(token) should read as none")
+        }
+    }
+
+    func testMissingTokenIsNotReportedAsUnrecognized() {
+        let dates = SearchDateResolver.range(from: [:], now: date("2026-08-18 14:00:00"))
+        XCTAssertNil(dates.unrecognizedToken)
+    }
+
+    func testRecognizedTokenIsNotReportedAsUnrecognized() {
+        let dates = SearchDateResolver.range(from: ["date_range_kind": "last_month"],
+                                             now: date("2026-08-18 14:00:00"))
+        XCTAssertNil(dates.unrecognizedToken)
+        XCTAssertNotNil(dates.from)
     }
 
     func testLastNDaysWithoutCountProducesNoRange() {
@@ -907,4 +937,288 @@ private extension DateFormatter {
         f.dateFormat = AppConstants.sheetDateFormat
         return f
     }()
+}
+
+/// Tests for the deterministic Swift passes that now sit on either side of
+/// the search-query models — `SearchQueryDateParser` before, and
+/// `SearchVendorTypeGuard` / `SemanticSearchService.finalize` after.
+///
+/// These exist because prompt-only fixes for the on-device model have failed
+/// three times running (the $100–$100 amount bound, the "other" vendor type,
+/// the date fields). Everything below is model-free and fully deterministic,
+/// which is the entire argument for moving these guarantees into Swift: they
+/// can be pinned by a test, and a prompt cannot.
+final class SearchQueryGuardTests: XCTestCase {
+
+    // Deliberately `Calendar.current` rather than a fixed test calendar.
+    // `NSDataDetector` resolves "August 4th" in the *current* time zone, and
+    // pinning the assertions to a different one would make these tests fail
+    // on some machines and pass on others for reasons having nothing to do
+    // with the code under test.
+    private let calendar = Calendar.current
+
+    private func date(_ y: Int, _ m: Int, _ d: Int, hour: Int = 12) -> Date {
+        calendar.date(from: DateComponents(year: y, month: m, day: d, hour: hour))!
+    }
+
+    private func day(_ value: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: value)
+    }
+
+    private func parse(_ query: String, now: Date) -> (from: String, to: String)? {
+        guard let range = SearchQueryDateParser.explicitRange(in: query, now: now, calendar: calendar) else {
+            return nil
+        }
+        return (day(range.from), day(range.to))
+    }
+
+    // MARK: - Spelled-out dates (the reported bug)
+
+    func testSpelledOutDateInTheReportedQuery() {
+        // The exact query from the device report. It produced no date filter
+        // at all, because the descriptor vocabulary has no way to name a
+        // single calendar day.
+        let range = parse("anything on August 4th receipt date", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2026-08-04")
+        XCTAssertEqual(range?.to, "2026-08-04")
+    }
+
+    func testSpelledOutDateWithoutOrdinalSuffix() {
+        let range = parse("receipts on August 4", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2026-08-04")
+        XCTAssertEqual(range?.to, "2026-08-04")
+    }
+
+    func testSpelledOutDateWithExplicitYearUsesThatYear() {
+        let range = parse("anything from August 4 2025", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2025-08-04")
+        XCTAssertEqual(range?.to, "2025-08-04")
+    }
+
+    func testSpelledOutDateStillInTheFutureResolvesToLastYear() {
+        // Asked in August, "December 4th" cannot mean the December that
+        // hasn't happened — the same rule `SearchDateResolver` already
+        // applies to a bare named month.
+        let range = parse("anything on December 4th", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2025-12-04")
+    }
+
+    // MARK: - Numeric dates
+
+    func testNumericDateWithFourDigitYear() {
+        let range = parse("receipts on 08/04/2026", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2026-08-04")
+        XCTAssertEqual(range?.to, "2026-08-04")
+    }
+
+    func testNumericDateWithTwoDigitYear() {
+        let range = parse("anything on 8/4/26", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2026-08-04")
+    }
+
+    func testBareMonthDayInfersTheMostRecentPastYear() {
+        let range = parse("anything on 8/4", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2026-08-04")
+        XCTAssertEqual(range?.to, "2026-08-04")
+    }
+
+    func testBareMonthDayStillAheadOfTodayResolvesToLastYear() {
+        let range = parse("anything on 12/4", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2025-12-04")
+    }
+
+    func testDayGreaterThanTwelveForcesDayMonthOrdering() {
+        let range = parse("receipts on 25/12/2025", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2025-12-25")
+    }
+
+    func testImpossibleCalendarDateIsNotInvented() {
+        // Never let Calendar normalize 02/30 into March 2 — fabricating a
+        // date the user didn't type is the failure mode all of this exists
+        // to prevent.
+        XCTAssertNil(parse("receipts on 02/30/2026", now: date(2026, 8, 28)))
+    }
+
+    // MARK: - Explicit ranges
+
+    func testExplicitRangeBetweenTwoSpelledOutDates() {
+        let range = parse("between Aug 1 and Aug 10", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2026-08-01")
+        XCTAssertEqual(range?.to, "2026-08-10")
+    }
+
+    func testExplicitRangeBetweenTwoNumericDates() {
+        let range = parse("from 8/1/26 to 8/15/26", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2026-08-01")
+        XCTAssertEqual(range?.to, "2026-08-15")
+    }
+
+    // MARK: - Negative cases: money queries must never gain a date filter
+
+    func testAmountQueryOverProducesNoDate() {
+        XCTAssertNil(parse("receipts over 100", now: date(2026, 8, 28)))
+    }
+
+    func testAmountQueryUnderProducesNoDate() {
+        XCTAssertNil(parse("under 50", now: date(2026, 8, 28)))
+    }
+
+    func testAmountRangeQueryProducesNoDate() {
+        // The specific risk called out in review: NSDataDetector reads
+        // "between X and Y" phrasing as a date span. Without the
+        // month-name-or-separator gate this becomes a date filter stapled to
+        // a money query.
+        XCTAssertNil(parse("between 20 and 40", now: date(2026, 8, 28)))
+    }
+
+    func testHyphenatedAmountRangeProducesNoDate() {
+        // Why the yearless pattern accepts "/" only: "5-10" is a money range,
+        // not May 10.
+        XCTAssertNil(parse("receipts between 5-10 dollars", now: date(2026, 8, 28)))
+    }
+
+    // MARK: - Negative cases: coarse date phrases stay with the model
+
+    func testBareMonthNameIsLeftToTheModel() {
+        // Must NOT become the single day July 1 — "in July" is a whole month,
+        // which `named_month` already handles correctly.
+        XCTAssertNil(parse("receipts in July", now: date(2026, 8, 28)))
+    }
+
+    func testMonthAndYearIsLeftToTheModel() {
+        XCTAssertNil(parse("anything from July 2025", now: date(2026, 8, 28)))
+    }
+
+    func testRelativePhrasesAreLeftToTheModel() {
+        XCTAssertNil(parse("anything from 2 weeks ago", now: date(2026, 8, 28)))
+        XCTAssertNil(parse("in the last 30 days", now: date(2026, 8, 28)))
+        XCTAssertNil(parse("from last month", now: date(2026, 8, 28)))
+        XCTAssertNil(parse("so far this month", now: date(2026, 8, 28)))
+    }
+
+    func testQueryWithNoDateAtAllProducesNothing() {
+        XCTAssertNil(parse("restaurant receipts", now: date(2026, 8, 28)))
+        XCTAssertNil(parse("the notary place", now: date(2026, 8, 28)))
+    }
+
+    // MARK: - The "other" guard
+
+    func testOtherIsDroppedWhenTheQueryNamesNoBusinessType() {
+        // The reported regression: an "Other" chip on a query that names no
+        // business at all.
+        XCTAssertNil(SearchVendorTypeGuard.sanitized("other", query: "anything on August 4th receipt date"))
+        XCTAssertNil(SearchVendorTypeGuard.sanitized("other", query: "anything from 2 weeks ago"))
+        XCTAssertNil(SearchVendorTypeGuard.sanitized("other", query: "receipts over 50"))
+    }
+
+    func testOtherSurvivesWhenTheQueryActuallyNamesABusiness() {
+        XCTAssertEqual(SearchVendorTypeGuard.sanitized("other", query: "the notary place"), "other")
+        XCTAssertEqual(SearchVendorTypeGuard.sanitized("other", query: "other receipts"), "other")
+        XCTAssertEqual(SearchVendorTypeGuard.sanitized("other", query: "miscellaneous vendors"), "other")
+    }
+
+    func testGuardNeverTouchesAnyOtherVendorType() {
+        // The reason this is scoped to "other" alone: these are semantic
+        // mappings the model is good at, and none of the queries contain the
+        // token's own word. A lexical check applied to them would break
+        // ordinary, working searches.
+        XCTAssertEqual(SearchVendorTypeGuard.sanitized("restaurant", query: "dinner last week"), "restaurant")
+        XCTAssertEqual(SearchVendorTypeGuard.sanitized("gas_station", query: "filled up the truck"), "gas_station")
+        XCTAssertEqual(SearchVendorTypeGuard.sanitized("lodging", query: "where did I stay in Denver"), "lodging")
+    }
+
+    func testGuardMatchesWholeWordsOnly() {
+        // "another" must not license "other"; "carpet" must not license "car".
+        XCTAssertNil(SearchVendorTypeGuard.sanitized("other", query: "another receipt from yesterday"))
+        XCTAssertNil(SearchVendorTypeGuard.sanitized("other", query: "carpet cleaning"))
+    }
+
+    func testGuardPassesThroughEmptyAndNil() {
+        XCTAssertNil(SearchVendorTypeGuard.sanitized(nil, query: "anything"))
+        XCTAssertNil(SearchVendorTypeGuard.sanitized("", query: "anything"))
+    }
+
+    // MARK: - finalize: how the two passes combine
+
+    private func result(vendorType: String? = nil, amountMin: Double? = nil, amountMax: Double? = nil,
+                        dateFrom: Date? = nil, dateTo: Date? = nil,
+                        unrecognizedDateToken: String? = nil) -> QueryParseResult {
+        QueryParseResult(vendorType: vendorType, amountMin: amountMin, amountMax: amountMax,
+                         dateFrom: dateFrom, dateTo: dateTo, unrecognizedDateToken: unrecognizedDateToken)
+    }
+
+    func testFinalizeAppliesTheExplicitDateOverTheModels() {
+        // The pre-pass read the date out of the query text directly, so the
+        // model's opinion about dates is discarded — including a whole-month
+        // range it may have guessed at.
+        let explicit = (from: date(2026, 8, 4, hour: 0), to: date(2026, 8, 4, hour: 23))
+        let out = try? SemanticSearchService.finalize(
+            result(dateFrom: date(2026, 8, 1), dateTo: date(2026, 8, 31)),
+            query: "anything on August 4th", explicit: explicit)
+        XCTAssertEqual(out?.dateFrom, explicit.from)
+        XCTAssertEqual(out?.dateTo, explicit.to)
+    }
+
+    func testFinalizeDropsOtherAndKeepsAmounts() {
+        let out = try? SemanticSearchService.finalize(
+            result(vendorType: "other", amountMin: 50),
+            query: "receipts over 50", explicit: nil)
+        XCTAssertNil(out?.vendorType)
+        XCTAssertEqual(out?.amountMin, 50)
+    }
+
+    func testFinalizeThrowsRatherThanShowingAnUnfilteredList() {
+        // The core of the silent-drop fix. A model that named a time period
+        // it had no token for must not produce a result that looks filtered.
+        XCTAssertThrowsError(try SemanticSearchService.finalize(
+            result(vendorType: "restaurant", unrecognizedDateToken: "specific_date"),
+            query: "restaurants on August 4th", explicit: nil))
+    }
+
+    func testFinalizeDoesNotThrowWhenTheExplicitPassCoveredIt() {
+        // An unrecognized token is harmless once Swift has read the date
+        // itself — there is nothing left to be silent about.
+        let explicit = (from: date(2026, 8, 4, hour: 0), to: date(2026, 8, 4, hour: 23))
+        XCTAssertNoThrow(try SemanticSearchService.finalize(
+            result(unrecognizedDateToken: "specific_date"),
+            query: "anything on August 4th", explicit: explicit))
+    }
+
+    func testFinalizeLeavesAnOrdinaryResultAlone() {
+        let out = try? SemanticSearchService.finalize(
+            result(vendorType: "restaurant", amountMin: 20, dateFrom: date(2026, 7, 1), dateTo: date(2026, 7, 31)),
+            query: "restaurant receipts over 20 in July", explicit: nil)
+        XCTAssertEqual(out?.vendorType, "restaurant")
+        XCTAssertEqual(out?.amountMin, 20)
+        XCTAssertNotNil(out?.dateFrom)
+    }
+
+    // MARK: - Chip label for a single day
+
+    func testSingleDayLabelsAsOneDate() {
+        // Without this the now-common single-date filter would read
+        // "Aug 4 – Aug 4".
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        cal.locale = Locale(identifier: "en_US_POSIX")
+        let from = cal.date(from: DateComponents(year: 2026, month: 8, day: 4))!
+        let to = cal.date(byAdding: .day, value: 1, to: from)!.addingTimeInterval(-1)
+        let now = cal.date(from: DateComponents(year: 2026, month: 8, day: 28, hour: 14))!
+        XCTAssertEqual(SearchDateResolver.label(from: from, to: to, now: now, calendar: cal), "Aug 4")
+    }
+
+    func testSingleDayThatIsTodayStillLabelsAsToday() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        cal.locale = Locale(identifier: "en_US_POSIX")
+        let from = cal.date(from: DateComponents(year: 2026, month: 8, day: 28))!
+        let to = cal.date(byAdding: .day, value: 1, to: from)!.addingTimeInterval(-1)
+        let now = cal.date(from: DateComponents(year: 2026, month: 8, day: 28, hour: 14))!
+        XCTAssertEqual(SearchDateResolver.label(from: from, to: to, now: now, calendar: cal), "Today")
+    }
 }

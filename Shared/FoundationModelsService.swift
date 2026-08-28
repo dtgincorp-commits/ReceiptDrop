@@ -589,8 +589,15 @@ extension SemanticSearchService {
             throw SemanticSearchError.parsing(error.localizedDescription)
         }
 
+        // An invented descriptor token used to be coerced straight to `.none`
+        // here, which silently deleted the date half of the query and handed
+        // back a full, unfiltered history wearing a filter chip. The token is
+        // carried up instead so `SemanticSearchService.finalize` can decide —
+        // it has the query text, and a deterministic reading of it, which
+        // this function does not.
+        let token = SearchDateResolver.kind(forToken: draft.dateRangeKind)
         let descriptor = QueryDateDescriptor(
-            kind: QueryDateRangeKind(rawValue: draft.dateRangeKind.trimmingCharacters(in: .whitespaces).lowercased()) ?? .none,
+            kind: token.kind,
             count: draft.dateCount > 0 ? draft.dateCount : nil,
             month: draft.dateMonth > 0 ? draft.dateMonth : nil,
             year: draft.dateYear > 0 ? draft.dateYear : nil)
@@ -600,7 +607,8 @@ extension SemanticSearchService {
             vendorType: VendorTypeToken.resolve(draft.vendorType),
             amountMin: draft.amountMin < 0 ? nil : draft.amountMin,
             amountMax: draft.amountMax < 0 ? nil : draft.amountMax,
-            dateFrom: dates?.from, dateTo: dates?.to)
+            dateFrom: dates?.from, dateTo: dates?.to,
+            unrecognizedDateToken: token.unrecognized)
     }
 }
 

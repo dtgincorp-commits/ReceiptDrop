@@ -1050,6 +1050,11 @@ enum SearchDateResolver {
             if days > 1 { return "Last \(days) days" }
             return "Today"
         }
+        // A single explicit day ("August 4th") is now a common shape, since
+        // `SearchQueryDateParser` resolves those deterministically — without
+        // this the chip would read "Aug 4 – Aug 4". Deliberately placed after
+        // the ends-today branch so that today still labels as "Today".
+        if calendar.isDate(from, inSameDayAs: to) { return format(from, "MMM d") }
         return "\(format(from, "MMM d")) – \(format(to, "MMM d"))"
     }
 
@@ -1063,23 +1068,67 @@ enum SearchDateResolver {
     /// Pulls the descriptor fields out of a provider's decoded JSON (or
     /// Claude's tool input) and resolves them. Shared by all four cloud
     /// parsers so the key names and the -1/null sentinel handling can't drift.
-    static func range(from fields: [String: Any], now: Date = Date()) -> (from: Date?, to: Date?) {
-        let rawKind = (fields["date_range_kind"] as? String)?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+    static func range(from fields: [String: Any], now: Date = Date()) -> Resolved {
+        let token = kind(forToken: fields["date_range_kind"] as? String)
         func number(_ key: String) -> Int? {
             guard let value = (fields[key] as? NSNumber)?.intValue, value > 0 else { return nil }
             return value
         }
         let descriptor = QueryDateDescriptor(
-            kind: QueryDateRangeKind(rawValue: rawKind) ?? .none,
+            kind: token.kind,
             count: number("date_count"), month: number("date_month"), year: number("date_year"))
-        guard let resolved = resolve(descriptor, now: now) else { return (nil, nil) }
-        return (resolved.from, resolved.to)
+        guard let resolved = resolve(descriptor, now: now) else {
+            return Resolved(from: nil, to: nil, unrecognizedToken: token.unrecognized)
+        }
+        return Resolved(from: resolved.from, to: resolved.to, unrecognizedToken: token.unrecognized)
+    }
+
+    /// What reading a parser's date fields produced.
+    ///
+    /// `unrecognizedToken` is the part that didn't exist before: a parser
+    /// that returns a descriptor outside `QueryDateRangeKind` used to be
+    /// coerced to `.none` and the date half of the query simply evaporated,
+    /// leaving a result that *looked* filtered. That is the single worst
+    /// failure shape in a tax app — a wrong answer wearing a right answer's
+    /// clothes — and it is exactly what the date feature was added to stop,
+    /// reintroduced one level further down. Carrying the token up lets
+    /// `SemanticSearchService` either fall back to a deterministic reading of
+    /// the query or tell the user it didn't understand, but never quietly
+    /// drop the constraint.
+    struct Resolved {
+        var from: Date?
+        var to: Date?
+        var unrecognizedToken: String?
+    }
+
+    /// Classifies a raw descriptor token from any of the five parsers.
+    ///
+    /// Empty, "none" and "null" all mean the query named no time period —
+    /// that is a *valid* answer and must stay distinguishable from a model
+    /// inventing a token like "specific_date" or "august_4", which means the
+    /// query named a period the vocabulary cannot express.
+    static func kind(forToken raw: String?) -> (kind: QueryDateRangeKind, unrecognized: String?) {
+        let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if trimmed.isEmpty || trimmed == "none" || trimmed == "null" { return (.none, nil) }
+        if let known = QueryDateRangeKind(rawValue: trimmed) { return (known, nil) }
+        return (.none, trimmed)
     }
 
     /// The date half of every parser's prompt. One string for all five
     /// parsers — the on-device instructions and the four cloud prompts —
     /// so a phrase can't mean one thing on one provider and something else
     /// on another.
+    ///
+    /// KNOWN, DELIBERATELY DEFERRED: the "yesterday" example below maps to
+    /// `last_n_days` with `date_count 2`, and that window *includes today*
+    /// (see `resolve`), so searching "yesterday" also returns today's
+    /// receipts. It is over-inclusive rather than under-inclusive, so it
+    /// fails in the safe direction, and fixing it properly needs a
+    /// descriptor kind for a single relative day — which belongs with the
+    /// rest of the vocabulary work (quarters, `last_n_months`,
+    /// `since`/`before`), not as a half-fix here. Do not "tidy" the example
+    /// away without adding that kind; removing it just sends "yesterday"
+    /// back to `none`, which is worse.
     static let promptGuidance = """
     Time periods: if the query names one, describe it with date_range_kind \
     (one of: \(QueryDateRangeKind.allValidValues.joined(separator: ", "))) plus \
@@ -1113,14 +1162,23 @@ struct QueryParseResult {
     let amountMax: Double?
     let dateFrom: Date?
     let dateTo: Date?
+    /// Set when the parser named a time period using a token outside
+    /// `QueryDateRangeKind` — i.e. it understood that the query named a
+    /// period but had no legal way to say which. Purely a signal for
+    /// `SemanticSearchService.finalize`, which either replaces it with a
+    /// deterministic reading or refuses the search; it never reaches the UI
+    /// and is deliberately excluded from `isEmpty`.
+    let unrecognizedDateToken: String?
 
     init(vendorType: String?, amountMin: Double?, amountMax: Double?,
-         dateFrom: Date? = nil, dateTo: Date? = nil) {
+         dateFrom: Date? = nil, dateTo: Date? = nil,
+         unrecognizedDateToken: String? = nil) {
         self.vendorType = vendorType
         self.amountMin = amountMin
         self.amountMax = amountMax
         self.dateFrom = dateFrom
         self.dateTo = dateTo
+        self.unrecognizedDateToken = unrecognizedDateToken
     }
 
     var isEmpty: Bool {
@@ -1145,6 +1203,78 @@ enum SemanticSearchError: LocalizedError {
     }
 }
 
+/// Rejects a vendor-type filter the query text cannot support.
+///
+/// Only `other` is gated, and deliberately so. Every other token is a
+/// *semantic* mapping the model is genuinely good at and a lexical check
+/// would wreck: "dinner receipts" correctly becomes `restaurant`, "filled up
+/// the truck" becomes `gas_station`, and neither query contains the token's
+/// own word. `other` is the one token with no synonyms — the only honest
+/// reason to return it is that the user described a business the vocabulary
+/// doesn't cover, which requires them to have named a business at all. So if
+/// the query contains nothing business-shaped, `other` is not a
+/// classification, it is the model reaching for a word that means
+/// "unspecified" — the exact confusion that produced an "Other" chip on
+/// "anything on August 4th receipt date", filtering a tax history down to an
+/// arbitrary subset while looking like it had understood the question.
+///
+/// Three rounds of prompt wording have tried to teach this rule and it keeps
+/// coming back under load, so it is enforced here instead: the instructions
+/// still ask for the right behavior, but nothing depends on the model
+/// obeying them.
+///
+/// Fails in the widening direction on purpose. Dropping a filter shows the
+/// user more receipts than they asked for, which they can see and narrow.
+/// The failure this replaces hid receipts behind a filter they never
+/// requested, and a hidden receipt is a lost deduction.
+enum SearchVendorTypeGuard {
+
+    /// Words that make "other" a legitimate answer. The token vocabulary
+    /// itself (built-in and user-added, plus every word of their display
+    /// names), the literal "other"/"misc", and the everyday synonyms people
+    /// actually type instead of the token names.
+    private static var businessWords: Set<String> {
+        var words: Set<String> = [
+            "other", "misc", "miscellaneous", "business", "vendor", "shop", "store",
+            "restaurant", "restaurants", "food", "dining", "diner", "meal", "meals",
+            "cafe", "coffee", "bar", "takeout", "lunch", "dinner", "breakfast",
+            "gas", "fuel", "petrol", "station", "grocery", "groceries", "supermarket",
+            "hardware", "lumber", "retail", "auto", "car", "mechanic", "repair",
+            "hotel", "motel", "lodging", "inn", "medical", "doctor", "dentist",
+            "pharmacy", "clinic", "hospital", "professional", "legal", "lawyer",
+            "accountant", "notary", "entertainment", "movie", "theater", "utilities",
+            "utility", "electric", "internet", "phone"
+        ]
+        for token in VendorTypeToken.allValidValues {
+            for part in token.lowercased().split(whereSeparator: { !$0.isLetter }) {
+                words.insert(String(part))
+            }
+            let display = VendorTypeToken.displayName(for: token).lowercased()
+            for part in display.split(whereSeparator: { !$0.isLetter }) {
+                words.insert(String(part))
+            }
+        }
+        return words
+    }
+
+    /// The model's vendor type, or nil if it must not be applied.
+    static func sanitized(_ vendorType: String?, query: String) -> String? {
+        guard let vendorType, !vendorType.isEmpty else { return nil }
+        guard vendorType.caseInsensitiveCompare(VendorType.other.rawValue) == .orderedSame else {
+            return vendorType
+        }
+        return mentionsABusinessType(query) ? vendorType : nil
+    }
+
+    /// Whole-word match only: "another" must not license "other", and
+    /// "carpet" must not license "car".
+    static func mentionsABusinessType(_ query: String) -> Bool {
+        let words = query.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+        let vocabulary = businessWords
+        return words.contains { vocabulary.contains($0) }
+    }
+}
+
 /// Parses a free-form search phrase (e.g. "restaurants over 100") into a
 /// structured filter — the AI provider currently selected in Settings, same
 /// keys/models as receipt extraction. `vendorType` is constrained to
@@ -1157,24 +1287,89 @@ enum SemanticSearchError: LocalizedError {
 enum SemanticSearchService {
     static func parseQuery(_ text: String) async throws -> QueryParseResult {
         try ExtractionSettings.assertProviderAllowed()
+
+        // Deterministic first, model second. Any date the user typed
+        // literally — "August 4th", "8/4/26", "between Aug 1 and Aug 10" — is
+        // settled in Swift before a model is consulted, and overrides
+        // whatever the model says about dates.
+        //
+        // This is a deliberate change of strategy. Three rounds of "add more
+        // words to the instructions" (the $100–$100 amount bound, the "other"
+        // vendor type, the date fields) each fixed the tested phrasing and
+        // broke on the next one, because a small on-device model holds a
+        // constraint only as firmly as the surrounding prompt lets it. The
+        // same conclusion was already reached once on the extraction side and
+        // written up in DATE_GUARDRAIL_PLAN.md, which produced
+        // `ReceiptDateDetector`; this is that lesson applied to search. The
+        // prompt stays best-effort. Swift is where the guarantees live.
+        let explicit = SearchQueryDateParser.explicitRange(in: text)
+
+        let parsed: QueryParseResult
         switch ExtractionSettings.provider {
-        case .claude: return try await parseQueryViaClaude(text)
-        case .openAI: return try await parseQueryViaOpenAI(text)
-        case .gemini: return try await parseQueryViaGemini(text)
-        case .perplexity: return try await parseQueryViaPerplexity(text)
+        case .claude: parsed = try await parseQueryViaClaude(text)
+        case .openAI: parsed = try await parseQueryViaOpenAI(text)
+        case .gemini: parsed = try await parseQueryViaGemini(text)
+        case .perplexity: parsed = try await parseQueryViaPerplexity(text)
         case .azureDocumentIntelligence:
             // Azure's prebuilt-receipt model is fixed-schema document
             // extraction, not an instruction-following chat model — it has
-            // no way to parse a free-form search phrase.
+            // no way to parse a free-form search phrase. It can still serve a
+            // query whose date the Swift pre-pass read on its own, though,
+            // which is strictly better than the flat refusal it used to give.
+            if let explicit {
+                return QueryParseResult(vendorType: nil, amountMin: nil, amountMax: nil,
+                                        dateFrom: explicit.from, dateTo: explicit.to)
+            }
             throw SemanticSearchError.api("Microsoft Document Intelligence can't parse search queries — switch AI Provider in Settings to search receipts.")
         case .appleOnDevice:
             #if canImport(FoundationModels)
-            if #available(iOS 26.0, *) { return try await parseQueryOnDevice(text) }
+            if #available(iOS 26.0, *) {
+                parsed = try await parseQueryOnDevice(text)
+                return try finalize(parsed, query: text, explicit: explicit)
+            }
             #endif
             // Older OS / toolchain without Foundation Models: fall back to
             // Gemini (still needs a Gemini key on those builds).
-            return try await parseQueryViaGemini(text)
+            parsed = try await parseQueryViaGemini(text)
         }
+
+        return try finalize(parsed, query: text, explicit: explicit)
+    }
+
+    /// The deterministic pass every provider's answer goes through before it
+    /// can become a filter. Kept separate from the network calls, and
+    /// internal rather than private, so the guarantees below are unit-tested
+    /// without a model or a key in the loop — which is the point of moving
+    /// them out of the prompt in the first place.
+    ///
+    /// Three jobs, in order:
+    ///
+    /// 1. Drop a `vendorType` of "other" that the query text can't support
+    ///    (see `SearchVendorTypeGuard`).
+    /// 2. Let a date the Swift pre-pass read literally out of the query
+    ///    override whatever the model returned. If the pre-pass fired, the
+    ///    model's date opinion — including an unrecognized descriptor — is
+    ///    irrelevant, because we already have the answer.
+    /// 3. Otherwise, refuse the search outright if the model named a time
+    ///    period it had no legal token for. Showing an error is worse UX than
+    ///    showing results and much better than showing the *wrong* results
+    ///    with a filter chip implying they were narrowed.
+    static func finalize(_ parsed: QueryParseResult, query: String,
+                         explicit: (from: Date, to: Date)?) throws -> QueryParseResult {
+        let vendorType = SearchVendorTypeGuard.sanitized(parsed.vendorType, query: query)
+
+        if let explicit {
+            return QueryParseResult(vendorType: vendorType,
+                                    amountMin: parsed.amountMin, amountMax: parsed.amountMax,
+                                    dateFrom: explicit.from, dateTo: explicit.to)
+        }
+        if let token = parsed.unrecognizedDateToken {
+            throw SemanticSearchError.parsing(
+                "the date part (\"\(token)\"). Try a phrase like \"in July\", \"last month\", \"August 4th\", or \"in the last 30 days\".")
+        }
+        return QueryParseResult(vendorType: vendorType,
+                                amountMin: parsed.amountMin, amountMax: parsed.amountMax,
+                                dateFrom: parsed.dateFrom, dateTo: parsed.dateTo)
     }
 
     // MARK: Claude
@@ -1229,7 +1424,8 @@ enum SemanticSearchService {
             vendorType: VendorTypeToken.resolve(input["vendor_type"] as? String),
             amountMin: (input["amount_min"] as? NSNumber)?.doubleValue,
             amountMax: (input["amount_max"] as? NSNumber)?.doubleValue,
-            dateFrom: dates.from, dateTo: dates.to)
+            dateFrom: dates.from, dateTo: dates.to,
+            unrecognizedDateToken: dates.unrecognizedToken)
     }
 
     // MARK: OpenAI
@@ -1280,7 +1476,8 @@ enum SemanticSearchService {
             vendorType: VendorTypeToken.resolve(fields["vendor_type"] as? String),
             amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
             amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue,
-            dateFrom: dates.from, dateTo: dates.to)
+            dateFrom: dates.from, dateTo: dates.to,
+            unrecognizedDateToken: dates.unrecognizedToken)
     }
 
     // MARK: Perplexity
@@ -1331,7 +1528,8 @@ enum SemanticSearchService {
             vendorType: VendorTypeToken.resolve(fields["vendor_type"] as? String),
             amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
             amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue,
-            dateFrom: dates.from, dateTo: dates.to)
+            dateFrom: dates.from, dateTo: dates.to,
+            unrecognizedDateToken: dates.unrecognizedToken)
     }
 
     // MARK: Gemini
@@ -1386,7 +1584,8 @@ enum SemanticSearchService {
             vendorType: VendorTypeToken.resolve(fields["vendor_type"] as? String),
             amountMin: (fields["amount_min"] as? NSNumber)?.doubleValue,
             amountMax: (fields["amount_max"] as? NSNumber)?.doubleValue,
-            dateFrom: dates.from, dateTo: dates.to)
+            dateFrom: dates.from, dateTo: dates.to,
+            unrecognizedDateToken: dates.unrecognizedToken)
     }
 }
 

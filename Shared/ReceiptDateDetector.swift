@@ -221,3 +221,257 @@ enum ReceiptDateDetector {
         return results
     }
 }
+
+// MARK: - Search-query dates
+
+/// Deterministic extraction of an *explicit* calendar date — or an explicit
+/// date range — from a natural-language search query. The query-side sibling
+/// of `ReceiptDateDetector`, built from the same two tools (`NSDataDetector`
+/// plus a numeric regex) for the same reason: a date a user typed literally
+/// is not something a language model should be asked to interpret.
+///
+/// ## Why this is a separate type, and must NOT be merged with `ReceiptDateDetector.dates(in:)`
+///
+/// The two have deliberately **opposite polarity** on
+/// `NSTextCheckingResult.duration`. On receipt text, a match with a non-zero
+/// duration is a *span* invented by coupon/warranty wording ("valid through
+/// 09/01/2026") whose start is today rather than anything printed — so
+/// `ReceiptDateDetector` rejects `duration != 0` outright, and must keep
+/// doing so. On a search query, a span is precisely what we want: "between
+/// Aug 1 and Aug 10" is a user asking for a range, and dropping it would
+/// throw away the answer. Folding these into one shared function would force
+/// one type's polarity onto the other and silently reintroduce whichever bug
+/// that guard exists to prevent. Same tools, inverted meaning — keep them
+/// apart.
+///
+/// ## Why the scope is narrow on purpose
+///
+/// This only claims a query that names a **specific day**. Month-level and
+/// coarser phrases ("in July", "July 2025", "last month", "2 weeks ago") are
+/// left to the model plus `SearchDateResolver`, which already represent them
+/// correctly as whole periods. A regex that turned "in July" into the single
+/// day July 1 would be a far worse bug than the gap it closes, so a
+/// candidate is rejected unless a day-of-month number is actually present.
+enum SearchQueryDateParser {
+
+    /// Inclusive day bounds for the explicit date(s) named in `query`, or nil
+    /// when the query names no specific day. Same contract as
+    /// `SearchDateResolver.resolve` — `from` is the start of the first day,
+    /// `to` the last instant of the last — so callers can use either
+    /// interchangeably.
+    ///
+    /// Several dates in one query collapse to a single span from the earliest
+    /// to the latest ("between Aug 1 and Aug 10" → Aug 1 00:00 through Aug 10
+    /// 23:59:59). Over-inclusive beats silently empty, the same trade-off
+    /// `SearchDateResolver` makes for "2 weeks ago".
+    static func explicitRange(in query: String,
+                              now: Date = Date(),
+                              calendar: Calendar = .current) -> (from: Date, to: Date)? {
+        var days = numericDays(in: query, now: now, calendar: calendar)
+        days.append(contentsOf: detectorDays(in: query, now: now, calendar: calendar))
+
+        guard let earliest = days.min(), let latest = days.max() else { return nil }
+        let start = calendar.startOfDay(for: earliest)
+        guard let dayAfter = calendar.date(byAdding: .day, value: 1,
+                                           to: calendar.startOfDay(for: latest)) else { return nil }
+        return (start, dayAfter.addingTimeInterval(-1))
+    }
+
+    // MARK: - Pass 1: numeric regex
+
+    /// `M/D/YY`, `M/D/YYYY` and the `-` / `.` variants — the same shape
+    /// `ReceiptDateDetector.numericDatePattern` matches, and for the same
+    /// reasons (matched separators via the `\2` backreference, digit-run
+    /// boundaries so the match can't land inside a longer number).
+    private static let fullDatePattern =
+        #"(?<!\d)(\d{1,2})([/.\-])(\d{1,2})\2(\d{4}|\d{2})(?!\d)"#
+
+    /// A yearless `M/D` — "anything on 8/4". Restricted to `/` alone, unlike
+    /// the full pattern above: a query is full of amounts, and "between 5-10"
+    /// or "20-40" would otherwise read as May 10 / a nonsense date rather
+    /// than the money range the user meant. A slash between two small numbers
+    /// has no competing meaning in this app's query vocabulary; a hyphen very
+    /// much does.
+    ///
+    /// Both boundaries exclude a date separator as well as a digit, so this
+    /// can only match a *whole* yearless date, never a fragment of a
+    /// complete one — the full pattern above owns those. The trailing
+    /// `(?![/.\-]\d)` rules out the "8/4" head of "8/4/26"; the leading
+    /// `(?<![/.\-])` rules out its "4/26" tail, which is the subtler of the
+    /// two and was a confirmed bug — without it "anything on 8/4/26"
+    /// resolved to April 26, and "from 8/1/26 to 8/15/26" stretched the
+    /// filter back to January.
+    private static let bareMonthDayPattern =
+        #"(?<![\d/.\-])(\d{1,2})/(\d{1,2})(?!\d)(?![/.\-]\d)"#
+
+    private static func numericDays(in query: String, now: Date, calendar: Calendar) -> [Date] {
+        let currentYear = calendar.component(.year, from: now)
+        var days: [Date] = []
+
+        if let regex = try? NSRegularExpression(pattern: fullDatePattern) {
+            for match in regex.matches(in: query, options: [],
+                                       range: NSRange(query.startIndex..., in: query)) {
+                guard let first = intGroup(match, 1, in: query),
+                      let second = intGroup(match, 3, in: query),
+                      let yearText = textGroup(match, 4, in: query) else { continue }
+                // Century rule for a 2-digit year, mirroring
+                // `ReceiptDateDetector`: never resolve a bare "26" into a
+                // future year. A user searching their own receipt history is
+                // asking about the past.
+                let year: Int
+                if yearText.count == 4 {
+                    guard let parsed = Int(yearText) else { continue }
+                    year = parsed
+                } else {
+                    guard let twoDigit = Int(yearText) else { continue }
+                    var candidate = 2000 + twoDigit
+                    if candidate > currentYear { candidate -= 100 }
+                    year = candidate
+                }
+                if let date = date(first: first, second: second, year: year, calendar: calendar) {
+                    days.append(date)
+                }
+            }
+        }
+
+        if let regex = try? NSRegularExpression(pattern: bareMonthDayPattern) {
+            for match in regex.matches(in: query, options: [],
+                                       range: NSRange(query.startIndex..., in: query)) {
+                guard let first = intGroup(match, 1, in: query),
+                      let second = intGroup(match, 2, in: query) else { continue }
+                // No year stated: take the most recent occurrence that has
+                // already happened. Same rule `SearchDateResolver` applies to
+                // a bare named month ("July" said in March means last July) —
+                // nobody searches their receipts for a day that hasn't
+                // arrived yet.
+                guard var date = date(first: first, second: second, year: currentYear, calendar: calendar) else { continue }
+                if calendar.startOfDay(for: date) > calendar.startOfDay(for: now),
+                   let shifted = calendar.date(byAdding: .year, value: -1, to: date) {
+                    date = shifted
+                }
+                days.append(date)
+            }
+        }
+
+        return days
+    }
+
+    /// Month/day ordering plus real-calendar validation. Whichever value is
+    /// > 12 must be the day; ambiguous pairs default to the app's US M/D
+    /// convention (the same choice `ReceiptDateDetector` documents). The
+    /// round-trip check rejects "02/30" rather than letting `Calendar`
+    /// normalize the overflow into a different day than the user typed.
+    private static func date(first: Int, second: Int, year: Int, calendar: Calendar) -> Date? {
+        let month: Int
+        let day: Int
+        if first > 12, second <= 12, second >= 1 {
+            day = first
+            month = second
+        } else if second > 12, first <= 12, first >= 1 {
+            month = first
+            day = second
+        } else if (1...12).contains(first), (1...12).contains(second) {
+            month = first
+            day = second
+        } else {
+            return nil
+        }
+        guard let candidate = calendar.date(from: DateComponents(year: year, month: month, day: day)) else { return nil }
+        let roundTrip = calendar.dateComponents([.year, .month, .day], from: candidate)
+        guard roundTrip.year == year, roundTrip.month == month, roundTrip.day == day else { return nil }
+        return candidate
+    }
+
+    private static func intGroup(_ match: NSTextCheckingResult, _ index: Int, in text: String) -> Int? {
+        textGroup(match, index, in: text).flatMap { Int($0) }
+    }
+
+    private static func textGroup(_ match: NSTextCheckingResult, _ index: Int, in text: String) -> String? {
+        guard index < match.numberOfRanges, let range = Range(match.range(at: index), in: text) else { return nil }
+        return String(text[range])
+    }
+
+    // MARK: - Pass 2: NSDataDetector
+
+    /// Catches the spelled-out forms the numeric pass can't — "August 4th",
+    /// "on Aug 4 2025", "between Aug 1 and Aug 10" — and, unlike the receipt
+    /// side, keeps spans (see the polarity note on the type).
+    ///
+    /// Strictly limited to matches containing a month *name*: everything with
+    /// digit separators belongs to the numeric pass, which is both stricter
+    /// and more accurate on those. Verified failures when this pass was
+    /// allowed to read numeric dates too — it returned April 26 for "8/4/26"
+    /// and January 26 for "8/1/26", and it silently normalized the
+    /// impossible "02/30/2026" into March 2 rather than rejecting it.
+    /// Because `explicitRange` spans the earliest to the latest day it finds,
+    /// a single such misread doesn'"'"'t just add a wrong date, it stretches the
+    /// whole filter around it. One pass per notation, no overlap.
+    private static func detectorDays(in query: String, now: Date, calendar: Calendar) -> [Date] {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else {
+            return []
+        }
+        var days: [Date] = []
+        for match in detector.matches(in: query, options: [],
+                                      range: NSRange(query.startIndex..., in: query)) {
+            guard let date = match.date,
+                  let range = Range(match.range, in: query) else { continue }
+            let matched = String(query[range]).trimmingCharacters(in: .whitespaces)
+            guard namesASpecificDay(matched) else { continue }
+
+            // A bare month/day with no year stated resolves to the most
+            // recent past occurrence, exactly as the numeric pass does.
+            // NSDataDetector will happily hand back a *future* "December 4th"
+            // when asked in August.
+            let shift: Int
+            if statesAFourDigitYear(matched) {
+                shift = 0
+            } else {
+                shift = calendar.startOfDay(for: date) > calendar.startOfDay(for: now) ? -1 : 0
+            }
+            func adjusted(_ value: Date) -> Date? {
+                shift == 0 ? value : calendar.date(byAdding: .year, value: shift, to: value)
+            }
+
+            if let start = adjusted(date) { days.append(start) }
+            if match.duration > 0, let end = adjusted(date.addingTimeInterval(match.duration)) {
+                days.append(end)
+            }
+        }
+        return days
+    }
+
+    /// The gate that keeps amount queries and month-level phrases out.
+    ///
+    /// Two conditions, both required:
+    ///
+    /// 1. **A day-of-month number is present.** "in July" and "July 2025"
+    ///    carry no 1–2 digit number, so they fall through to the model's
+    ///    `named_month` descriptor and stay whole months. This is the check
+    ///    that stops the pre-pass from hijacking coarse date phrases.
+    /// 2. **A month name is present.** `NSDataDetector` reads amount phrasing
+    ///    as dates surprisingly often — "between 20 and 40" is a verified
+    ///    case — and such matches never contain one. Requiring a month name
+    ///    keeps "receipts over 100", "under 50" and "between 20 and 40"
+    ///    date-free, which is the whole point: a money query must never come
+    ///    back with a date filter stapled to it. It also draws the line
+    ///    against the numeric pass, which owns every slash/dash notation.
+    private static func namesASpecificDay(_ matched: String) -> Bool {
+        // A lone clock time ("2:30 PM") is detected as a date on *today* —
+        // the same trap `ReceiptDateDetector` guards against.
+        if matched.range(of: #"^\d{1,2}:\d{2}(:\d{2})?\s*([AaPp]\.?[Mm]\.?)?$"#,
+                         options: .regularExpression) != nil {
+            return false
+        }
+        guard matched.range(of: #"(?<!\d)\d{1,2}(?!\d)"#, options: .regularExpression) != nil else {
+            return false
+        }
+        let lowered = matched.lowercased()
+        let months = ["jan", "feb", "mar", "apr", "may", "jun",
+                      "jul", "aug", "sep", "oct", "nov", "dec"]
+        return months.contains { lowered.contains($0) }
+    }
+
+    private static func statesAFourDigitYear(_ matched: String) -> Bool {
+        matched.range(of: #"(?<!\d)\d{4}(?!\d)"#, options: .regularExpression) != nil
+    }
+}
