@@ -261,7 +261,7 @@ struct CategoryDetailView: View {
     @State private var isMerging = false
     @State private var mergeMessage: String?
     @State private var mergeError: String?
-    @State private var duplicatePairs: [DuplicateDetectionService.Pair] = []
+    @State private var duplicateGroups: [DuplicateDetectionService.Group] = []
 
     @State private var renameInput = ""
     @State private var showRenameConfirm = false
@@ -448,11 +448,11 @@ struct CategoryDetailView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.green)
                     }
-                    if !duplicatePairs.isEmpty {
+                    if !duplicateGroups.isEmpty {
                         NavigationLink {
-                            DuplicateReviewView(pairs: $duplicatePairs)
+                            DuplicateReviewView(groups: $duplicateGroups)
                         } label: {
-                            Label("Review \(duplicatePairs.count) Possible Duplicate\(duplicatePairs.count == 1 ? "" : "s")",
+                            Label("Review \(duplicateGroups.count) Possible Duplicate\(duplicateGroups.count == 1 ? "" : "s")",
                                   systemImage: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
                         }
@@ -545,10 +545,10 @@ struct CategoryDetailView: View {
                 let summary = try CategoryMergeService.merge(from: category, into: destination)
                 await MainActor.run {
                     isMerging = false
-                    duplicatePairs = summary.duplicatePairs
+                    duplicateGroups = summary.duplicateGroups
                     var message = "Backed up to Files → On My iPhone → Receipts4Tax → Backups → \(summary.backupFilename). Moved \(summary.receiptsMoved) receipt\(summary.receiptsMoved == 1 ? "" : "s") into \(destination)."
-                    if !summary.duplicatePairs.isEmpty {
-                        message += " Found \(summary.duplicatePairs.count) possible duplicate\(summary.duplicatePairs.count == 1 ? "" : "s") — see below."
+                    if !summary.duplicateGroups.isEmpty {
+                        message += " Found \(summary.duplicateGroups.count) possible duplicate\(summary.duplicateGroups.count == 1 ? "" : "s") — see below."
                     }
                     mergeMessage = message
                     // `entries` (this category) just emptied out and

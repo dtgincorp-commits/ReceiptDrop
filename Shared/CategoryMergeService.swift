@@ -26,8 +26,9 @@ enum CategoryMergeService {
         /// tool exists to clean up) is exactly the kind of thing that can
         /// hide a pre-existing duplicate from the submit-time check, which
         /// compares within one category only. Never auto-resolved — see
-        /// `DuplicateReviewView`.
-        var duplicatePairs: [DuplicateDetectionService.Pair] = []
+        /// `DuplicateReviewView`. Groups, not raw pairs — see
+        /// `DuplicateDetectionService.findGroups`.
+        var duplicateGroups: [DuplicateDetectionService.Group] = []
     }
 
     /// Backs up first, and only proceeds if that backup actually succeeds —
@@ -71,10 +72,10 @@ enum CategoryMergeService {
         BackupSettings.lastBackupDate = Date()
 
         let destinationEntries = SubmissionStore.loadHistory().filter { $0.category == destination }
-        let duplicatePairs = DuplicateDetectionService.findPairs(in: destinationEntries)
+        let duplicateGroups = DuplicateDetectionService.findGroups(in: destinationEntries)
 
         return MergeSummary(
             receiptsMoved: entries.count, backupFilename: backupURL.lastPathComponent,
-            duplicatePairs: duplicatePairs)
+            duplicateGroups: duplicateGroups)
     }
 }

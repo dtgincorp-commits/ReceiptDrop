@@ -93,6 +93,115 @@ enum DuplicateDetectionService {
         }
     }
 
+    /// A cluster of mutually-duplicate entries, shown as one card on the
+    /// review screen instead of one card per pair. Layered on top of
+    /// `findPairs` rather than folded into it — see `findGroups`'s doc
+    /// comment for why only `.identicalFile` pairs get merged this way.
+    struct Group: Identifiable {
+        let id: String
+        let entries: [HistoryEntry]
+        let confidence: Pair.Confidence
+    }
+
+    /// Collapses `findPairs`'s pairwise output into review-screen-ready
+    /// groups. This exists because `.identicalFile` is an equivalence
+    /// relation and the fuzzy signals are not, and conflating the two would
+    /// either flood the review screen with redundant cards or silently merge
+    /// unrelated receipts:
+    ///
+    /// `.identicalFile` means "these bytes are literally the same file," and
+    /// "same file" is transitive — if A and B are the same file, and B and C
+    /// are the same file, then A and C are unquestionably the same file too
+    /// (there's only one file). So N copies of one receipt produce
+    /// N*(N-1)/2 pairs from `findPairs`, all of which name the same single
+    /// fact ("this file was filed N times"). The real case that motivated
+    /// this: one $5700.00 receipt saved three times ("Noom" 2026-08-29,
+    /// "Noom" 2026-07-24, and "Armando cabinets" 2026-08-28 — a vendor
+    /// misread on the third scan didn't stop the hash from matching)
+    /// rendered as three separate "Duplicate — Same File" cards, each
+    /// showing two of the three entries, with no card telling the user
+    /// there were three total. Four copies would have been six cards, five
+    /// copies ten — all describing one decision ("keep one, delete the
+    /// rest"), not several. Union-find over the `.identicalFile` pairs'
+    /// entry ids merges every pair that shares an entry into one group, and
+    /// transitivity is exactly what makes that merge safe: there is no case
+    /// where A-identical-to-B and B-identical-to-C but A-not-identical-to-C.
+    ///
+    /// Every other signal (`.likely` and every `.possible*` case) is
+    /// genuinely pairwise and must NOT be merged this way: "A resembles B"
+    /// and "B resembles C" does not imply "A resembles C" — A and C might
+    /// not resemble each other at all (imagine three separate Costco trips
+    /// where A and B happen to share a date+amount by coincidence and B and
+    /// C happen to share a different date+amount by a different coincidence;
+    /// A and C could be completely unrelated). Merging those would silently
+    /// combine unrelated receipts into one card and imply a relationship
+    /// between entries that was never actually detected. So every
+    /// non-`.identicalFile` pair keeps rendering as its own 2-entry group,
+    /// exactly as it does today.
+    static func findGroups(in entries: [HistoryEntry]) -> [Group] {
+        let pairs = findPairs(in: entries)
+        var entryByID: [UUID: HistoryEntry] = [:]
+        for entry in entries { entryByID[entry.id] = entry }
+
+        // Union-find over identicalFile pairs only — see the doc comment
+        // above for why the merge can't extend to any other signal.
+        var parent: [UUID: UUID] = [:]
+        func find(_ id: UUID) -> UUID {
+            var current = id
+            while let next = parent[current], next != current { current = next }
+            return current
+        }
+        func union(_ a: UUID, _ b: UUID) {
+            let ra = find(a), rb = find(b)
+            if ra != rb { parent[ra] = rb }
+        }
+
+        var identicalPairs: [Pair] = []
+        var otherPairs: [Pair] = []
+        for pair in pairs {
+            if pair.confidence == .identicalFile {
+                parent[pair.first.id] = parent[pair.first.id] ?? pair.first.id
+                parent[pair.second.id] = parent[pair.second.id] ?? pair.second.id
+                union(pair.first.id, pair.second.id)
+                identicalPairs.append(pair)
+            } else {
+                otherPairs.append(pair)
+            }
+        }
+
+        // Bucket every identicalFile entry id by its union-find root,
+        // preserving first-appearance order so the resulting groups don't
+        // reshuffle from one call to the next.
+        var clusterOrder: [UUID] = []
+        var clusters: [UUID: [UUID]] = [:]
+        var seen = Set<UUID>()
+        for pair in identicalPairs {
+            for id in [pair.first.id, pair.second.id] where !seen.contains(id) {
+                seen.insert(id)
+                let root = find(id)
+                if clusters[root] == nil { clusterOrder.append(root) }
+                clusters[root, default: []].append(id)
+            }
+        }
+
+        var groups: [Group] = []
+        for root in clusterOrder {
+            let ids = clusters[root] ?? []
+            // Oldest-timestamp-first so the card's entry order is stable
+            // across reloads rather than following whatever order the
+            // union-find merge happened to visit them in.
+            let members = ids.compactMap { entryByID[$0] }.sorted { $0.timestamp < $1.timestamp }
+            groups.append(Group(id: root.uuidString, entries: members, confidence: .identicalFile))
+        }
+        for pair in otherPairs {
+            groups.append(Group(id: pair.id, entries: [pair.first, pair.second], confidence: pair.confidence))
+        }
+
+        // Same stable-sort ordering guarantee as `findPairs`: identicalFile
+        // above likely above everything else.
+        return groups.sorted { confidenceRank($0.confidence) > confidenceRank($1.confidence) }
+    }
+
     /// Entries with an empty/unreadable work date (the app flags these
     /// elsewhere as "Date unreadable, defaulted to today") can't be keyed by
     /// date, so they're matched on amount alone within this window of each

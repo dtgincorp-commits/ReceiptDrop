@@ -8,11 +8,14 @@ import SwiftUI
 /// one category, so a case-mismatched split (the bug category-merge exists
 /// to clean up) could hide a real duplicate from it entirely.
 struct DuplicateReviewView: View {
-    /// A binding, not a copy — deleting a pair here needs to be visible to
+    /// A binding, not a copy — deleting an entry here needs to be visible to
     /// whatever badge/count the presenting screen shows (e.g. "Review 2
     /// Possible Duplicates"), and a `Binding` keeps that in sync for free
-    /// instead of needing a separate callback to stay accurate.
-    @Binding var pairs: [DuplicateDetectionService.Pair]
+    /// instead of needing a separate callback to stay accurate. Groups, not
+    /// pairs — see `DuplicateDetectionService.findGroups` for why an
+    /// identical-file cluster of N entries has to render as one card, not
+    /// N*(N-1)/2 of them.
+    @Binding var groups: [DuplicateDetectionService.Group]
     /// Entries currently being deleted — drives the per-row spinner. Deletion
     /// runs through `NSFileCoordinator` (rewriting the CSV), which can
     /// genuinely stall for a few seconds if something else has a claim on
@@ -31,19 +34,28 @@ struct DuplicateReviewView: View {
 
     var body: some View {
         Group {
-            if pairs.isEmpty {
+            if groups.isEmpty {
                 ContentUnavailableCompatView(
                     title: "No Duplicates Left",
                     message: "Every suspected duplicate on this screen has been resolved.")
             } else {
                 List {
-                    ForEach(pairs) { pair in
+                    ForEach(groups) { group in
                         Section {
-                            row(for: pair.first)
-                            row(for: pair.second)
+                            ForEach(group.entries) { entry in
+                                row(for: entry)
+                            }
                         } header: {
-                            Text(pair.confidence.rawValue)
-                                .foregroundStyle(pair.confidence == .likely ? .red : .orange)
+                            Text(header(for: group))
+                                .foregroundStyle(headerColor(for: group.confidence))
+                                // `.identicalFile` is a certainty (the bytes
+                                // literally match), not just a resemblance —
+                                // bold rather than a third color, which would
+                                // just add another hue to learn. Red already
+                                // means "highest confidence" via `.likely`;
+                                // bold says "even more than that" without
+                                // muddying what red itself means.
+                                .fontWeight(group.confidence == .identicalFile ? .bold : .regular)
                         }
                     }
                 }
@@ -77,12 +89,31 @@ struct DuplicateReviewView: View {
                     editingEntry = nil
                     // Same refresh mechanism the delete path already uses —
                     // any presenting screen bound to a live (non-snapshot)
-                    // `pairs` source (the main Receipts screen's duplicates
-                    // banner) will recompute and drop this pair if the edit
+                    // `groups` source (the main Receipts screen's duplicates
+                    // banner) will recompute and drop this group if the edit
                     // fixed whatever made it look like a duplicate.
                     NotificationCenter.default.post(name: .receiptDropDidUpdateHistory, object: nil)
                 })
         }
+    }
+
+    /// "Duplicate — Same File" reads fine for a 2-entry identical-file
+    /// group (indistinguishable from any other pair on this screen), but
+    /// silently hides the fact of a 3+-way match — the exact bug this
+    /// feature exists to fix, where three copies of one receipt looked like
+    /// nothing more than "a duplicate" with no indication a third copy
+    /// existed at all. The count only needs stating once it stops being
+    /// implied by "duplicate" (i.e. above 2).
+    private func header(for group: DuplicateDetectionService.Group) -> String {
+        guard group.entries.count > 2 else { return group.confidence.rawValue }
+        return "\(group.confidence.rawValue) · \(group.entries.count) copies"
+    }
+
+    /// `.likely` and `.identicalFile` both read as red — see the `fontWeight`
+    /// comment at the call site for how identicalFile is still visually
+    /// distinguished as the stronger of the two.
+    private func headerColor(for confidence: DuplicateDetectionService.Pair.Confidence) -> Color {
+        confidence == .likely || confidence == .identicalFile ? .red : .orange
     }
 
     @ViewBuilder
@@ -170,9 +201,22 @@ struct DuplicateReviewView: View {
                 amount: entry.amount, receiptFilename: entry.receiptLink, extraFiles: entry.extraFiles)
             await MainActor.run {
                 deletingIDs.remove(entry.id)
-                // Drop every remaining pair that referenced this entry — a
-                // pair is only meaningful while both sides still exist.
-                pairs.removeAll { $0.first.id == entry.id || $0.second.id == entry.id }
+                // Remove this entry from every group that referenced it, and
+                // drop the group entirely once fewer than 2 entries remain —
+                // a group of 1 isn't a duplicate of anything anymore. This
+                // is the group-shaped equivalent of the old pairwise
+                // `pairs.removeAll { ... }`: there it was fine for a pair to
+                // just vanish once either side was gone (a pair IS two
+                // entries), but a group can legitimately survive a single
+                // deletion (5 copies → delete 1 → still 4 duplicate copies
+                // left to resolve), so this trims membership instead of
+                // always deleting the whole group outright.
+                groups = groups.compactMap { group in
+                    guard group.entries.contains(where: { $0.id == entry.id }) else { return group }
+                    let remaining = group.entries.filter { $0.id != entry.id }
+                    guard remaining.count >= 2 else { return nil }
+                    return DuplicateDetectionService.Group(id: group.id, entries: remaining, confidence: group.confidence)
+                }
                 // The delete itself already succeeded by this point — this
                 // is what tells the Receipts screen (a different view up the
                 // navigation stack) to actually reload. Without it, that

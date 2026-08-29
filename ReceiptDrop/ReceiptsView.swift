@@ -95,7 +95,7 @@ struct ReceiptsView: View {
     /// duplicate-review flow was. That one-shot version disappeared as soon
     /// as you navigated away, with no way back to it short of re-merging.
     /// This is the durable, always-current replacement.
-    @State private var duplicatePairs: [DuplicateDetectionService.Pair] = []
+    @State private var duplicateGroups: [DuplicateDetectionService.Group] = []
 
     /// Scales the tree's row insets with the ambient text size. `@ScaledMetric`
     /// reports how far the current size is from the default, so dividing by
@@ -106,7 +106,7 @@ struct ReceiptsView: View {
     private var rowInsetScale: CGFloat { rowInsetUnit / 8 }
 
     private var duplicateEntryIDs: Set<UUID> {
-        Set(duplicatePairs.flatMap { [$0.first.id, $0.second.id] })
+        Set(duplicateGroups.flatMap { $0.entries.map(\.id) })
     }
 
     private var filteredEntries: [HistoryEntry] {
@@ -414,16 +414,22 @@ struct ReceiptsView: View {
 
     /// Same layout as `needsReviewBanner`, purple instead of orange so the
     /// two are visually distinct at a glance — always present when
-    /// `duplicatePairs` is non-empty, not just right after a merge.
+    /// `duplicateGroups` is non-empty, not just right after a merge.
+    ///
+    /// Counts GROUPS, not raw pairs — the whole reason `findGroups` exists.
+    /// Three copies of one identical-file receipt used to produce 3 pairs
+    /// (N*(N-1)/2 for N=3), so this banner read "3 possible duplicates
+    /// found" for what was actually one receipt filed three times. Counting
+    /// groups instead means it now reads "1 possible duplicate found."
     @ViewBuilder
     private var duplicatesBanner: some View {
         NavigationLink {
-            DuplicateReviewView(pairs: $duplicatePairs)
+            DuplicateReviewView(groups: $duplicateGroups)
         } label: {
             HStack {
                 Image(systemName: "doc.on.doc.fill")
                     .foregroundStyle(.indigo)
-                Text("\(duplicatePairs.count) possible duplicate\(duplicatePairs.count == 1 ? "" : "s") found")
+                Text("\(duplicateGroups.count) possible duplicate\(duplicateGroups.count == 1 ? "" : "s") found")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
                 Spacer()
@@ -651,7 +657,7 @@ struct ReceiptsView: View {
                         if !needsReviewEntries.isEmpty {
                             needsReviewBanner
                         }
-                        if !duplicatePairs.isEmpty {
+                        if !duplicateGroups.isEmpty {
                             duplicatesBanner
                         }
                         categoryPillRow
@@ -1057,7 +1063,7 @@ struct ReceiptsView: View {
         // One CSV parse per category, not per row — see commentsByReceipt.
         commentsMap = LocalReceiptStore.commentsByReceipt(
             categories: Array(Set(entries.map(\.category))))
-        duplicatePairs = DuplicateDetectionService.findPairs(in: entries)
+        duplicateGroups = DuplicateDetectionService.findGroups(in: entries)
     }
 
     /// The AI-written Comments for this entry (its per-receipt summary), or

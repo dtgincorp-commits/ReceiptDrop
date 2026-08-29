@@ -248,6 +248,7 @@ struct SettingsView: View {
                 } footer: {
                     Text("Gives older or manually-entered receipts a business type, so they show up in type-based search.")
                 }
+
             }
             .navigationTitle("Settings")
             .sheet(isPresented: $showConnectAI) {
@@ -625,7 +626,7 @@ struct ArchiveBackupView: View {
     /// (see the folder-vs-zip discussion) can leave someone unsure exactly
     /// what they just selected.
     @State private var pendingRestoreURL: URL?
-    @State private var restoreDuplicatePairs: [DuplicateDetectionService.Pair] = []
+    @State private var restoreDuplicateGroups: [DuplicateDetectionService.Group] = []
     /// See `SettingsInfoLink` — long-form detail moved out of the footers.
     @State private var infoTopic: SettingsInfoTopic?
     @State private var showRestoreDuplicates = false
@@ -726,9 +727,9 @@ struct ArchiveBackupView: View {
         } message: {
             Text(restoreMessage ?? "")
         }
-        .sheet(isPresented: $showRestoreDuplicates, onDismiss: { restoreDuplicatePairs = [] }) {
+        .sheet(isPresented: $showRestoreDuplicates, onDismiss: { restoreDuplicateGroups = [] }) {
             NavigationStack {
-                DuplicateReviewView(pairs: $restoreDuplicatePairs)
+                DuplicateReviewView(groups: $restoreDuplicateGroups)
             }
         }
         .alert("Delete \(deleteScope?.label ?? "") Receipts?",
@@ -835,8 +836,8 @@ struct ArchiveBackupView: View {
                     if summary.photosReattached > 0 {
                         message += " Reattached \(summary.photosReattached) missing photo\(summary.photosReattached == 1 ? "" : "s") to receipts already on this phone."
                     }
-                    if !summary.duplicatePairs.isEmpty {
-                        message += " Found \(summary.duplicatePairs.count) possible duplicate\(summary.duplicatePairs.count == 1 ? "" : "s")."
+                    if !summary.duplicateGroups.isEmpty {
+                        message += " Found \(summary.duplicateGroups.count) possible duplicate\(summary.duplicateGroups.count == 1 ? "" : "s")."
                     }
                     // Called out explicitly rather than left implicit: a
                     // category can appear here with 0 receipts landing in it
@@ -849,8 +850,8 @@ struct ArchiveBackupView: View {
                     }
                     restoreMessage = message
                     localBackups = LocalReceiptStore.listBackups()
-                    if !summary.duplicatePairs.isEmpty {
-                        restoreDuplicatePairs = summary.duplicatePairs
+                    if !summary.duplicateGroups.isEmpty {
+                        restoreDuplicateGroups = summary.duplicateGroups
                         showRestoreDuplicates = true
                     } else {
                         showRestoreConfirmation = true

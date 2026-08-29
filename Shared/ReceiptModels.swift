@@ -956,8 +956,9 @@ struct RestoreSummary {
     /// in — the original ones, or the single target category) — not just
     /// among the newly-restored entries, since a duplicate could be one
     /// already on this phone matching one just restored. Never
-    /// auto-resolved — see `DuplicateReviewView`.
-    var duplicatePairs: [DuplicateDetectionService.Pair] = []
+    /// auto-resolved — see `DuplicateReviewView`. Groups, not raw pairs —
+    /// see `DuplicateDetectionService.findGroups`.
+    var duplicateGroups: [DuplicateDetectionService.Group] = []
     /// Photos reattached to receipts that were already in the list — the
     /// device-restore case, where iCloud brought back the ledger (App Group
     /// history isn't excluded from backup) but not the (deliberately
@@ -1139,13 +1140,13 @@ enum RestoreService {
         // newly-restored entries — since a duplicate could be an entry
         // already on this phone matching one just restored.
         let touchedCategories = Set(backupEntries.map(\.category))
-        let duplicatePairs = touchedCategories.flatMap { category in
-            DuplicateDetectionService.findPairs(in: SubmissionStore.loadHistory().filter { $0.category == category })
+        let duplicateGroups = touchedCategories.flatMap { category in
+            DuplicateDetectionService.findGroups(in: SubmissionStore.loadHistory().filter { $0.category == category })
         }
 
         return RestoreSummary(
             receiptsRestored: restoredCount, receiptsSkipped: backupEntries.count - restoredCount,
-            duplicatePairs: duplicatePairs, photosReattached: photosReattached,
+            duplicateGroups: duplicateGroups, photosReattached: photosReattached,
             categoriesAdded: categoriesAdded)
     }
 
