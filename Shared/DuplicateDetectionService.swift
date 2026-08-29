@@ -1,8 +1,29 @@
 import Foundation
 
-/// Finds receipts that look like duplicates of each other. Two independent
-/// signals, either of which is enough to flag a pair — never both required:
+/// Finds receipts that look like duplicates of each other. Three independent
+/// signals, any one of which is enough to flag a pair — never more than one
+/// required:
 ///
+/// 0. Identical `fileHash` — the two entries are literally the same file.
+///    No date, amount, or vendor comparison is needed or even consulted;
+///    unlike every other signal here, this one can't be fooled by AI
+///    misreads because it never looks at anything the AI reported. This is
+///    what closes the gap the other two signals structurally can't: a
+///    receipt with no printed date gets "defaulted to today" at save time
+///    (see `ExtractedReceipt.build`), so the SAME physical receipt scanned
+///    twice, weeks apart, produces two different `workDate` values — the
+///    confirmed real case was two identical $5700.00 Noom receipts 36 days
+///    apart, which the date+amount signal below can't group (different
+///    date bucket) and the vendor+nearby-date signal can't reach either
+///    (36 days is far outside both `nearbyDateWindow` and `tipDateWindow`,
+///    and the amounts are identical, not tip-shaped). Naturally the
+///    highest-confidence signal here, since there is nothing left to be
+///    wrong about once the bytes match — sorted above `.likely`. Entries
+///    with an empty `fileHash` (manual entries, and anything saved before
+///    this field existed and not yet backfilled — see
+///    `ReceiptHashBackfillService`) are excluded from this signal entirely,
+///    since pairing on an empty string would match every such entry against
+///    every other one.
 /// 1. Same printed date and amount. Deliberately does NOT require vendor to
 ///    match: vendor is AI-extracted, so the identical physical receipt
 ///    scanned twice (or re-scanned after switching providers — Claude vs.
@@ -60,6 +81,9 @@ enum DuplicateDetectionService {
         let confidence: Confidence
 
         enum Confidence: String {
+            /// Highest confidence — see Signal 0 in the type comment. Sorts
+            /// above every other case, `.likely` included.
+            case identicalFile = "Duplicate — Same File"
             case likely = "Likely Duplicate"
             case possibleDifferentVendor = "Possible Duplicate — Different Vendor"
             case possibleDifferentAmount = "Possible Duplicate — Different Amount (check tax/tip)"
@@ -166,9 +190,34 @@ enum DuplicateDetectionService {
 
         var pairs: [Pair] = []
 
+        // Signal 0: identical file hash — see the type comment. Grouped
+        // first so every later signal can check `identicalFileKeys` and skip
+        // re-emitting a pair this already caught; without that, a pair
+        // whose fileHash matches AND whose date/amount happen to match too
+        // (an ordinary same-day re-scan) would show up twice in the result.
+        // Entries with an empty hash are excluded from the grouping itself
+        // (not just skipped post hoc) — an empty string is not a real
+        // content identity, and grouping on it would pair every unhashed
+        // entry (every manual entry, plus anything not yet backfilled)
+        // against every other one.
+        var byHash: [String: [HistoryEntry]] = [:]
+        for entry in entries where !entry.fileHash.isEmpty {
+            byHash[entry.fileHash, default: []].append(entry)
+        }
+        var identicalFileKeys = Set<String>()
+        for group in byHash.values where group.count >= 2 {
+            for i in group.indices {
+                for j in (i + 1)..<group.count {
+                    let a = group[i], b = group[j]
+                    pairs.append(Pair(id: "\(a.id)-\(b.id)", first: a, second: b, confidence: .identicalFile))
+                    identicalFileKeys.insert(unorderedKey(a.id, b.id))
+                }
+            }
+        }
+
         // Signal 1: same date + same amount.
         for group in dated.values where group.count >= 2 {
-            pairs.append(contentsOf: allPairs(in: group))
+            pairs.append(contentsOf: allPairs(in: group).filter { !identicalFileKeys.contains(unorderedKey($0.first.id, $0.second.id)) })
         }
 
         let undatedByAmount = Dictionary(grouping: undated) { normalizedAmountKey($0.amount) }
@@ -177,6 +226,7 @@ enum DuplicateDetectionService {
             for i in sorted.indices {
                 for j in (i + 1)..<sorted.count
                 where sorted[j].timestamp.timeIntervalSince(sorted[i].timestamp) <= undatedWindow {
+                    guard !identicalFileKeys.contains(unorderedKey(sorted[i].id, sorted[j].id)) else { continue }
                     pairs.append(makePair(sorted[i], sorted[j]))
                 }
             }
@@ -199,6 +249,7 @@ enum DuplicateDetectionService {
                 let sameDate = a.workDate == b.workDate
                 let sameAmount = normalizedAmountKey(a.amount) == normalizedAmountKey(b.amount)
                 if sameDate && sameAmount { continue } // Signal 1 already covers this exact case
+                guard !identicalFileKeys.contains(unorderedKey(a.id, b.id)) else { continue } // Signal 0 already covers this pair
                 // The date requirement stands as before, with one specific
                 // exception: a tip-shaped amount difference at a vendor where
                 // tipping actually happens buys a wider date window — enough
@@ -227,9 +278,32 @@ enum DuplicateDetectionService {
             }
         }
 
-        // Stable sort keeps likely-confidence pairs on top without
-        // otherwise reordering — Array.sorted is a stable sort in Swift.
-        return pairs.sorted { $0.confidence == .likely && $1.confidence != .likely }
+        // Stable sort keeps identicalFile above likely above everything else,
+        // without otherwise reordering — Array.sorted is a stable sort in
+        // Swift. Rank-based rather than the old two-way boolean comparison
+        // since there are now three tiers, not two.
+        return pairs.sorted { confidenceRank($0.confidence) > confidenceRank($1.confidence) }
+    }
+
+    /// Sort weight for `findPairs`'s final ordering — higher sorts first.
+    /// Only the relative order of `.identicalFile` > `.likely` > everything
+    /// else matters; every "possible…" case is equally low-confidence, so
+    /// they share a rank and keep whatever relative order they were
+    /// produced in.
+    private static func confidenceRank(_ confidence: Pair.Confidence) -> Int {
+        switch confidence {
+        case .identicalFile: return 2
+        case .likely: return 1
+        default: return 0
+        }
+    }
+
+    /// Order-independent key for a pair of entry ids, used to test
+    /// membership in `identicalFileKeys` regardless of which entry a later
+    /// signal happens to visit first/second.
+    private static func unorderedKey(_ a: UUID, _ b: UUID) -> String {
+        let (first, second) = a.uuidString < b.uuidString ? (a, b) : (b, a)
+        return "\(first)-\(second)"
     }
 
     private static func allPairs(in group: [HistoryEntry]) -> [Pair] {

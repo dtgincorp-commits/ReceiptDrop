@@ -30,6 +30,14 @@ struct ReceiptDropApp: App {
                 // path parked but couldn't safely extract itself (see
                 // PendingSubmissionProcessor / SubmissionStore.enqueuePending).
                 PendingSubmissionProcessor.processPendingIfAny()
+                // Hashes anything still missing a `fileHash` so the
+                // identical-file duplicate signal covers it. Self-healing by
+                // design rather than a Settings button — see
+                // `runOnForeground`'s comment for why that button was
+                // removed. No-ops within milliseconds once everything is
+                // hashed, which is the normal case on every launch after the
+                // first.
+                ReceiptHashBackfillService.runOnForeground()
             case .background:
                 AutoBackupService.attemptBestEffortBackupOnBackground()
             case .inactive:

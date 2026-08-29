@@ -1231,11 +1231,23 @@ struct HistoryEntry: Codable, Identifiable {
     /// string means unclassified — manual entries, entries from before this
     /// field existed, or anything the model couldn't confidently place.
     var vendorType: String = ""
+    /// SHA-256 (lowercase hex) of the file's stored bytes — see
+    /// `ReceiptFileHash` for exactly what's hashed and why. Empty means
+    /// "not yet hashed": manual entries with no underlying file
+    /// (`SubmissionPipeline.manualEntryLabel`/`scannedTextLabel`), or any
+    /// receipt saved before this field existed and not yet swept up by
+    /// `ReceiptHashBackfillService`. Deliberately NOT added to
+    /// `AppConstants.sheetHeader` — the CSV is the tax export, and a content
+    /// hash isn't tax data any more than `verificationStatus`/`reviewReason`
+    /// are (both of which stay History-only for the same reason); it only
+    /// needs to exist where `DuplicateDetectionService` and
+    /// `SubmissionPipeline`'s submit-time check can see it.
+    var fileHash: String = ""
 
     init(id: UUID = UUID(), category: String, vendor: String, workDate: String, amount: String,
          receiptLink: String, timestamp: Date,
          verificationStatus: VerificationStatus = .none, reviewReason: String = "",
-         extraFiles: [String] = [], vendorType: String = "") {
+         extraFiles: [String] = [], vendorType: String = "", fileHash: String = "") {
         self.id = id
         self.category = category
         self.vendor = vendor
@@ -1247,13 +1259,14 @@ struct HistoryEntry: Codable, Identifiable {
         self.reviewReason = reviewReason
         self.extraFiles = extraFiles
         self.vendorType = vendorType
+        self.fileHash = fileHash
     }
 
     // Custom Decodable so history persisted before these fields existed
     // (App Group UserDefaults) still decodes, defaulting to `.none`/empty.
     private enum CodingKeys: String, CodingKey {
         case id, category, vendor, workDate, amount, receiptLink, timestamp
-        case verificationStatus, reviewReason, extraFiles, vendorType
+        case verificationStatus, reviewReason, extraFiles, vendorType, fileHash
     }
 
     init(from decoder: Decoder) throws {
@@ -1269,6 +1282,7 @@ struct HistoryEntry: Codable, Identifiable {
         reviewReason = try container.decodeIfPresent(String.self, forKey: .reviewReason) ?? ""
         extraFiles = try container.decodeIfPresent([String].self, forKey: .extraFiles) ?? []
         vendorType = try container.decodeIfPresent(String.self, forKey: .vendorType) ?? ""
+        fileHash = try container.decodeIfPresent(String.self, forKey: .fileHash) ?? ""
     }
 }
 

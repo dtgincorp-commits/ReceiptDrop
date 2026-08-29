@@ -82,9 +82,33 @@ struct SubmissionPipeline {
              allowDuplicate: Bool = false,
              onStage: @MainActor (Stage) -> Void = { _ in }) async throws -> HistoryEntry {
         await onStage(.reading)
+
+        // Content-identity check FIRST, before extraction even runs — the
+        // actual fix for the Noom regression that motivated this field: two
+        // scans of the same no-printed-date Noom receipt each got
+        // "defaulted to today" 36 days apart, and every existing signal
+        // here (category/date/amount) is AI-extracted, so the fabricated
+        // dates disagreed and nothing caught it. A file's hash doesn't care
+        // what any model reads off it — the same bytes always hash the
+        // same. Checking it before `extractWithFallback` also means a
+        // re-shared screenshot gets rejected for free instead of costing a
+        // full Claude/Azure round-trip first.
+        let fileHash = ReceiptFileHash.hashOfStoredRepresentation(of: data, kind: kind)
+        if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
+            !$0.fileHash.isEmpty && $0.fileHash == fileHash
+        }) {
+            throw SubmissionError.duplicate(existing)
+        }
+
         let categoryContext = CategoryStore.shared.description(for: category)
         let extracted = try await Self.extractWithFallback(data: data, kind: kind, categoryContext: categoryContext, forcedProvider: forcedProvider)
 
+        // The original signal, kept alongside the hash check above rather
+        // than replaced by it — this one catches a re-PHOTOGRAPHED receipt
+        // (same physical paper, different bytes each time a camera shoots
+        // it), which the hash can never see since it only ever compares
+        // bytes. The hash is strictly an earlier, additional signal; nothing
+        // this used to catch stops being caught.
         if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == extracted.workDate && $0.amount == extracted.amount
         }) {
@@ -106,7 +130,8 @@ struct SubmissionPipeline {
             timestamp: Date(),
             verificationStatus: extracted.needsReview ? .needsReview : .none,
             reviewReason: extracted.reviewReason,
-            vendorType: extracted.vendorType)
+            vendorType: extracted.vendorType,
+            fileHash: fileHash)
         SubmissionStore.appendHistory(entry)
         return entry
     }
@@ -199,6 +224,16 @@ struct SubmissionPipeline {
                                        comments: String,
                                        needsReview: Bool = false, reviewReason: String = "",
                                        allowDuplicate: Bool = false) throws -> HistoryEntry {
+        // Same hash-first check as `run` — see the reasoning there. This
+        // path also has real file bytes to hash (unlike `recordManualEntry`,
+        // which never has a file at all), so it gets the identical earlier,
+        // additional signal ahead of the existing category/date/amount check.
+        let fileHash = ReceiptFileHash.hashOfStoredRepresentation(of: data, kind: kind)
+        if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
+            !$0.fileHash.isEmpty && $0.fileHash == fileHash
+        }) {
+            throw SubmissionError.duplicate(existing)
+        }
         if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == workDate && $0.amount == amount
         }) {
@@ -214,7 +249,7 @@ struct SubmissionPipeline {
             category: category, vendor: vendor, workDate: workDate, amount: amount,
             receiptLink: filename, timestamp: Date(),
             verificationStatus: needsReview ? .needsReview : .verified,
-            reviewReason: reviewReason)
+            reviewReason: reviewReason, fileHash: fileHash)
         SubmissionStore.appendHistory(entry)
         return entry
     }
