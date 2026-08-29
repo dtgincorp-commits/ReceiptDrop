@@ -655,10 +655,25 @@ struct ReceiptSubmitView: View {
                     HStack { Spacer(); Text("Save Date").bold(); Spacer() }
                 }
                 .buttonStyle(.borderedProminent)
-                Button("Skip for now — it stays flagged for review") {
+                // A real button rather than the grey caption this used to
+                // be. It is the only way off this screen: the toolbar's
+                // Cancel is disabled here, because `controlsDisabled`
+                // covers every state but `.idle`, so an escape hatch
+                // styled as fine print reads as a form the user is stuck
+                // in. `.bordered` against Save's `.borderedProminent`
+                // keeps the primary action the obvious one, which is why
+                // the disable rule itself is left alone.
+                Button {
                     onComplete()
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("Skip for now — it stays flagged for review")
+                        Spacer()
+                    }
                 }
-                .font(.caption)
+                .buttonStyle(.bordered)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
             }
         case .confirmDate(let resolution):
@@ -722,10 +737,25 @@ struct ReceiptSubmitView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(Double(pickedAmount.trimmingCharacters(in: .whitespaces)) == nil)
-                Button("Skip for now — it stays flagged for review") {
+                // A real button rather than the grey caption this used to
+                // be. It is the only way off this screen: the toolbar's
+                // Cancel is disabled here, because `controlsDisabled`
+                // covers every state but `.idle`, so an escape hatch
+                // styled as fine print reads as a form the user is stuck
+                // in. `.bordered` against Save's `.borderedProminent`
+                // keeps the primary action the obvious one, which is why
+                // the disable rule itself is left alone.
+                Button {
                     onComplete()
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("Skip for now — it stays flagged for review")
+                        Spacer()
+                    }
                 }
-                .font(.caption)
+                .buttonStyle(.bordered)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
             }
         case .queued:
