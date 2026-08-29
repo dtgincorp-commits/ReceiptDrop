@@ -359,4 +359,27 @@ struct SubmissionPipeline {
         SubmissionStore.updateHistory(updated)
         return updated
     }
+
+    /// The inverse of `confirmReviewed`: sets the HITL flag because the *user*
+    /// asked to come back to this receipt later, not because a guardrail
+    /// doubted it. Same pure status flip, and for the same reasons — see that
+    /// function's comment on why this doesn't go through `updateEntry`.
+    ///
+    /// An automatic reason already on the entry wins and is left untouched.
+    /// A receipt flagged "Amount doesn't appear on the receipt" that the user
+    /// then also sets aside is still, specifically, a receipt with a bad
+    /// amount; replacing that with "You set this aside to review later" would
+    /// throw away the one piece of information that says what to actually fix
+    /// when they come back. The status is already `.needsReview` in that case,
+    /// so the call is a no-op rather than a downgrade.
+    @discardableResult
+    static func flagForReview(_ entry: HistoryEntry,
+                              reason: String = userFlaggedReviewReason) -> HistoryEntry {
+        if entry.verificationStatus == .needsReview, !entry.reviewReason.isEmpty { return entry }
+        var updated = entry
+        updated.verificationStatus = .needsReview
+        updated.reviewReason = reason
+        SubmissionStore.updateHistory(updated)
+        return updated
+    }
 }

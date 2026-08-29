@@ -615,6 +615,20 @@ struct ReceiptsView: View {
                                                 Label("Confirm", systemImage: "checkmark.circle.fill")
                                             }
                                             .tint(.green)
+                                        } else {
+                                            // The inverse, and mutually
+                                            // exclusive with it: a receipt is
+                                            // either already in the review
+                                            // pile (offer the way out) or it
+                                            // isn't (offer the way in). Never
+                                            // both, so the leading swipe stays
+                                            // at two buttons.
+                                            Button {
+                                                flagForReview(entry)
+                                            } label: {
+                                                Label("Review Later", systemImage: "flag.fill")
+                                            }
+                                            .tint(.orange)
                                         }
                                     }
                             }
@@ -698,6 +712,20 @@ struct ReceiptsView: View {
                                                 Label("Confirm", systemImage: "checkmark.circle.fill")
                                             }
                                             .tint(.green)
+                                        } else {
+                                            // The inverse, and mutually
+                                            // exclusive with it: a receipt is
+                                            // either already in the review
+                                            // pile (offer the way out) or it
+                                            // isn't (offer the way in). Never
+                                            // both, so the leading swipe stays
+                                            // at two buttons.
+                                            Button {
+                                                flagForReview(entry)
+                                            } label: {
+                                                Label("Review Later", systemImage: "flag.fill")
+                                            }
+                                            .tint(.orange)
                                         }
                                     }
                                 }
@@ -1129,6 +1157,14 @@ struct ReceiptsView: View {
     /// call straight from the main thread, no `Task`/off-main hop needed.
     private func confirmReviewed(_ entry: HistoryEntry) {
         SubmissionPipeline.confirmReviewed(entry)
+        reload()
+    }
+
+    /// The mirror of `confirmReviewed`: sets a receipt aside because the user
+    /// wants to come back to it, not because anything is known to be wrong
+    /// with it. Same in-place status flip, same no-CSV, same main-thread call.
+    private func flagForReview(_ entry: HistoryEntry) {
+        SubmissionPipeline.flagForReview(entry)
         reload()
     }
 

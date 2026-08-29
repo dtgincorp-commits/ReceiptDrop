@@ -1190,9 +1190,25 @@ enum RestoreService {
 /// Human-in-the-loop status of a saved receipt, surfaced in the Receipts list.
 enum VerificationStatus: String, Codable {
     case none         // no review needed, never flagged
-    case needsReview  // low confidence or heuristic trigger — unreviewed
+    case needsReview  // low confidence, heuristic trigger, or the user's own
+                      // "come back to this" flag — unreviewed either way
     case verified     // a human has saved this entry via Edit
 }
+
+/// The `reviewReason` written when the *user* asks for a receipt to be set
+/// aside, rather than a guardrail flagging it.
+///
+/// Phrased in the first person, unlike every automatic reason ("Date is over
+/// a year old…", "Amount doesn't appear on the receipt"), because the
+/// Receipts list shows the reason verbatim under the row and the two kinds
+/// need to be told apart at a glance: one is the app reporting a doubt, the
+/// other is the user's own note to self. A distinct `VerificationStatus`
+/// case was the alternative and was rejected — every consumer of
+/// `.needsReview` (the banner count, the filter chip, the Confirm swipe,
+/// `SubmissionPipeline.updateEntry`'s clear-on-save) wants to treat the two
+/// identically, so a second case would mean auditing all of them to say
+/// "or this one too".
+let userFlaggedReviewReason = "You set this aside to review later"
 
 /// A successful submission, appended to the App Group history (newest first).
 struct HistoryEntry: Codable, Identifiable {

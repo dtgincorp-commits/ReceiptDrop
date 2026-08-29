@@ -92,6 +92,17 @@ struct ReceiptSubmitView: View {
     /// only for dates nobody looked at.
     @State private var userEditedDate = false
 
+    /// The user asked, before submitting, for this receipt to land in the
+    /// Receipts list already flagged — "file it now, I'll look at it later".
+    ///
+    /// Deliberately a pre-submit intent rather than a post-save action: the
+    /// moment a receipt is worth setting aside is the moment it's being
+    /// dropped in (a bill with no total on it, a photo taken in a hurry, a
+    /// stack being cleared in one sitting), and the share extension has no
+    /// list to go back to afterwards. The Receipts list gets its own
+    /// "Review Later" swipe action for entries already saved.
+    @State private var setAsideForReview = false
+
     /// The just-saved entry whose date couldn't be read — held so the
     /// `.needsDate` nudge can update it once the user sets a date.
     @State private var pendingDateEntry: HistoryEntry?
@@ -454,6 +465,18 @@ struct ReceiptSubmitView: View {
                             // caption size, so setting it again would be a
                             // no-op modifier.
                             .foregroundStyle(.red)
+                    }
+                }
+
+                // Only pre-submit: every later state either already carries a
+                // flag or offers its own "leave it flagged" exit (the
+                // `.needsDate` / `.needsAmount` Skip buttons), so a toggle
+                // there would be a second control for a decision already made.
+                if isIdle {
+                    Section {
+                        Toggle("Review Later", isOn: $setAsideForReview)
+                    } footer: {
+                        Text("Saves the receipt as normal and flags it, so it shows up under \"needs review\" in Receipts for you to come back to.")
                     }
                 }
 
@@ -889,12 +912,13 @@ struct ReceiptSubmitView: View {
         let existingComments = LocalReceiptStore.comments(
             category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
             amount: entry.amount, receiptFilename: entry.receiptLink)
-        _ = try? SubmissionPipeline.updateEntry(
+        let updated = try? SubmissionPipeline.updateEntry(
             old: entry,
             newCategory: entry.category, newVendor: entry.vendor,
             newWorkDate: LocalReceiptStore.dateString(pickedDate),
             newAmount: entry.amount, newComments: existingComments,
             newVendorType: entry.vendorType)
+        reapplyReviewFlagIfSetAside(updated)
         onComplete()
     }
 
@@ -907,13 +931,28 @@ struct ReceiptSubmitView: View {
             amount: entry.amount, receiptFilename: entry.receiptLink)
         let normalizedAmount = Double(pickedAmount.trimmingCharacters(in: .whitespaces))
             .map { String($0) } ?? entry.amount
-        _ = try? SubmissionPipeline.updateEntry(
+        let updated = try? SubmissionPipeline.updateEntry(
             old: entry,
             newCategory: entry.category, newVendor: entry.vendor,
             newWorkDate: entry.workDate,
             newAmount: normalizedAmount, newComments: existingComments,
             newVendorType: entry.vendorType)
+        reapplyReviewFlagIfSetAside(updated)
         onComplete()
+    }
+
+    /// Re-flags an entry that `updateEntry` just marked `.verified`.
+    ///
+    /// `updateEntry` clearing the HITL flag is right for the Edit screen,
+    /// where saving *is* the review. It's wrong for the two prompts that
+    /// call it here: the user supplied one field they were asked for, which
+    /// isn't the same as having looked the receipt over — and if they'd
+    /// asked for it to be set aside, that request would silently undo
+    /// itself. A no-op when the toggle is off, or when the update failed
+    /// (the entry then keeps the flag it already had).
+    private func reapplyReviewFlagIfSetAside(_ entry: HistoryEntry?) {
+        guard setAsideForReview, let entry else { return }
+        SubmissionPipeline.flagForReview(entry)
     }
 
     /// Shared "what to show next" after a successful `SubmissionPipeline.run`
@@ -922,7 +961,14 @@ struct ReceiptSubmitView: View {
     /// pipeline call and need the same needsDate/needsAmount/success fork
     /// (previously duplicated three ways; a fourth copy for Save Anyway was
     /// the reason to pull it out).
-    private func finishAfterSave(_ entry: HistoryEntry) async {
+    private func finishAfterSave(_ saved: HistoryEntry) async {
+        // Applied here rather than at each of the three call sites because
+        // this is the one funnel they all pass through. `flagForReview`
+        // leaves an entry that a guardrail already flagged exactly as it
+        // was, so the two `.needsReview` checks below still see the
+        // pipeline's own reason and still raise the date/amount prompts —
+        // "review later" adds a flag, it never masks one.
+        let entry = setAsideForReview ? SubmissionPipeline.flagForReview(saved) : saved
         if entry.verificationStatus == .needsReview,
            entry.reviewReason.hasSuffix(Self.unreadableDateReasonSuffix) {
             pendingDateEntry = entry
@@ -1278,7 +1324,11 @@ struct ReceiptSubmitView: View {
         let (vendor, _, vendorReviewReason) = Self.resolveManualVendor(manualVendor)
         // Vendor and date can each independently need review; keep both
         // reasons rather than letting one overwrite the other.
-        let (needsReview, reviewReason) = Self.combineReviewReasons([vendorReviewReason, dateReviewReason])
+        // The user's own flag goes last so an automatic reason, which names
+        // the field to fix, leads the combined string shown under the row.
+        let (needsReview, reviewReason) = Self.combineReviewReasons(
+            [vendorReviewReason, dateReviewReason,
+             setAsideForReview ? userFlaggedReviewReason : ""])
         let workDate = formatter.string(from: manualWorkDate)
         let comments = manualComments.trimmingCharacters(in: .whitespacesAndNewlines)
 
