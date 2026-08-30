@@ -185,6 +185,47 @@ struct ExtractedReceipt {
     /// may predate the business.
     static let absurdlyOldYears = 10
 
+    /// The bare minimum `sourceText` needs before the "no date printed
+    /// anywhere" rejection inside `build` even considers acting on a
+    /// zero-dates detector result — see that rejection for the real
+    /// discriminator, which is *not* length.
+    ///
+    /// An earlier version of this rule used a much larger length (200
+    /// characters) as the *entire* test for "trust an empty detector result
+    /// as a genuine absence." That was wrong: it conflated two situations no
+    /// length check can tell apart —
+    ///
+    ///   (a) the text has no date-like string at all (the North Coast
+    ///       Brewing case — a plain restaurant receipt, no date anywhere).
+    ///   (b) the text has a date-like string, but every one found was
+    ///       excluded as a non-transaction date (a DOB, a due date, ...) —
+    ///       exactly the case the `namesNonTransactionDate` fix in b711974
+    ///       exists for, and a realistic-length medical bill (400+
+    ///       characters, well past the old 200-character bar) hits it
+    ///       constantly.
+    ///
+    /// `ReceiptDateDetector.containsExcludedNonTransactionDate` now answers
+    /// that question directly, so length no longer has to serve as a proxy
+    /// for the (a)-vs-(b) call. All that's left for a length check to guard
+    /// against is `sourceText` that's essentially garbage or empty — a
+    /// failed OCR pass, a render failure that fell back to `""` — where
+    /// "zero dates, nothing excluded either" is uninformative because there
+    /// was barely any text to look at in the first place.
+    ///
+    /// 60 characters is the actual floor, not a round number picked in the
+    /// abstract: it's the shortest a single recognizable receipt line runs
+    /// (a vendor name plus one printed total, e.g. "NORTH COAST BREWING CO
+    /// — TOTAL $75.64" territory) and it sits deliberately above the
+    /// synthetic short strings this app's own pre-existing amount/date
+    /// cross-check tests already use to mean "too little text to judge
+    /// either way" for their own, unrelated checks (a bare `"Total
+    /// $245.60"` fragment, a one-line `"no currency-shaped text here at
+    /// all"` stand-in). Those fixtures predate this rule and were never
+    /// meant to exercise it; a floor below their length would incorrectly
+    /// start treating them as full documents. Below 60, `sourceText` reads
+    /// as a fragment rather than a document regardless of what it contains.
+    static let minimumSourceTextLengthForNoDateRejection = 60
+
     /// Today, in the sheet's date format — what an absurd or unreadable date
     /// falls back to.
     static func todayString() -> String {
@@ -236,6 +277,16 @@ struct ExtractedReceipt {
     /// the page (see `ReceiptDateDetector.namesNonTransactionDate`, which
     /// attacks the same failure from the other side by never reporting a
     /// labelled non-transaction date in the first place).
+    ///
+    /// A third, independent failure the presence cross-check *can* catch:
+    /// `sourceText` substantial enough to trust (see
+    /// `minimumSourceTextLengthForNoDateRejection`) but containing zero
+    /// detected dates at all — the receipt has no date printed anywhere,
+    /// and the model invented one rather than returning the empty string
+    /// the prompt explicitly allows for this case (confirmed real failure:
+    /// a $950.09 North Coast Brewing receipt with no date anywhere came
+    /// back with `work_date` 2026-08-08 anyway). Discarded the same way as
+    /// the absurd-date tier above.
     static func build(vendor: String, rawWorkDate: String, amount: String, comments: String,
                       rawVendorType: String, modelReportedLowConfidence: Bool, modelReason: String,
                       sourceText: String? = nil) -> ExtractedReceipt {
@@ -329,11 +380,17 @@ struct ExtractedReceipt {
             if let sourceText, !dateRejected {
                 let printed = ReceiptDateDetector.dates(in: sourceText)
                 let parsedDay = calendar.startOfDay(for: parsed)
-                // Empty means the receipt's date format isn't one
-                // NSDataDetector recognizes — NOT that the model invented
-                // its answer. Acting on an empty result would punish
-                // correct reads on unusual receipts, so we only judge when
-                // the detector actually found something.
+                // Empty means either "no date-like string is printed here at
+                // all" or "one was printed but excluded as a non-transaction
+                // date" — two situations that call for opposite treatment,
+                // which is why this branch checks
+                // `containsExcludedNonTransactionDate` before deciding
+                // anything from an empty `printed`. Acting on emptiness
+                // alone would punish correct reads on unusual receipts
+                // (the historical reasoning here) *and* re-break the
+                // DOB/due-date fix below it if a length threshold were used
+                // as a substitute discriminator — length cannot tell the
+                // two situations apart, only content can.
                 if !printed.isEmpty && !printed.contains(parsedDay) {
                     needsReview = true
                     if printed.count == 1 {
@@ -355,6 +412,41 @@ struct ExtractedReceipt {
                         // model's answer matches none) — flag, don't guess.
                         reason = "Date \(rawWorkDate) doesn't appear on this receipt. Please confirm."
                     }
+                } else if printed.isEmpty
+                    && !ReceiptDateDetector.containsExcludedNonTransactionDate(in: sourceText)
+                    && sourceText.trimmingCharacters(in: .whitespacesAndNewlines).count
+                        >= minimumSourceTextLengthForNoDateRejection {
+                    // The North Coast Brewing case: a real, plausible,
+                    // well-formed date with nothing behind it — no
+                    // date-like string anywhere in the text, excluded or
+                    // otherwise — so the receipt genuinely has no date
+                    // printed, and the model filled in a blank rather than
+                    // admitting that (the prompt explicitly allows an empty
+                    // answer for exactly this situation). Every existing
+                    // guard above passed it: the date parses, isn't in the
+                    // future, isn't absurdly old.
+                    //
+                    // The `containsExcludedNonTransactionDate` check just
+                    // above is what makes this safe to apply at realistic
+                    // OCR lengths: a medical bill whose only date-like text
+                    // is a guarantor's DOB or a due date takes the *other*
+                    // branch (unflagged, model's date kept), no matter how
+                    // long the surrounding text runs — see
+                    // `minimumSourceTextLengthForNoDateRejection` for why
+                    // length itself no longer does that discrimination.
+                    //
+                    // Treated exactly like the tier-2 absurd rejection
+                    // above, reusing its shape rather than inventing new
+                    // plumbing: reject rather than store, default to
+                    // today, and end the reason in the same
+                    // "defaulted to today" suffix `ReceiptSubmitView
+                    // .finishAfterSave` and `ScannedTextSubmitView` match
+                    // on to raise their date prompt — so this routes into
+                    // the existing ask-the-user flow instead of a new one.
+                    needsReview = true
+                    resolvedWorkDate = todayString()
+                    let rejection = "Date \(ClaudeService.normalizeDate(rawWorkDate)) isn't printed anywhere on this receipt, so it was ignored and defaulted to today"
+                    reason = reason.isEmpty ? rejection : "\(reason) · \(rejection)"
                 }
             }
         } else {

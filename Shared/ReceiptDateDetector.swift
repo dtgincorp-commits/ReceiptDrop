@@ -41,14 +41,49 @@ enum ReceiptDateDetector {
     /// (see `namesNonTransactionDate`) are excluded. Order is not
     /// meaningful.
     static func dates(in text: String) -> [Date] {
-        var days: [Date] = dataDetectorDates(in: text)
-        days.append(contentsOf: numericDates(in: text))
+        var days: [Date] = dataDetectorDates(in: text).dates
+        days.append(contentsOf: numericDates(in: text).dates)
 
         let calendar = Calendar.current
         var seen = Set<Date>()
         return days
             .map { calendar.startOfDay(for: $0) }
             .filter { seen.insert($0).inserted }
+    }
+
+    /// Whether `text` contains at least one date-shaped string that *was*
+    /// recognized as a date but got thrown out specifically because
+    /// `namesNonTransactionDate` labelled it as something other than a
+    /// purchase date (a DOB, a due date, a statement period, ...).
+    ///
+    /// Exists to answer a question `dates(in:)`'s empty result cannot: an
+    /// empty array conflates two situations that call for opposite
+    /// treatment by `ExtractedReceipt.build`'s "no date printed anywhere"
+    /// rejection —
+    ///
+    ///   (a) the text contains no date-like string at all — the model had
+    ///       nothing to read, so a reported date is invented. Reject it.
+    ///   (b) the text does contain a date-like string, but every one found
+    ///       was excluded as a non-transaction date — the model may well be
+    ///       right anyway, since it reads the *image*, not just this OCR
+    ///       text, and per the b711974 fix a labelled DOB/due-date/etc. must
+    ///       never be reported as printed even when it's the only date on
+    ///       the page. Keep the model's answer; don't flag from this rule.
+    ///
+    /// Confirmed regression this exists to prevent: a realistic-length
+    /// medical bill whose only date-like text is a guarantor's DOB. Before
+    /// this method existed, `build` could only see "zero dates" and, once a
+    /// no-date rejection was added, discarded the model's correct date —
+    /// silently re-breaking the exact bug b711974 had just fixed one commit
+    /// earlier.
+    ///
+    /// Reuses the same two detection passes and the same
+    /// `namesNonTransactionDate` check `dates(in:)` uses, rather than a
+    /// second parse of the text, so the two functions can never disagree
+    /// about what counts as a label.
+    static func containsExcludedNonTransactionDate(in text: String) -> Bool {
+        dataDetectorDates(in: text).excludedNonTransactionDate
+            || numericDates(in: text).excludedNonTransactionDate
     }
 
     // MARK: - Label context
@@ -139,22 +174,35 @@ enum ReceiptDateDetector {
         return String(text[start..<end])
     }
 
+    /// A pass's raw yield: the dates it's willing to report, plus whether it
+    /// saw (and threw out) at least one otherwise-valid date specifically
+    /// because `namesNonTransactionDate` labelled it. Kept as one struct so
+    /// `dates(in:)` and `containsExcludedNonTransactionDate` read from a
+    /// single pass over the text instead of two separately-maintained scans
+    /// that could drift out of sync on what counts as "excluded".
+    private struct PassResult {
+        var dates: [Date] = []
+        var excludedNonTransactionDate = false
+    }
+
     // MARK: - Pass 1: NSDataDetector
 
-    private static func dataDetectorDates(in text: String) -> [Date] {
+    private static func dataDetectorDates(in text: String) -> PassResult {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else {
-            return []
+            return PassResult()
         }
         let fullRange = NSRange(text.startIndex..., in: text)
 
-        var days: [Date] = []
+        var result = PassResult()
         for match in detector.matches(in: text, options: [], range: fullRange) {
             guard let date = match.date else { continue }
             // A bare time-of-day line ("Time  2:30 PM") is detected as a
             // date on *today* — left unfiltered, that would make today's
             // date look "present on the receipt" for every single scan and
             // defeat this whole check. Skip any match whose matched text is
-            // only a clock time, with no actual date component.
+            // only a clock time, with no actual date component. Not a
+            // "date-like string was excluded" case — there was never a date
+            // here to begin with, just a time.
             if let range = Range(match.range, in: text) {
                 let matchedText = text[range].trimmingCharacters(in: .whitespaces)
                 if matchedText.range(of: #"^\d{1,2}:\d{2}(:\d{2})?\s*([AaPp]\.?[Mm]\.?)?$"#,
@@ -171,13 +219,20 @@ enum ReceiptDateDetector {
             // constantly, so left unfiltered this is the same defeat as the
             // clock-time case above: today's date looks printed on the
             // receipt. A genuinely printed date always has zero duration.
+            // Also not an "excluded" case — this filters a parsing artifact,
+            // not a real printed date of the wrong kind.
             guard match.duration == 0 else { continue }
             // Right shape, wrong kind — a date of birth, a due date, a
-            // policy period. See `namesNonTransactionDate`.
-            if namesNonTransactionDate(line(containing: match.range, in: text)) { continue }
-            days.append(date)
+            // policy period. See `namesNonTransactionDate`. This one *is*
+            // a real date-like string being excluded, which is exactly what
+            // `containsExcludedNonTransactionDate` needs to know about.
+            if namesNonTransactionDate(line(containing: match.range, in: text)) {
+                result.excludedNonTransactionDate = true
+                continue
+            }
+            result.dates.append(date)
         }
-        return days
+        return result
     }
 
     // MARK: - Pass 2: numeric regex
@@ -209,13 +264,13 @@ enum ReceiptDateDetector {
     private static let numericDatePattern =
         #"(?<!\d)(\d{1,2})([/.\-])(\d{1,2})\2(\d{4}|\d{2})(?!\d)"#
 
-    private static func numericDates(in text: String) -> [Date] {
-        guard let regex = try? NSRegularExpression(pattern: numericDatePattern) else { return [] }
+    private static func numericDates(in text: String) -> PassResult {
+        guard let regex = try? NSRegularExpression(pattern: numericDatePattern) else { return PassResult() }
         let fullRange = NSRange(text.startIndex..., in: text)
         let calendar = Calendar(identifier: .gregorian)
         let currentYear = calendar.component(.year, from: Date())
 
-        var results: [Date] = []
+        var result = PassResult()
         for match in regex.matches(in: text, options: [], range: fullRange) {
             guard match.numberOfRanges == 5,
                   let g1Range = Range(match.range(at: 1), in: text),
@@ -321,12 +376,17 @@ enum ReceiptDateDetector {
 
             // Same label check the NSDataDetector pass applies — this pass
             // reads digits directly and would otherwise happily report a
-            // date of birth that the other pass correctly excluded.
-            if namesNonTransactionDate(line(containing: match.range, in: text)) { continue }
+            // date of birth that the other pass correctly excluded. Also
+            // the same "real date-like string, excluded for its kind"
+            // signal `containsExcludedNonTransactionDate` needs.
+            if namesNonTransactionDate(line(containing: match.range, in: text)) {
+                result.excludedNonTransactionDate = true
+                continue
+            }
 
-            results.append(date)
+            result.dates.append(date)
         }
-        return results
+        return result
     }
 }
 

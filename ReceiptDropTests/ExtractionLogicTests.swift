@@ -291,6 +291,252 @@ final class ExtractionLogicTests: XCTestCase {
         XCTAssertFalse(r.needsReview)
     }
 
+    // MARK: - ExtractedReceipt.build: no date printed anywhere (North Coast Brewing)
+
+    // A real, substantial, multi-item restaurant receipt — vendor, address,
+    // several line items, subtotal/tax/tip/total — with no date-like string
+    // printed on it anywhere (not even one excluded as a non-transaction
+    // date — there simply isn't one), standing in for the reported North
+    // Coast Brewing receipt ($950.09, no date anywhere), which the model
+    // filled in as 2026-08-08 anyway.
+    private let noDateRestaurantText = """
+        North Coast Brewing Co.
+        455 N Main St
+        Fort Bragg, CA 95437
+        Table 12   Server: Alex
+        1 IPA Pint            $8.00
+        1 Burger Combo        $18.50
+        1 Fish and Chips      $16.25
+        2 Craft Soda          $9.00
+        Subtotal             $58.75
+        Tax                   $5.14
+        Tip                   $11.75
+        Total                $75.64
+        Thank you for visiting!
+        """
+
+    func testNoDatePrintedAnywhereIsRejectedNotStored() {
+        // The North Coast Brewing bug: the model reports a well-formed,
+        // plausible, non-future, non-absurd date, and every existing guard
+        // passes it — but the receipt has no date printed anywhere at all.
+        // Only the presence cross-check catches this, and only because the
+        // source text is substantial enough for its silence to mean
+        // something.
+        let today = DateFormatter.posixDay.string(from: Date())
+        let r = ExtractedReceipt.build(
+            vendor: "North Coast Brewing Co.", rawWorkDate: "2026-08-08", amount: "75.64",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: noDateRestaurantText)
+        XCTAssertTrue(r.needsReview)
+        XCTAssertEqual(r.workDate, today, "an invented date with nothing behind it must be discarded, not stored")
+        XCTAssertTrue(r.reviewReason.contains("2026-08-08"), "the reason should name the date that was thrown away")
+        XCTAssertTrue(r.reviewReason.contains("isn't printed anywhere"))
+        XCTAssertTrue(r.reviewReason.hasSuffix("defaulted to today"),
+                      "must end in the same suffix ReceiptSubmitView/ScannedTextSubmitView match on to raise the date prompt")
+    }
+
+    func testNilSourceTextKeepsModelDateWhenNoneIsPrintedAnywhere() {
+        // No sourceText at all (full-image path) — nothing to judge
+        // "nothing printed" against, so the model's date must be kept
+        // exactly like every other cross-check in this function.
+        let r = ExtractedReceipt.build(
+            vendor: "North Coast Brewing Co.", rawWorkDate: "2026-08-08", amount: "75.64",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "")
+        XCTAssertEqual(r.workDate, "2026-08-08")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testEmptySourceTextKeepsModelDateWhenNoneIsPrintedAnywhere() {
+        // An empty string is what a failed OCR pass / unreadable PDF page
+        // actually produces (see FoundationModelsService.extract(data:kind:)
+        // and its "render failed" fallback) — indistinguishable from "OCR
+        // found nothing," not "this receipt has no date."
+        let r = ExtractedReceipt.build(
+            vendor: "North Coast Brewing Co.", rawWorkDate: "2026-08-08", amount: "75.64",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: "")
+        XCTAssertEqual(r.workDate, "2026-08-08")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testTooShortSourceTextKeepsModelDateWhenNoneIsPrintedAnywhere() {
+        // Proves length is no longer the (a)-vs-(b) discriminator described
+        // on `minimumSourceTextLengthForNoDateRejection` — it only exists to
+        // catch `sourceText` that's essentially empty/garbage, the way a
+        // failed OCR pass or render failure actually behaves (see
+        // `FoundationModelsService.extract(data:kind:)`'s `""` fallback).
+        // This fixture is deliberately shorter than any legible vendor name
+        // or total could be — standing in for that degenerate case, not for
+        // "a short receipt" — so it must fall below the floor and be left
+        // alone regardless of what `ReceiptDateDetector` finds in it.
+        let almostNothing = "blurry"
+        XCTAssertLessThan(almostNothing.count, ExtractedReceipt.minimumSourceTextLengthForNoDateRejection)
+        let r = ExtractedReceipt.build(
+            vendor: "North Coast Brewing Co.", rawWorkDate: "2026-08-08", amount: "75.64",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: almostNothing)
+        XCTAssertEqual(r.workDate, "2026-08-08")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testSubstantialSourceTextWithMatchingPrintedDateIsStillKept() {
+        // Existing behavior must survive: substantial text is exactly what
+        // this rule inspects, so it must not regress the ordinary case
+        // where the printed date actually matches the model's answer.
+        let r = ExtractedReceipt.build(
+            vendor: "The Yellow Chilli", rawWorkDate: "2026-08-08", amount: "245.60",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: yellowChilliText)
+        XCTAssertGreaterThanOrEqual(yellowChilliText.count, ExtractedReceipt.minimumSourceTextLengthForNoDateRejection)
+        XCTAssertEqual(r.workDate, "2026-08-08")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testSubstantialSourceTextWithOneWrongPrintedDateStillAutoCorrects() {
+        // Existing auto-correct behavior (exactly one printed date, model
+        // disagrees) must keep winning over the new no-date rejection —
+        // the two rules are mutually exclusive by construction (one only
+        // fires when `printed` is empty), but this guards against a future
+        // refactor blurring that line.
+        let today = DateFormatter.posixDay.string(from: Date())
+        let r = ExtractedReceipt.build(
+            vendor: "The Yellow Chilli", rawWorkDate: today, amount: "245.60",
+            comments: "Ordered at 8/8/26 2:29 PM.", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: yellowChilliText)
+        XCTAssertEqual(r.workDate, "2026-08-08")
+        XCTAssertTrue(r.needsReview)
+        XCTAssertFalse(r.reviewReason.hasSuffix("defaulted to today"),
+                       "auto-correct's reason, not the no-date rejection's, must win here")
+    }
+
+    // MARK: - ExtractedReceipt.build: excluded-non-transaction-date must not regress b711974
+
+    // A realistic-length patient billing statement — letterhead, address,
+    // phone number, patient/account block, an itemized charge table, and a
+    // footer — whose only date-like text anywhere is the guarantor's DOB.
+    // Deliberately much longer than the original (131-character)
+    // `NonTransactionDateTests.medicalBillText` fixture: a real OCR pass
+    // over an actual billing statement runs several hundred characters, and
+    // this must stay long enough to clear the old, wrongly-reasoned
+    // 200-character bar this rule used to have — otherwise this test would
+    // pass for the wrong reason (too short to trigger the rule at all)
+    // instead of the right one (the rule recognizes the excluded DOB and
+    // stands down).
+    private let realisticDOBOnlyMedicalBillText = """
+        Newport-Huntington Medical Group
+        Patient Billing Statement
+        1200 Bristol Street North, Suite 100
+        Newport Beach, CA 92660
+        Phone: (949) 555-0142
+
+        Patient: JANE R. DOE
+        01/30/1969 • Guarantor
+        Account #4471023
+        Policy Group: PPO-4482
+
+        Description                  Charge
+        Office Visit - Established     $95.00
+        Lab Panel - Comprehensive       $31.15
+
+        Current Balance Due          $126.15
+        Please remit payment to the address above.
+        Thank you for choosing Newport-Huntington Medical Group.
+        """
+
+    // Same statement, but the excluded date-like text is a due date instead
+    // of a DOB — the other confirmed label from `nonTransactionDateLabels`,
+    // proving this isn't a DOB-specific fix.
+    private let realisticDueDateOnlyMedicalBillText = """
+        Newport-Huntington Medical Group
+        Patient Billing Statement
+        1200 Bristol Street North, Suite 100
+        Newport Beach, CA 92660
+        Phone: (949) 555-0142
+
+        Patient: JANE R. DOE
+        Account #4471023
+        Policy Group: PPO-4482
+
+        Description                  Charge
+        Office Visit - Established     $95.00
+        Lab Panel - Comprehensive       $31.15
+
+        Current Balance Due          $126.15
+        Due Date 09/15/2026
+        Please remit payment to the address above.
+        Thank you for choosing Newport-Huntington Medical Group.
+        """
+
+    func testRealisticLengthDOBOnlyMedicalBillKeepsGoodDateB711974Regression() {
+        // The regression the coordinator caught: at realistic OCR length
+        // (well past the old 200-character bar), `ReceiptDateDetector.dates`
+        // returns empty here — not because there's no date-like text, but
+        // because "01/30/1969 • Guarantor" is excluded by
+        // `namesNonTransactionDate`, exactly as b711974 intended. A
+        // length-only "empty means invent" rule cannot tell that apart from
+        // the North Coast Brewing case and would wrongly discard a good
+        // date — re-breaking b711974 one commit after it shipped. This must
+        // route through `containsExcludedNonTransactionDate` and leave the
+        // model's date alone.
+        XCTAssertGreaterThanOrEqual(realisticDOBOnlyMedicalBillText.count, 400)
+        XCTAssertTrue(ReceiptDateDetector.dates(in: realisticDOBOnlyMedicalBillText).isEmpty)
+        XCTAssertTrue(ReceiptDateDetector.containsExcludedNonTransactionDate(in: realisticDOBOnlyMedicalBillText))
+
+        let recent = DateFormatter.posixDay.string(from: Calendar.current.date(byAdding: .month, value: -1, to: Date())!)
+        let r = ExtractedReceipt.build(
+            vendor: "Newport-Huntington Medical Group", rawWorkDate: recent,
+            amount: "126.15", comments: "", rawVendorType: "",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: realisticDOBOnlyMedicalBillText)
+        XCTAssertEqual(r.workDate, recent, "a correct date must not be discarded just because the only printed date is an excluded DOB")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testRealisticLengthDueDateOnlyMedicalBillKeepsGoodDate() {
+        // Same shape as the DOB case above, with a due date standing in —
+        // confirms the fix isn't keyed to DOB specifically but to "some
+        // date-like text was excluded," whichever label caused it.
+        XCTAssertGreaterThanOrEqual(realisticDueDateOnlyMedicalBillText.count, 400)
+        XCTAssertTrue(ReceiptDateDetector.dates(in: realisticDueDateOnlyMedicalBillText).isEmpty)
+        XCTAssertTrue(ReceiptDateDetector.containsExcludedNonTransactionDate(in: realisticDueDateOnlyMedicalBillText))
+
+        let recent = DateFormatter.posixDay.string(from: Calendar.current.date(byAdding: .month, value: -1, to: Date())!)
+        let r = ExtractedReceipt.build(
+            vendor: "Newport-Huntington Medical Group", rawWorkDate: recent,
+            amount: "126.15", comments: "", rawVendorType: "",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: realisticDueDateOnlyMedicalBillText)
+        XCTAssertEqual(r.workDate, recent, "a correct date must not be discarded just because the only printed date is an excluded due date")
+        XCTAssertFalse(r.needsReview)
+    }
+
+    func testAbsurdDateWithNoSourceTextEvidenceIsNotDoubleProcessed() {
+        // A date already discarded by the tier-2 absurdity rule (see
+        // NonTransactionDateTests) must not also run through the new
+        // no-date rejection — `dateRejected` already guards the shared
+        // `if let sourceText, !dateRejected` block above both branches, so
+        // this is really a regression guard on that guard: the reason must
+        // appear exactly once, not doubled by two independent rules firing
+        // for the same missing date.
+        let today = DateFormatter.posixDay.string(from: Date())
+        let r = ExtractedReceipt.build(
+            vendor: "Newport-Huntington Medical Group", rawWorkDate: "1969-01-30",
+            amount: "75.64", comments: "", rawVendorType: "",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: noDateRestaurantText)
+        XCTAssertEqual(r.workDate, today)
+        XCTAssertTrue(r.reviewReason.contains("years old"), "the absurdity rule's own reason must be the one that fires")
+        XCTAssertFalse(r.reviewReason.contains("isn't printed anywhere"), "must not also run the no-date rule on the same discarded date")
+        XCTAssertEqual(r.reviewReason.components(separatedBy: "defaulted to today").count - 1, 1,
+                       "the suffix must appear exactly once, not doubled by two rules firing")
+    }
+
     // MARK: - ReceiptAmountDetector
 
     // Same offset as `recentDate` (3 days ago), formatted the way this
