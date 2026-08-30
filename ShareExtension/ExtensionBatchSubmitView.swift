@@ -97,6 +97,7 @@ struct ExtensionBatchSubmitView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 36))
                 .foregroundStyle(.orange)
+                .accessibilityHidden(true)
             Text("You selected \(attachments.count) receipts — please pick \(Self.friendlyLimit) or fewer at a time.")
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)

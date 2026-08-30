@@ -76,6 +76,7 @@ struct SampleReceiptDemoView: View {
                             Text("Reading receipt…").foregroundStyle(.secondary)
                             Spacer()
                         }
+                        .accessibilityElement(children: .combine)
                     } else {
                         LabeledContent("Vendor", value: vendor.isEmpty ? "—" : vendor)
                         LabeledContent("Date", value: workDate.isEmpty ? "—" : workDate)

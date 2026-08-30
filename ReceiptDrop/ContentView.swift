@@ -430,7 +430,7 @@ private struct QueueOfflineChoiceView: View {
                         } label: {
                             HStack {
                                 Spacer()
-                                if isRetrying { ProgressView() } else { Text("Use Apple Intelligence").bold() }
+                                if isRetrying { ProgressView().accessibilityLabel("Retrying with Apple Intelligence") } else { Text("Use Apple Intelligence").bold() }
                                 Spacer()
                             }
                         }
@@ -454,7 +454,7 @@ private struct QueueOfflineChoiceView: View {
                         } label: {
                             HStack {
                                 Spacer()
-                                if isPreparingManualEntry { ProgressView() } else { Text("Continue Without AI").bold() }
+                                if isPreparingManualEntry { ProgressView().accessibilityLabel("Preparing manual entry") } else { Text("Continue Without AI").bold() }
                                 Spacer()
                             }
                         }
@@ -466,7 +466,7 @@ private struct QueueOfflineChoiceView: View {
                         } label: {
                             HStack {
                                 Spacer()
-                                if isPreparingManualEntry { ProgressView() } else { Text("Continue Without AI").bold() }
+                                if isPreparingManualEntry { ProgressView().accessibilityLabel("Preparing manual entry") } else { Text("Continue Without AI").bold() }
                                 Spacer()
                             }
                         }
@@ -605,12 +605,14 @@ private struct QueueRow: View {
             }
             Spacer()
             if isRetrying {
-                ProgressView()
+                // Replaces the retry button entirely while the retry runs.
+                ProgressView().accessibilityLabel("Retrying submission")
             } else {
                 Button(action: onRetry) {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Retry submission")
             }
         }
         .padding(.vertical, 2)
@@ -657,6 +659,7 @@ private struct QueueEntryDetailView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("View full photo")
                     } else if isPDF {
                         Label("PDF attached", systemImage: "doc.fill")
                             .foregroundStyle(.secondary)
@@ -780,9 +783,11 @@ struct ContentUnavailableCompatView<Actions: View>: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            // Decorative — the title/message right below say the same thing.
             Image(systemName: "tray")
                 .font(.system(size: 44))
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             Text(title).font(.headline)
             Text(message)
                 .font(.subheadline)

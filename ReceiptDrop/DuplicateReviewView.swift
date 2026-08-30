@@ -132,6 +132,7 @@ struct DuplicateReviewView: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(ReceiptPreviewSheet.urls(for: entry).isEmpty)
+                .accessibilityLabel("View receipt photo")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.vendor.isEmpty ? "(no vendor)" : entry.vendor)
                         .font(.subheadline.weight(.semibold))
@@ -144,7 +145,10 @@ struct DuplicateReviewView: View {
                 }
                 Spacer()
                 if deletingIDs.contains(entry.id) {
-                    ProgressView()
+                    // Replaces the trash button entirely while the delete is
+                    // in flight (it can genuinely take seconds — see
+                    // `delete(_:)`), so it needs its own label.
+                    ProgressView().accessibilityLabel("Deleting receipt")
                 } else {
                     Button(role: .destructive) {
                         delete(entry)
@@ -152,6 +156,7 @@ struct DuplicateReviewView: View {
                         Image(systemName: "trash")
                     }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel("Delete receipt")
                 }
             }
         }

@@ -36,7 +36,9 @@ struct BillPhotoViewerView: View {
                     ZoomableImageView(image: image)
                         .ignoresSafeArea()
                 } else {
-                    ProgressView().tint(.white)
+                    // No adjacent text — this is the whole screen's content
+                    // for the brief moment before the photo decodes.
+                    ProgressView().tint(.white).accessibilityLabel("Loading photo")
                 }
                 VStack {
                     Spacer()

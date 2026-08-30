@@ -86,6 +86,11 @@ struct ReceiptPreviewSheet: View {
                         // tint and reads like a hyperlink instead of the
                         // receipt's own title.
                         .buttonStyle(.plain)
+                        // The visible text (category/vendor/date/amount) is
+                        // read automatically — nothing there says this block
+                        // is tappable or what tapping does, so that's worth
+                        // a hint rather than a relabel.
+                        .accessibilityHint("Edits this receipt's details")
                 } else {
                     summary
                 }
@@ -142,9 +147,12 @@ struct ReceiptPreviewSheet: View {
             }
 
             if onEdit != nil {
+                // Purely a visual affordance hint — the tappability itself
+                // is carried by the enclosing Button's hint above.
                 Image(systemName: "chevron.right")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
             }
         }
         // So the gap between the text lines is tappable too, not just the

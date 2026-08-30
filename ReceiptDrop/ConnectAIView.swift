@@ -348,6 +348,7 @@ private struct ProviderSetupView: View {
                     } icon: {
                         Image(systemName: "info.circle.fill")
                             .foregroundStyle(.blue)
+                            .accessibilityHidden(true)
                     }
                 }
             }
@@ -358,6 +359,7 @@ private struct ProviderSetupView: View {
                     } icon: {
                         Image(systemName: "gift.fill")
                             .foregroundStyle(.green)
+                            .accessibilityHidden(true)
                     }
                 }
             }
@@ -394,6 +396,7 @@ private struct ProviderSetupView: View {
                         ProgressView()
                         Text("Checking your key…").foregroundStyle(.secondary)
                     }
+                    .accessibilityElement(children: .combine)
                 case .success:
                     VStack(alignment: .leading, spacing: 10) {
                         Label("Connected to \(provider.displayName)", systemImage: "checkmark.circle.fill")

@@ -66,6 +66,7 @@ struct BillCaptureView: View {
                             .padding(12)
                             .background(.black.opacity(0.4), in: Circle())
                     }
+                    .accessibilityLabel("Cancel")
                     Button {
                         autoCaptureOn.toggle()
                         TorchPreferenceStore.autoCaptureEnabled = autoCaptureOn
@@ -82,6 +83,11 @@ struct BillCaptureView: View {
                             .scaleEffect(autoCaptureOn && pulse ? 1.12 : 1.0)
                     }
                     .padding(.leading, 8)
+                    // Names the action that tapping performs, not the current
+                    // state — "Turn off" only makes sense once you already
+                    // know it's on, which a glyph-only "button" announcement
+                    // doesn't tell you.
+                    .accessibilityLabel(autoCaptureOn ? "Turn off auto-capture" : "Turn on auto-capture")
                     Spacer()
                     Button {
                         torchOn.toggle()
@@ -98,6 +104,7 @@ struct BillCaptureView: View {
                             )
                             .scaleEffect(torchOn && pulse ? 1.12 : 1.0)
                     }
+                    .accessibilityLabel(torchOn ? "Turn off flashlight" : "Turn on flashlight")
                 }
                 .padding(.horizontal)
                 .padding(.top)
@@ -123,6 +130,7 @@ struct BillCaptureView: View {
                             .frame(width: 54, height: 54)
                             .background(.black.opacity(0.4), in: Circle())
                     }
+                    .accessibilityLabel("Choose from Library")
 
                     Button {
                         camera.capturePhoto { data in
@@ -140,6 +148,9 @@ struct BillCaptureView: View {
                             .frame(width: 72, height: 72)
                             .overlay(Circle().stroke(.white, lineWidth: 3).frame(width: 84, height: 84))
                     }
+                    // The plain white disc has no glyph at all to fall back
+                    // on — without this it announces as a bare "button".
+                    .accessibilityLabel("Take Photo")
 
                     // Balances the layout against the library button.
                     Color.clear.frame(width: 54, height: 54)
@@ -302,14 +313,19 @@ struct BillCaptureView: View {
                 }
             }
             HStack(spacing: 10) {
+                // Dimmest/brightest bookends for the slider between them —
+                // its own accessibility label already says "Torch
+                // brightness", so these would only repeat that.
                 Image(systemName: "sun.min")
                     .foregroundStyle(.white.opacity(0.7))
+                    .accessibilityHidden(true)
                 ThickSlider(value: Binding(
                     get: { Double(torchBrightness) },
                     set: { setTorchBrightness(Float($0)) }
                 ), range: 0.05...1.0)
                 Image(systemName: "sun.max.fill")
                     .foregroundStyle(.white)
+                    .accessibilityHidden(true)
             }
             .frame(width: 260)
         }
@@ -674,5 +690,21 @@ private struct ThickSlider: View {
             )
         }
         .frame(height: max(thumbDiameter, trackHeight))
+        // Built from a ZStack + DragGesture rather than the system `Slider`
+        // (for the thicker track/thumb — see the type's doc comment above),
+        // which means it carries none of `Slider`'s built-in VoiceOver
+        // support for free. Without this it's invisible to VoiceOver:
+        // no element to focus, no way to change the value at all.
+        .accessibilityElement()
+        .accessibilityLabel("Torch Brightness")
+        .accessibilityValue("\(Int((value / range.upperBound) * 100))%")
+        .accessibilityAdjustableAction { direction in
+            let step = (range.upperBound - range.lowerBound) / 10
+            switch direction {
+            case .increment: value = min(range.upperBound, value + step)
+            case .decrement: value = max(range.lowerBound, value - step)
+            @unknown default: break
+            }
+        }
     }
 }

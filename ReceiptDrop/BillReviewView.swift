@@ -16,6 +16,30 @@ struct BillReviewView: View {
 
     @State private var state: LoadState = .loading
     @State private var textScale: CGFloat = 1
+    /// Dynamic-Type contribution to every literal size on this screen, composed
+    /// with the manual A-/A+ zoom (`textScale`) rather than replacing it.
+    ///
+    /// The 24 `size: N * textScale` literals below are not an oversight to
+    /// migrate to semantic fonts (`.body`, `.headline`, …) — the rounded/heavy
+    /// look and the zoom control are both deliberate (see `textScale`'s
+    /// doc comment at the A-/A+ buttons), and semantic fonts would delete
+    /// both. But `textScale` itself started at a flat `1` regardless of the
+    /// user's Dynamic Type setting, so someone running large accessibility
+    /// text got the same 20pt base type as everyone else and had to manually
+    /// zoom on every visit just to reach their usual reading size.
+    ///
+    /// `@ScaledMetric` fixes that without touching the size literals: it
+    /// reports how far Dynamic Type has scaled a nominal value away from its
+    /// base, so dividing the reported value by the base recovers a plain
+    /// multiplier — exactly 1.0 at the system default, larger under
+    /// accessibility text sizes. Multiplying that by `textScale` (rather than
+    /// picking one or the other) means a user on large text starts already
+    /// enlarged AND can still zoom further with A+/A-. At the default Dynamic
+    /// Type setting `dynamicTypeBase == 100`, so this reduces to
+    /// `effectiveScale == 1.0 * textScale == textScale` — identical to
+    /// today's rendering.
+    @ScaledMetric(relativeTo: .body) private var dynamicTypeBase: CGFloat = 100
+    private var effectiveScale: CGFloat { (dynamicTypeBase / 100) * textScale }
     @State private var showContactPicker = false
     @State private var messageRecipients: [String]?
     @State private var messageAttachments: [(data: Data, filename: String)] = []
@@ -173,17 +197,17 @@ struct BillReviewView: View {
                         ForEach(Array(bill.items.enumerated()), id: \.element.id) { index, item in
                             HStack(alignment: .top) {
                                 Text("\(index + 1).")
-                                    .font(.system(size: 20 * textScale, weight: .semibold, design: .rounded))
+                                    .font(.system(size: 20 * effectiveScale, weight: .semibold, design: .rounded))
                                     .foregroundStyle(.secondary)
                                     .frame(width: 32, alignment: .leading)
                                 Text(item.name)
-                                    .font(.system(size: 20 * textScale, weight: .semibold))
+                                    .font(.system(size: 20 * effectiveScale, weight: .semibold))
                                 if item.quantity > 1 {
                                     quantityBadge(item.quantity)
                                 }
                                 Spacer()
                                 Text(currency(item.price))
-                                    .font(.system(size: 20 * textScale, weight: .semibold, design: .rounded))
+                                    .font(.system(size: 20 * effectiveScale, weight: .semibold, design: .rounded))
                             }
                         }
                     }
@@ -221,7 +245,7 @@ struct BillReviewView: View {
     /// so it needs to stand out from a plain "×2" in the same font as the name.
     private func quantityBadge(_ quantity: Int) -> some View {
         Text("×\(quantity)")
-            .font(.system(size: 16 * textScale, weight: .heavy, design: .rounded))
+            .font(.system(size: 16 * effectiveScale, weight: .heavy, design: .rounded))
             .foregroundStyle(.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
@@ -338,9 +362,9 @@ struct BillReviewView: View {
             }
             if let total = bill.total {
                 HStack {
-                    Text("Total").font(.system(size: 24 * textScale, weight: .bold))
+                    Text("Total").font(.system(size: 24 * effectiveScale, weight: .bold))
                     Spacer()
-                    Text(currency(total)).font(.system(size: 30 * textScale, weight: .bold, design: .rounded))
+                    Text(currency(total)).font(.system(size: 30 * effectiveScale, weight: .bold, design: .rounded))
                 }
                 .padding(.top, 4)
             }
@@ -350,9 +374,9 @@ struct BillReviewView: View {
     @ViewBuilder
     private func totalRow(_ label: String, _ value: Double) -> some View {
         HStack {
-            Text(label).font(.system(size: 18 * textScale))
+            Text(label).font(.system(size: 18 * effectiveScale))
             Spacer()
-            Text(currency(value)).font(.system(size: 18 * textScale, design: .rounded))
+            Text(currency(value)).font(.system(size: 18 * effectiveScale, design: .rounded))
         }
         .foregroundStyle(.secondary)
     }
@@ -374,10 +398,10 @@ struct BillReviewView: View {
                 ForEach([15, 18, 20], id: \.self) { percent in
                     VStack(spacing: 2) {
                         Text("\(percent)%")
-                            .font(.system(size: 14 * textScale, weight: .semibold))
+                            .font(.system(size: 14 * effectiveScale, weight: .semibold))
                             .foregroundStyle(.secondary)
                         Text(currency(base * Double(percent) / 100))
-                            .font(.system(size: 17 * textScale, weight: .bold, design: .rounded))
+                            .font(.system(size: 17 * effectiveScale, weight: .bold, design: .rounded))
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)

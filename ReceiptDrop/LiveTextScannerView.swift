@@ -78,6 +78,7 @@ struct LiveTextScanScreen: View {
                             .padding(10)
                             .background(.black.opacity(0.4), in: Circle())
                     }
+                    .accessibilityLabel("Cancel")
                     .padding()
                 }
                 Spacer()

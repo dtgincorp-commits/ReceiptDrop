@@ -90,7 +90,10 @@ struct NewReceiptView: View {
                         onComplete()
                     })
             } else if isLoadingFile {
-                ProgressView()
+                // No adjacent text at all here (unlike the inline spinners
+                // elsewhere beside a visible status line) — this is the
+                // entire screen content while the picked file loads.
+                ProgressView().accessibilityLabel("Loading file")
             } else {
                 Color.clear
             }

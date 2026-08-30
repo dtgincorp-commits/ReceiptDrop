@@ -99,6 +99,7 @@ struct ScannedTextSubmitView: View {
                 Text(statusText).foregroundStyle(.secondary)
                 Spacer()
             }
+            .accessibilityElement(children: .combine)
         case .success:
             HStack {
                 Spacer()

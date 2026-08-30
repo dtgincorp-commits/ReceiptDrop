@@ -334,6 +334,7 @@ struct ReceiptsView: View {
                 Image(systemName: "xmark.circle.fill").font(.caption2)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(label) filter")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -1295,11 +1296,24 @@ private struct HeaderRow: View {
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(color)
                 .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                // The rotation is how a sighted user reads expanded/collapsed;
+                // stated in the row's own accessibility value below instead,
+                // so the glyph itself carries no separate announcement.
+                .accessibilityHidden(true)
         }
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
         }
+        // Without this, VoiceOver reads the label and the (now-hidden)
+        // chevron as two separate elements and exposes neither as
+        // activatable — collapsing/expanding was only reachable by sighted
+        // tap. Combining makes the whole row one element whose "activate"
+        // action fires the same `onTapGesture` above.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -1502,7 +1516,11 @@ private struct ReceiptRow: View {
                             .foregroundStyle(.orange)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Review flagged receipt")
                 } else if entry.verificationStatus == .verified {
+                    // Color alone (green) is how this reads to sighted users —
+                    // without an explicit label a screen reader gets nothing,
+                    // since the glyph itself has no default accessible text.
                     ZStack {
                         Circle().fill(Color.green)
                         Image(systemName: "checkmark")
@@ -1510,6 +1528,7 @@ private struct ReceiptRow: View {
                             .foregroundStyle(.black)
                     }
                     .frame(width: 18, height: 18)
+                    .accessibilityLabel("Verified")
                 }
                 // Folded into the main line rather than a line of its own —
                 // it's purely an affordance (the whole row is already
@@ -1552,6 +1571,17 @@ private struct ReceiptRow: View {
                 missingFileAlert = true
             }
         }
+        // Merges the row's internal fragments into one VoiceOver utterance
+        // (see `accessibilitySummary`) — this also silences the category
+        // tag and flag/confirm buttons as individually-focusable elements,
+        // so their actions are re-exposed here as custom actions rather
+        // than simply lost. Delete/Edit/Confirm/Review-Later stay reachable
+        // as-is: those come from `.swipeActions` on this row's container in
+        // `ReceiptsView`, which iOS already surfaces as VoiceOver actions
+        // independent of this row's own internal structure.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilitySummary)
+        .accessibilityAction(named: "Open Category Log") { openCategoryCSV() }
         // `onDismiss`, deliberately — do NOT "simplify" this into calling
         // `onEdit()` straight from the tap. Edit is presented by a different
         // sheet (`.sheet(item: $editingEntry)`) on `ReceiptsView`, and SwiftUI
@@ -1583,6 +1613,26 @@ private struct ReceiptRow: View {
         } message: {
             Text("No log file yet for \(entry.category) — open the app once to let it save, then try again.")
         }
+    }
+
+    /// One sentence covering everything the row's separate fragments (category
+    /// tag, DUP badge, vendor, amount, flag) otherwise convey only visually or
+    /// through color — combined below via `.accessibilityElement(children:
+    /// .combine)` so VoiceOver reads a receipt as a single coherent statement
+    /// instead of five disconnected swipes through unrelated-sounding text.
+    private var accessibilitySummary: String {
+        var parts = [entry.category, entry.vendor.isEmpty ? "Unknown vendor" : entry.vendor]
+        if !entry.amount.isEmpty { parts.append("$\(entry.amount)") }
+        if isDuplicate { parts.append("possible duplicate") }
+        switch entry.verificationStatus {
+        case .needsReview:
+            parts.append(entry.reviewReason.isEmpty ? "needs review" : "needs review: \(entry.reviewReason)")
+        case .verified:
+            parts.append("verified")
+        case .none:
+            break
+        }
+        return parts.joined(separator: ", ")
     }
 
     private func previewURLs() -> [URL] { ReceiptPreviewSheet.urls(for: entry) }

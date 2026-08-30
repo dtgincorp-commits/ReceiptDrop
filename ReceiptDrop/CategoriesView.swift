@@ -74,6 +74,7 @@ struct CategoriesView: View {
                     Button(action: addCategory) {
                         Image(systemName: "plus.circle.fill")
                     }
+                    .accessibilityLabel("Add Category")
                     .disabled(newCategory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 if let addCategoryError {
@@ -81,6 +82,7 @@ struct CategoriesView: View {
                 }
                 if isDeletingCategory {
                     HStack { ProgressView(); Text("Backing up, then deleting…").font(.caption) }
+                        .accessibilityElement(children: .combine)
                 }
                 if let deleteMessage {
                     Text(deleteMessage).font(.caption).foregroundStyle(.secondary)
@@ -314,6 +316,7 @@ struct CategoryDetailView: View {
                             Image(systemName: "chevron.right")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.tertiary)
+                                .accessibilityHidden(true)
                         }
                     }
                 } else {
@@ -407,7 +410,11 @@ struct CategoryDetailView: View {
                 } label: {
                     HStack {
                         Spacer()
-                        if isRenaming { ProgressView() } else { Text("Rename") }
+                        // The spinner replaces "Rename" entirely while the
+                        // rename is in flight, so it needs its own label —
+                        // otherwise the button silently goes from
+                        // "Rename" to unlabeled while it's actually busy.
+                        if isRenaming { ProgressView().accessibilityLabel("Renaming category") } else { Text("Rename") }
                         Spacer()
                     }
                 }
@@ -438,7 +445,7 @@ struct CategoryDetailView: View {
                     } label: {
                         HStack {
                             Spacer()
-                            if isMerging { ProgressView() } else { Text("Merge \(category) In…") }
+                            if isMerging { ProgressView().accessibilityLabel("Merging categories") } else { Text("Merge \(category) In…") }
                             Spacer()
                         }
                     }
@@ -489,9 +496,13 @@ struct CategoryDetailView: View {
                     HStack(spacing: 4) {
                         Text(category).font(.headline).foregroundStyle(.primary)
                         Image(systemName: "pencil").font(.caption).foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
                     }
                 }
                 .disabled(isRenaming)
+                // The category name alone doesn't say this is tappable —
+                // that's carried visually by the (now-hidden) pencil glyph.
+                .accessibilityHint("Rename category")
             }
         }
         .alert("Rename Category", isPresented: $showQuickRenameAlert) {

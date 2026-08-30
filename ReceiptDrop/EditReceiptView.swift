@@ -160,7 +160,10 @@ struct EditReceiptView: View {
                         HStack {
                             Spacer()
                             if isSaving {
-                                ProgressView()
+                                // Replaces "Save Changes" entirely while the
+                                // save is in flight, so it needs its own
+                                // spoken label.
+                                ProgressView().accessibilityLabel("Saving receipt")
                             } else {
                                 Text("Save Changes").bold()
                             }
@@ -344,6 +347,7 @@ struct EditReceiptView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(previewURLs.isEmpty)
+                    .accessibilityLabel("View full receipt photo")
                 } else if !isPlaceholder {
                     // PDFs render no `existingImage`, so this was previously
                     // a dead label — Quick Look handles PDFs, so it opens the
@@ -480,12 +484,14 @@ struct EditReceiptView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("View attachment")
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.white, .black.opacity(0.6))
             }
             .offset(x: 6, y: -6)
             .disabled(isSaving)
+            .accessibilityLabel("Remove attachment")
         }
     }
 

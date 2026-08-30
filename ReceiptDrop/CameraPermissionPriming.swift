@@ -62,6 +62,9 @@ struct CameraPermissionPrimingView: View {
             Image(systemName: "camera.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(.secondary)
+                // Purely decorative — the heading right below says the same
+                // thing in words.
+                .accessibilityHidden(true)
 
             VStack(spacing: 12) {
                 Text("Receipts4Tax needs your camera")

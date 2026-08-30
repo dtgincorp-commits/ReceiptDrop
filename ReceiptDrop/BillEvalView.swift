@@ -54,6 +54,7 @@ struct BillEvalView: View {
                         Spacer()
                         if isRunning { ProgressView() }
                     }
+                    .accessibilityElement(children: .combine)
                 }
                 .disabled(isRunning || fixtures.isEmpty)
                 if isRunning, !progressText.isEmpty {

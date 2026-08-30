@@ -342,6 +342,7 @@ struct ReceiptSubmitView: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(zoomablePhotoData == nil)
+                            .accessibilityLabel("View full receipt photo")
                         } else {
                             Label("PDF attached", systemImage: "doc.fill")
                         }
@@ -391,6 +392,7 @@ struct ReceiptSubmitView: View {
                         } icon: {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
+                                .accessibilityHidden(true)
                         }
                     }
 
@@ -427,6 +429,7 @@ struct ReceiptSubmitView: View {
                                     .controlSize(.small)
                             }
                         }
+                        .accessibilityElement(children: .combine)
                     } footer: {
                         Text(proceedWithoutAI
                              ? "Continuing without AI for this receipt. Everything below is on-device only."
@@ -656,6 +659,7 @@ struct ReceiptSubmitView: View {
                 Text(statusText).foregroundStyle(.secondary)
                 Spacer()
             }
+            .accessibilityElement(children: .combine)
         case .success:
             HStack {
                 Spacer()

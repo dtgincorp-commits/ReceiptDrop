@@ -135,6 +135,7 @@ struct InsightsView: View {
                     ProgressView()
                     Text("Summarizing…").foregroundStyle(.secondary)
                 }
+                .accessibilityElement(children: .combine)
             } else {
                 Button(summaryText == nil ? "Summarize with Apple Intelligence" : "Regenerate Summary") {
                     generateNarrative()
