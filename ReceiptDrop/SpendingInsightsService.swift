@@ -105,12 +105,59 @@ enum SpendingInsightsService {
         let previousMonthStart = calendar.date(byAdding: .month, value: -1, to: currentMonthStart)!
         let previousMonth = months.first { $0.monthStart == previousMonthStart }
 
-        func totals(byKey key: (HistoryEntry) -> String, label: (String) -> String = { $0 }) -> [SpendingDigest.LabeledTotal] {
-            Dictionary(grouping: dated) { key($0.entry) }
+        /// `caseSensitive: false` groups spellings that differ only in case
+        /// into one row, and shows the most common spelling as the label.
+        ///
+        /// The confirmed case: Insights listed "SAMPLE CATEGORY" ($889.03)
+        /// and "Sample Category" ($258.01) as two separate categories, while
+        /// the Categories screen showed one. Neither screen was wrong about
+        /// its own source — a receipt's `category` is whatever string it was
+        /// saved with, and the old default seed predates the uppercasing in
+        /// `CategoryStore.add` — but only this one grouped on the raw value.
+        /// `ReceiptsView.filteredEntries` and `CategoriesView.receiptCount`
+        /// had both already been made case-insensitive for exactly this
+        /// reason; this was the screen that hadn't caught up, so the same
+        /// money appeared under two headings and neither total matched what
+        /// the rest of the app reported.
+        ///
+        /// Vendors get the same treatment, for a different reason that lands
+        /// in the same place: vendor names are AI-extracted, and providers
+        /// routinely disagree on capitalization for the same business (see
+        /// `DuplicateDetectionService`'s note on why its vendor matching is
+        /// fuzzy). "Top Vendors" splitting one merchant across two rows
+        /// would understate it and could push it out of the top five
+        /// entirely.
+        ///
+        /// Vendor TYPE stays case-sensitive: those are fixed tokens resolved
+        /// through `VendorTypeToken`, never free text, so there is no case
+        /// drift to absorb and folding it would only hide a real bug there.
+        func totals(byKey key: (HistoryEntry) -> String,
+                    caseSensitive: Bool = true,
+                    label: (String) -> String = { $0 }) -> [SpendingDigest.LabeledTotal] {
+            Dictionary(grouping: dated) { caseSensitive ? key($0.entry) : key($0.entry).uppercased() }
                 .compactMap { rawKey, rows -> SpendingDigest.LabeledTotal? in
                     guard !rawKey.isEmpty else { return nil }
+                    // The uppercased key is a grouping device, not something
+                    // to show — displaying it would rewrite "Costco" as
+                    // "COSTCO" for everyone, including the vast majority of
+                    // users who never had a case split at all. Show the
+                    // spelling that appears most often instead, breaking ties
+                    // alphabetically so the label doesn't flicker between
+                    // equally-common spellings on reload.
+                    let displayKey: String
+                    if caseSensitive {
+                        displayKey = rawKey
+                    } else {
+                        let spellings = Dictionary(grouping: rows) { key($0.entry) }
+                        displayKey = spellings
+                            .max { a, b in
+                                a.value.count != b.value.count
+                                    ? a.value.count < b.value.count
+                                    : a.key > b.key
+                            }?.key ?? rawKey
+                    }
                     return SpendingDigest.LabeledTotal(
-                        label: label(rawKey),
+                        label: label(displayKey),
                         total: rows.reduce(0) { $0 + $1.amount },
                         count: rows.count)
                 }
@@ -143,9 +190,9 @@ enum SpendingInsightsService {
             currentMonthTotal: currentMonth?.total ?? 0,
             currentMonthCount: currentMonth?.count ?? 0,
             previousMonthTotal: previousMonth?.total ?? 0,
-            byCategory: totals(byKey: { $0.category }),
+            byCategory: totals(byKey: { $0.category }, caseSensitive: false),
             byVendorType: totals(byKey: { $0.vendorType }, label: { VendorTypeToken.displayName(for: $0) }),
-            topVendors: Array(totals(byKey: { $0.vendor }).prefix(5)),
+            topVendors: Array(totals(byKey: { $0.vendor }, caseSensitive: false).prefix(5)),
             biggestReceipt: biggest.map { ($0.entry.vendor, $0.amount) },
             unusualFlags: flags)
     }
