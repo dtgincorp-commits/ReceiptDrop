@@ -209,6 +209,15 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                } header: {
+                    // `.segmented` throws the Picker's own "Text Size" title
+                    // away, so without this the screen shows four bare
+                    // options — System / Small / Medium / Large — with
+                    // nothing saying what they change. Currency directly
+                    // below keeps the default picker style and therefore
+                    // renders its label, which made the omission read as
+                    // arbitrary rather than deliberate.
+                    Text("Text Size")
                 } footer: {
                     Text("Applies to this app only. \"System\" follows your iPhone's Text Size setting.")
                 }
@@ -233,7 +242,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Classify Untyped Receipts")
                             Spacer()
-                            if isClassifying { ProgressView() }
+                            if isClassifying { ProgressView().accessibilityLabel("Classifying receipts") }
                         }
                     }
                     .disabled(isClassifying)
@@ -429,6 +438,7 @@ private struct APIKeySection: View {
                 ProgressView()
                 Text("Testing…").foregroundStyle(.secondary)
             }
+            .accessibilityElement(children: .combine)
         case .success:
             HStack {
                 Label("Key works", systemImage: "checkmark.circle.fill")
@@ -561,6 +571,7 @@ private struct AzureAPIKeySection: View {
                 ProgressView()
                 Text("Testing…").foregroundStyle(.secondary)
             }
+            .accessibilityElement(children: .combine)
         case .success:
             HStack {
                 Label("Key works", systemImage: "checkmark.circle.fill")
@@ -751,6 +762,7 @@ struct ArchiveBackupView: View {
                     ProgressView()
                     Text("Restoring…").foregroundStyle(.secondary)
                 }
+                .accessibilityElement(children: .combine)
             }
             if localBackups.isEmpty {
                 Text("No backups on this phone yet — tap \"Backup Now\" above.")
@@ -905,7 +917,7 @@ struct ArchiveBackupView: View {
             } label: {
                 HStack {
                     Spacer()
-                    if isWorking { ProgressView() } else { Text("Create Archive") }
+                    if isWorking { ProgressView().accessibilityLabel("Creating archive") } else { Text("Create Archive") }
                     Spacer()
                 }
             }
@@ -935,7 +947,7 @@ struct ArchiveBackupView: View {
             } label: {
                 HStack {
                     Spacer()
-                    if isWorking { ProgressView() } else { Text("Backup Now") }
+                    if isWorking { ProgressView().accessibilityLabel("Backing up") } else { Text("Backup Now") }
                     Spacer()
                 }
             }
@@ -983,7 +995,7 @@ struct ArchiveBackupView: View {
             } label: {
                 HStack {
                     Spacer()
-                    if isWorking { ProgressView() } else { Text("Delete \(deleteScopeKind.rawValue)…") }
+                    if isWorking { ProgressView().accessibilityLabel("Deleting receipts") } else { Text("Delete \(deleteScopeKind.rawValue)…") }
                     Spacer()
                 }
             }
