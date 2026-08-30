@@ -738,6 +738,11 @@ struct ReceiptsView: View {
                         }
                     }
                     .listStyle(.plain)
+                    // Pull-to-refresh is a gesture iOS users try without
+                    // being told, and until now nothing happened. `reload()`
+                    // is the same refresh the screen already runs on appear
+                    // and on returning to the foreground.
+                    .refreshable { reload() }
                     // The actual density constraint. `List` enforces a 44pt
                     // minimum row height, which the year/month/day headers
                     // were sitting exactly at — so trimming their

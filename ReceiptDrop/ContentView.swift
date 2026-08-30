@@ -58,7 +58,11 @@ struct ContentView: View {
                 .tabItem { Label("Insights", systemImage: "chart.bar.xaxis") }
                 .tag(1)
             RetryQueueView()
-                .tabItem { Label("Retry Queue", systemImage: "arrow.clockwise") }
+                // "Pending", not "Retry Queue" -- a queue of retries is how
+                // this works, not what it means to the person looking at it.
+                // Same reasoning as Receipt Date over Work Date (TODO item 2):
+                // the internal name stays, the label speaks the user's words.
+                .tabItem { Label("Pending", systemImage: "arrow.clockwise") }
                 .tag(2)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gear") }
@@ -225,7 +229,7 @@ struct RetryQueueView: View {
                     }
                 }
             }
-            .navigationTitle("Retry Queue")
+            .navigationTitle("Pending")
             .toolbar {
                 if !entries.isEmpty {
                     ToolbarItem(placement: .primaryAction) {

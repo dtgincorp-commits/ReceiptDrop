@@ -980,6 +980,10 @@ struct ReceiptSubmitView: View {
             pickedAmount = entry.amount
             submitState = .needsAmount
         } else {
+            // The one unambiguous "it worked" in the app. Fired here rather
+            // than at each call site because this is the shared funnel — see
+            // this function's comment.
+            Haptics.success()
             submitState = .success
             try? await Task.sleep(nanoseconds: 800_000_000)
             onComplete()
@@ -1094,6 +1098,7 @@ struct ReceiptSubmitView: View {
                 // redo this exact forced-provider save with the bypass.
                 pendingDuplicateRetry = .run(data: pending.data, kind: pending.kind,
                                               category: pending.category, forcedProvider: .appleOnDevice)
+                Haptics.warning()
                 submitState = .duplicate(existing: existing)
             } catch {
                 // Don't offer Apple Intelligence again — it just failed on
@@ -1155,6 +1160,7 @@ struct ReceiptSubmitView: View {
                 // different receipt. Hold what's needed to redo this exact
                 // save with the bypass if the user says so via "Save Anyway".
                 pendingDuplicateRetry = .run(data: data, kind: kind, category: category, forcedProvider: nil)
+                Haptics.warning()
                 submitState = .duplicate(existing: existing)
             } catch {
                 if ExtractionFailureClass.classify(error) == .connectivity {
@@ -1350,6 +1356,7 @@ struct ReceiptSubmitView: View {
                     data: data, kind: kind, category: category,
                     vendor: vendor, workDate: workDate, amount: normalizedAmount, comments: comments,
                     needsReview: needsReview, reviewReason: reviewReason)
+                Haptics.warning()
                 submitState = .duplicate(existing: existing)
             } catch {
                 message = "Couldn't save: \(error.localizedDescription)"

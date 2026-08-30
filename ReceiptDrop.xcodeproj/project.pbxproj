@@ -102,10 +102,12 @@
 		CF06EAD2DC7F665E546AF5DB /* CategoriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40594EEE43B6E118DC837A56 /* CategoriesView.swift */; };
 		CF5DC508A191029FC0DEA65B /* NewReceiptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D87B0E04C004C048B153C0 /* NewReceiptView.swift */; };
 		CFE53FAC67791495F8559F49 /* ManualEntryOCRPrefill.swift in Sources */ = {isa = PBXBuildFile; fileRef = E63868D8B4CCD0380B19A205 /* ManualEntryOCRPrefill.swift */; };
+		D0933CDD2343CA5ADA1402DE /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6473D93F4CFFA6B607325DD8 /* Haptics.swift */; };
 		D103EE8EA7FB89F874E54221 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A93982D67223B82A377969E /* ShareViewController.swift */; };
 		D17272B0870CEF10FAE38E2E /* PendingSubmissionProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 963BBE1D80A49FFD5690A813 /* PendingSubmissionProcessor.swift */; };
 		D1BAED8453DC3C6D5675D660 /* LocalReceiptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */; };
 		D3368E8055B39FE47AA6A0A5 /* ManualReceiptEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95B580A99D583CAAF76374FD /* ManualReceiptEntryView.swift */; };
+		DA7E804D873629D7954E20B8 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6473D93F4CFFA6B607325DD8 /* Haptics.swift */; };
 		DC2AEFBDB10450622ED9569E /* ReceiptCropService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE145F3A4C712818F908A82 /* ReceiptCropService.swift */; };
 		DEF3F7AFC83A15F5A809CF52 /* ScannedTextSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B3295A349899BF8290F0B97 /* ScannedTextSubmitView.swift */; };
 		E1B43E5E39B38CC08C3A7824 /* ExtractionLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35A1A78E48AAD20590B47E39 /* ExtractionLogicTests.swift */; };
@@ -191,6 +193,7 @@
 		5CFF6F9F94C524551A1A7102 /* InsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsView.swift; sourceTree = "<group>"; };
 		60DE60441FC6CA5A44E28DEF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReceiptStore.swift; sourceTree = "<group>"; };
+		6473D93F4CFFA6B607325DD8 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		65429EAA84DE433AE5FE8369 /* AppTextSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTextSize.swift; sourceTree = "<group>"; };
 		67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptSubmitView.swift; sourceTree = "<group>"; };
 		692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReceiptStoreTests.swift; sourceTree = "<group>"; };
@@ -319,6 +322,7 @@
 				A7730A1380B462CC48DB1C5E /* ClaudeService.swift */,
 				821135EAEB594F15E8ECCC57 /* DuplicateDetectionService.swift */,
 				874DB9B5F6B131E4EF1B14AB /* FoundationModelsService.swift */,
+				6473D93F4CFFA6B607325DD8 /* Haptics.swift */,
 				86375C2C83E8E61C3F858C9B /* KeychainHelper.swift */,
 				6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */,
 				E63868D8B4CCD0380B19A205 /* ManualEntryOCRPrefill.swift */,
@@ -520,6 +524,7 @@
 				B1A7EBA870C0366E61928410 /* DuplicateReviewView.swift in Sources */,
 				986877CE36E68C3BF767AAD1 /* EditReceiptView.swift in Sources */,
 				308E182BEAEFEEB3A2BB9BD7 /* FoundationModelsService.swift in Sources */,
+				DA7E804D873629D7954E20B8 /* Haptics.swift in Sources */,
 				F3BF161A4231487C54B8DB46 /* InsightsView.swift in Sources */,
 				989C15E2F6780A8C9541AE6B /* KeychainHelper.swift in Sources */,
 				31E47729BD1490BD30CC4104 /* LiveTextScannerView.swift in Sources */,
@@ -577,6 +582,7 @@
 				B2B5F969AB26FADF24B4F76C /* DuplicateDetectionService.swift in Sources */,
 				9CD3681D099FDCFD5B144C4C /* ExtensionBatchSubmitView.swift in Sources */,
 				47A0F236D3B5AA0B3B86D7B1 /* FoundationModelsService.swift in Sources */,
+				D0933CDD2343CA5ADA1402DE /* Haptics.swift in Sources */,
 				C2D72AFC0FBB745AFE861F5D /* KeychainHelper.swift in Sources */,
 				D1BAED8453DC3C6D5675D660 /* LocalReceiptStore.swift in Sources */,
 				B5C60B32F4136D0847F2AE4D /* ManualEntryOCRPrefill.swift in Sources */,
