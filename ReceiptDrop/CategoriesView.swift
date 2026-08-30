@@ -4,16 +4,16 @@ import UIKit
 /// One home for everything category-related: the editable category list
 /// (moved out of Settings) and per-category maintenance. Reached from
 /// Settings ("Categories ›") and from the Receipts screen's sort menu
-/// ("Manage Categories…").
+/// ("Categories").
 struct CategoriesView: View {
-    /// True when reached via "Add Category" (rather than "Manage
-    /// Categories…") — the new-category field gets keyboard focus
-    /// immediately so the user can start typing without an extra tap.
+    /// True when reached via "Add Category" (rather than "Categories") —
+    /// the new-category field gets keyboard focus immediately so the user
+    /// can start typing without an extra tap.
     var focusNewCategoryOnAppear: Bool = false
 
     /// Lets a presenter turn the detail screen's Receipts row into a jump to
     /// a filtered Receipts list instead of a dead label. Receipts' own
-    /// "Manage Categories…" sheet wires this straight to its local
+    /// "Categories" sheet wires this straight to its local
     /// `filterCategory` + dismiss; Settings → Categories (which has no
     /// Receipts list of its own underneath it) wires it through
     /// `ReceiptsNavigator` to jump tabs instead. Defaulted to nil rather than

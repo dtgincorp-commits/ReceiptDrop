@@ -42,7 +42,7 @@ struct ReceiptsView: View {
     @State private var editingEntry: HistoryEntry?
     @State private var showCategories = false
     /// Set alongside `showCategories` when reached via "Add Category" (rather
-    /// than "Manage Categories…") so the sheet opens with the new-category
+    /// than "Categories") so the sheet opens with the new-category
     /// field ready to type into instead of just the list.
     @State private var focusNewCategoryOnOpen = false
     @State private var showBillCapture = false
@@ -771,24 +771,17 @@ struct ReceiptsView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {
-                        Button {
-                            groupByWorkDate = false
-                        } label: {
-                            if !groupByWorkDate {
-                                Label("Group by Scan Date", systemImage: "checkmark")
-                            } else {
-                                Text("Group by Scan Date")
-                            }
+                        // A Picker instead of two Buttons that each swap a checkmark
+                        // Label for a plain Text: SwiftUI already draws the selected
+                        // checkmark and reads it out to VoiceOver, and the section
+                        // title carries "Group By" so each row only needs to name the
+                        // date, which keeps it short enough not to wrap at large text
+                        // sizes.
+                        Picker("Group By", selection: $groupByWorkDate) {
+                            Text("Scan Date").tag(false)
+                            Text("Receipt Date").tag(true)
                         }
-                        Button {
-                            groupByWorkDate = true
-                        } label: {
-                            if groupByWorkDate {
-                                Label("Group by Receipt Date", systemImage: "checkmark")
-                            } else {
-                                Text("Group by Receipt Date")
-                            }
-                        }
+                        .pickerStyle(.inline)
                         Divider()
                         Button {
                             collapsed = []
@@ -805,10 +798,16 @@ struct ReceiptsView: View {
                             focusNewCategoryOnOpen = false
                             showCategories = true
                         } label: {
-                            Label("Manage Categories…", systemImage: "folder.badge.gearshape")
+                            // Short, no ellipsis: the long "Manage Categories…" is what
+                            // hyphenated into "Manage Cate-gories" at larger text sizes,
+                            // and the "…" was wrong anyway — that glyph means the command
+                            // needs more input before acting (e.g. a dialog), but this just
+                            // opens a screen and commits nothing. The gear-on-folder icon
+                            // already says "manage", so the verb was redundant too.
+                            Label("Categories", systemImage: "folder.badge.gearshape")
                         }
                     } label: {
-                        Label("Options", systemImage: "line.3.horizontal")
+                        Label("View Options", systemImage: "line.3.horizontal")
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
