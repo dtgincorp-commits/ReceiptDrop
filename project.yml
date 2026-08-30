@@ -53,7 +53,7 @@ targets:
         # ShareExtension target's below — App Store Connect rejects an
         # upload whose embedded extension build number differs from the app's.
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "2"
+        CFBundleVersion: "3"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -95,7 +95,7 @@ targets:
         CFBundleDisplayName: Receipts4Tax
         # Must match the ReceiptDrop target's version keys exactly.
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "2"
+        CFBundleVersion: "3"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
