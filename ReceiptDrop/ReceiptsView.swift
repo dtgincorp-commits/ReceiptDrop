@@ -815,7 +815,14 @@ struct ReceiptsView: View {
                     // good enough to offer (currently Apple On-Device) —
                     // better than letting someone run it and conclude the
                     // feature is broken. See `supportsBillItemization`.
-                    if ExtractionSettings.provider.supportsBillItemization {
+                    //
+                    // `billItemizationEnabled` extends that same judgement to
+                    // every provider for 1.0: this is the only entry point to
+                    // the feature, so gating it here makes `BillCaptureView`,
+                    // `BillReviewView` and `BillItemizationService`
+                    // unreachable without deleting any of them.
+                    if AppConstants.billItemizationEnabled,
+                       ExtractionSettings.provider.supportsBillItemization {
                         Button {
                             if ExtractionSettings.aiConfigured {
                                 showBillCapture = true

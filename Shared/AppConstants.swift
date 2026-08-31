@@ -80,6 +80,30 @@ enum AppConstants {
     /// pair — see `CategoryStore.add` and `bfcac55`).
     static let defaultCategories = ["BUSINESS EXPENSES"]
 
+    /// Whether the "Check a Bill" itemization feature is reachable at all.
+    ///
+    /// Off for 1.0. The feature works, but not reliably enough on real bills
+    /// to put in front of people who did not choose to be testing it — and a
+    /// visibly unfinished feature is also a rejection risk under App Review
+    /// guideline 2.1. Hiding the entry point is the same remedy
+    /// `ExtractionProvider.supportsBillItemization` already applies to Apple
+    /// On-Device, just applied to every provider rather than one.
+    ///
+    /// Deliberately a flag rather than deleting the ~2,400 lines behind it.
+    /// The open question is *why* itemization is wrong — a model that cannot
+    /// itemize a real restaurant bill, or a prompt and parser that need work
+    /// — and `BillEvalHarness` exists to answer exactly that against the
+    /// fixtures in `test-receipts/`. Deleting now would throw away both the
+    /// feature and the instrument that would tell us whether it is
+    /// salvageable. Flip this to `true` to bring it back; nothing else needs
+    /// to change.
+    ///
+    /// The cost of keeping it: the code still compiles, still ships in the
+    /// binary, and still has to keep building. That is the price of leaving
+    /// the decision open, and it is deliberate — this is not dead code, and
+    /// it should not be deleted as such.
+    static let billItemizationEnabled = false
+
     /// CSV header row, written when a category's local log file is first created.
     static let sheetHeader = [
         "Contractor_or_Vendor_Name", "Work_Date", "Amount", "Comments", "Receipt_File", "Scanned_Date",
