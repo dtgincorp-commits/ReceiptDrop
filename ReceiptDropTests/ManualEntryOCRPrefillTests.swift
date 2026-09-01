@@ -591,16 +591,37 @@ final class ManualEntryOCRPrefillTests: XCTestCase {
 /// since that check exists specifically to catch a model inventing a date.
 final class ReceiptDateDetectorRangeWordingTests: XCTestCase {
 
+    /// Dates here MUST be relative to today, never literals.
+    ///
+    /// These tests originally hardcoded 09/01/2026, and every one of them
+    /// began failing on 2026-09-01 — permanently, since the date is in the
+    /// past from then on. The mechanism under test is the whole reason:
+    /// `NSDataDetector` reads "through <date>" as a SPAN running from now
+    /// until that date, and the guard drops it because the duration is
+    /// non-zero. Once "that date" is today or earlier there is no span left,
+    /// so it parses as a plain date and is reported — the fixture stopped
+    /// exercising the behaviour it was written for.
+    ///
+    /// A date far enough ahead keeps the span real no matter when the suite
+    /// runs.
+    private func futureDateString(daysAhead: Int = 400) -> String {
+        let date = Calendar.current.date(byAdding: .day, value: daysAhead, to: Date())!
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MM/dd/yyyy"
+        return formatter.string(from: date)
+    }
+
     func testCouponValidThroughIsNotReadAsAPrintedDate() {
         // NSDataDetector reads "through <date>" as a span starting now, so
         // its `.date` is today with a non-zero duration. Nothing on this
         // receipt is printed with today's date, so nothing should be found.
-        let dates = ReceiptDateDetector.dates(in: "Coupon valid through 09/01/2026")
+        let dates = ReceiptDateDetector.dates(in: "Coupon valid through \(futureDateString())")
         XCTAssertTrue(dates.isEmpty)
     }
 
     func testOfferGoodUntilIsNotReadAsAPrintedDate() {
-        let dates = ReceiptDateDetector.dates(in: "Offer good until 09/01/2026")
+        let dates = ReceiptDateDetector.dates(in: "Offer good until \(futureDateString())")
         XCTAssertTrue(dates.isEmpty)
     }
 
@@ -608,23 +629,30 @@ final class ReceiptDateDetectorRangeWordingTests: XCTestCase {
         // "Expires" carries no range sense, so this stays a plain date and
         // must survive the filter — the guard keys on duration, not on any
         // list of words, and this is what stops it over-reaching.
-        let dates = ReceiptDateDetector.dates(in: "Expires 09/01/2026")
+        let printed = futureDateString()
+        let dates = ReceiptDateDetector.dates(in: "Expires \(printed)")
         XCTAssertEqual(dates.count, 1)
-        let c = Calendar.current.dateComponents([.year, .month, .day], from: dates[0])
-        XCTAssertEqual(c.year, 2026)
-        XCTAssertEqual(c.month, 9)
-        XCTAssertEqual(c.day, 1)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MM/dd/yyyy"
+        let expected = Calendar.current.startOfDay(for: formatter.date(from: printed)!)
+        XCTAssertEqual(Calendar.current.startOfDay(for: dates[0]), expected)
     }
 
     func testRangeWordingDoesNotMaskARealDateElsewhere() {
+        // The purchase date is in the PAST (a real receipt's date always is);
+        // the coupon span is in the future, which is what makes it a span.
+        let purchase = Calendar.current.date(byAdding: .day, value: -20, to: Date())!
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MM/dd/yyyy"
         let dates = ReceiptDateDetector.dates(in: """
-        Purchase Date: 08/12/2026
-        Coupon valid through 09/01/2026
+        Purchase Date: \(formatter.string(from: purchase))
+        Coupon valid through \(futureDateString())
         """)
         XCTAssertEqual(dates.count, 1)
-        let c = Calendar.current.dateComponents([.month, .day], from: dates[0])
-        XCTAssertEqual(c.month, 8)
-        XCTAssertEqual(c.day, 12)
+        XCTAssertEqual(Calendar.current.startOfDay(for: dates[0]),
+                       Calendar.current.startOfDay(for: purchase))
     }
 }
 

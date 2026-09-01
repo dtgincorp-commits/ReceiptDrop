@@ -542,24 +542,49 @@ struct ReceiptsView: View {
                         }
                         .padding(.top, 8)
 
-                        // Deliberately a plain-text button below the real
-                        // capsule CTA above, not a second capsule or a menu
-                        // item next to "Enter Manually" — this is a
-                        // no-camera, no-receipt-in-hand fallback for someone
-                        // who wants to see the pipeline work before trusting
-                        // it with a real receipt (TODO.md item 9), not a
-                        // third way to submit one for real. It has to read
-                        // as secondary to both scanning and manual entry.
+                        // Secondary to the capsule above, but a *button*.
+                        // This was plain grey text on the theory that it had
+                        // to read as subordinate to scanning and manual entry
+                        // (TODO.md item 9) — which is right, and is why it
+                        // stays bordered rather than filled. But secondary
+                        // and invisible are not the same thing: the author of
+                        // this app, who knew the feature existed, opened the
+                        // empty state and could not find it. Someone meeting
+                        // the app for the first time has no chance, and this
+                        // is the one path that works with no camera, no
+                        // receipt in hand, and no API key — exactly what a
+                        // first-time user (or an App Review tester following
+                        // the Beta App Review notes) needs.
+                        //
+                        // Same remedy as `c053b2e` applied to the `.needsDate`
+                        // prompt's escape hatch, for the same reason: button
+                        // chrome carries the affordance, type size and colour
+                        // carry the hierarchy.
+                        //
                         // Only shown while the list is genuinely empty, which
                         // is what makes this "first run" without a separate
                         // flag — once a real receipt exists this button is
                         // gone for good, same as the capsule above it.
-                        Button("Try it with a sample receipt") {
+                        Button {
                             showSampleReceiptDemo = true
+                        } label: {
+                            Label("Try a Sample Receipt", systemImage: "doc.text.magnifyingglass")
+                                .font(.subheadline.weight(.medium))
                         }
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 4)
+                        .buttonStyle(.bordered)
+                        .tint(Theme.skyBlue)
+                        .padding(.top, 10)
+
+                        // Says what the sample actually does, because the
+                        // button alone can't: it runs the real extraction and
+                        // shows the result, and deliberately saves nothing —
+                        // see `SampleReceiptDemoView`, which never references
+                        // `SubmissionStore` or `LocalReceiptStore` at all.
+                        Text("Runs a real scan on a demo receipt. Nothing is saved.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 2)
                     }
                 } else if isSearching || reviewFilterActive {
                     List {
@@ -836,12 +861,24 @@ struct ReceiptsView: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        newReceiptMenuItems
-                    } label: {
-                        newReceiptButtonLabel
+                    // Hidden while the empty state is on screen. That screen
+                    // already shows "Scan Your First Receipt" — which opens
+                    // this exact same menu — so keeping the "+" would put two
+                    // `Theme.actionBlue` controls on the one screen a
+                    // first-time user sees, both doing the identical thing.
+                    // `Theme.actionBlue` is reserved for *the* primary action
+                    // precisely so it reads as the thing to tap (see
+                    // `Theme`), and two of them is one too many. Nothing is
+                    // lost: the capsule is larger, labelled, and opens the
+                    // same menu.
+                    if !entries.isEmpty {
+                        Menu {
+                            newReceiptMenuItems
+                        } label: {
+                            newReceiptButtonLabel
+                        }
+                        .accessibilityLabel("New Receipt")
                     }
-                    .accessibilityLabel("New Receipt")
                 }
             }
         }
