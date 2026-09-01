@@ -139,6 +139,120 @@ asked. Put the question in TestFlight's "What to Test" ("Do you photograph
 receipts and add them later? What stops you?"), or email the external group
 once it exists.
 
+## The plan
+
+### The staging tray — and why it is NOT the Pending screen
+
+The obvious idea is "let false positives through, they can sit in Pending until
+the user deletes them." That does not work, and the reason matters.
+
+`QueueEntry` is a **failed submission**: it carries an `error` string, holds a
+file under `PendingReceipts`, and `PendingSubmissionProcessor` retries it
+automatically. It is a retry queue, not a waiting room. A false positive
+pushed through the normal pipeline would:
+
+1. spend a real AI extraction call **on the user's own API key** — at roughly
+   1–3¢ each, two hundred false positives is real money spent reading
+   photographs of somebody's dog;
+2. come back with garbage vendor/amount/date;
+3. be **saved as a genuine receipt** — file written, CSV row appended, history
+   entry created — landing in the user's tax records rather than in a holding
+   pen.
+
+So the tray has to be a **new surface that is not the pipeline**:
+
+- "12 possible receipts found", thumbnails, each with a score and a one-line
+  reason ("total + tax + currency amounts detected").
+- Nothing extracted, nothing saved, nothing spent, until the user taps.
+- Tapping the real ones submits them as a normal batch through
+  `SubmissionPipeline` — reusing `BatchSubmissionRunner`.
+- Dismissed asset IDs are remembered so nothing reappears.
+- Untouched suggestions expire after ~30 days so the tray cannot grow forever.
+
+This is what makes false positives genuinely cheap, which is the property the
+whole feature depends on.
+
+### When it runs
+
+Three triggers. No background magic.
+
+1. **On app foreground** — alongside `AutoBackupService.runIfDueOnForeground()`
+   and `ReceiptHashBackfillService.runOnForeground()` in `ReceiptDropApp`.
+   Scans only assets added since the last run: a handful of photos, tens of
+   milliseconds, invisible.
+2. **An explicit historical sweep**, user-initiated, with a progress bar and a
+   cancel. Never automatic.
+3. Later, optionally, a `BGProcessingTask` so the historical sweep can run
+   overnight on power. **Not for v1** — the system decides when these run and
+   the scheduling is too unpredictable to design a first version around.
+
+### Sweep scope — user's choice, one year by default
+
+Default to **the last 12 months**, because that is the window that matters for
+a tax year and it bounds the cost. But offer the full range as an explicit
+option; someone starting the app with four years of receipts on their phone
+should be able to get at them:
+
+- Last 12 months (default)
+- Last 2 years
+- Everything
+
+Show the asset count and an estimated duration before starting, so "Everything"
+is a decision with a number attached rather than a shrug. The scan is
+resumable and remembers its position, so a cancelled or interrupted sweep does
+not start over.
+
+### Resource cost
+
+Planning figure: ~5,000 photos for an average year.
+
+Vision fast text recognition on a **thumbnail** runs roughly 30–80ms per image
+on recent hardware. So a one-year sweep is on the order of **8–12 minutes of
+work**, chunked into batches — call it 3–6% of battery and a warm phone, once.
+"Everything" scales linearly: four years is roughly four times that, which is
+exactly why it must be opt-in with the number shown.
+
+After the sweep, incremental scanning is a few photos a day. Effectively free.
+
+**The detail that decides whether any of this is viable:** with iCloud Photos
+and "Optimize iPhone Storage" enabled, full-resolution images are not on the
+device. Request small thumbnails with `isNetworkAccessAllowed = false` —
+thumbnails are always local. Get this wrong and the sweep triggers thousands of
+iCloud downloads: slow, and expensive on cellular.
+
+Batch in chunks (a few hundred assets), yield between chunks, and stop early on
+low battery or thermal pressure.
+
+### Phasing
+
+**Phase 0 — spike, ~300 lines.** A hidden developer screen that runs the
+classifier over a folder of images and prints scores. No permission, no tray,
+no import path. Feed it the 16 fixtures in `test-receipts/` plus ~30 ordinary
+camera-roll photos and read the confusion matrix. This answers the only
+question that matters — *is detection good enough to justify the permission?* —
+for a fraction of the cost of finding out later.
+
+**Negatives have to be supplied.** `test-receipts/` is all positives, so
+precision is currently unmeasurable. Photos of people, pets, menus,
+whiteboards, business cards and non-receipt screenshots are what the
+classifier will actually be wrong about.
+
+**Phase 1 — the real thing**, only if Phase 0 looks good. Permission handling
+(including the "Limited access" case, which would otherwise cripple it
+silently), the seen-asset ledger, the suggestions tray, the sweep UI with scope
+selection, and the foreground trigger. Roughly 2–3 delegated sessions,
+1,200–1,500 lines.
+
+**Phase 2 — background sweep** via `BGProcessingTask`, if the explicit sweep
+proves too slow to sit through.
+
+### Dedupe, for free
+
+Imported suggestions must be checked against `HistoryEntry.fileHash` before
+being offered — a photo the user already filed should never appear in the tray.
+The content-fingerprint work (`ReceiptFileHash`, commit `e1d36e2`) already
+provides this; the tray just has to use it.
+
 ## Sources
 
 - Ramp — Auto-Match Receipts from Your Camera Roll: <https://support.ramp.com/auto-match-receipts-from-your-camera-roll>
