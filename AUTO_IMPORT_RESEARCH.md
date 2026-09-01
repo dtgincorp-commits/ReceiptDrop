@@ -258,3 +258,32 @@ provides this; the tray just has to use it.
 - Ramp — Auto-Match Receipts from Your Camera Roll: <https://support.ramp.com/auto-match-receipts-from-your-camera-roll>
 - Ramp — Corporate Cards: <https://ramp.com/corporate-cards>
 - Ramp: <https://ramp.com/>
+
+---
+
+## Unrelated item parked for the same build
+
+**Say where backups live.** Nothing in the UI explains the asymmetry that
+`LocalReceiptStore.excludeReceiptsFromBackup()` deliberately creates: receipt
+images and CSVs are marked `isExcludedFromBackup = true` and stay out of
+iCloud, while the backup **zips** in `Documents/Backups` are not excluded and
+therefore ride along in the iOS device backup automatically. That is the
+recovery path for a lost phone, and the user has no way to know it exists.
+
+A per-backup "location" column does not work — every backup is in the same
+place, so the column would always read the same. One line in the Backup
+section is the right shape:
+
+> Backups are saved on this iPhone and included in your iCloud device backup,
+> if that's turned on. Receipt images themselves are deliberately kept out of
+> iCloud.
+
+Limit worth respecting in the wording: there is no API to detect whether iCloud
+Backup is actually enabled, so the copy must say "if that's turned on" rather
+than claiming it is handled.
+
+**Deliberately NOT adding a setting to turn the exclusion off.** That was
+already decided in `8db1ffb` and the reasoning still holds: the zips already
+contain the receipts and already reach iCloud, so a toggle would only offer to
+put every image there a second time — more storage, a weaker privacy claim, and
+another entry to declare in App Privacy, for no recovery benefit.
