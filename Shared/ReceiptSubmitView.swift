@@ -65,12 +65,17 @@ struct ReceiptSubmitView: View {
     private let startInManualMode: Bool
 
     init(attachment: SharedAttachment, onCancel: @escaping () -> Void, onComplete: @escaping () -> Void,
-         startInManualMode: Bool = false) {
+         initialCategory: String? = nil, startInManualMode: Bool = false) {
         self.attachment = attachment
         self.onCancel = onCancel
         self.onComplete = onComplete
         self.startInManualMode = startInManualMode
         _proceedWithoutAI = State(initialValue: startInManualMode)
+        // Seeded rather than left to `onAppear`'s "first category" default so
+        // the share extension's choice screen and this view agree: the user
+        // has already been shown which category their receipt is going into,
+        // and silently filing it somewhere else would make that a lie.
+        _selectedCategory = State(initialValue: initialCategory ?? "")
     }
 
     /// True while on-device OCR (`prefillManualFieldsFromOCR`) is running,

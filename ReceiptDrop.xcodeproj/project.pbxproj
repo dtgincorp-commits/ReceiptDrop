@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		00B6687EE07E1D652C3B3F18 /* ReceiptDateDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */; };
+		0357085443A9651EF4E77F6E /* ShareSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D65E49DF78FE2F53DF54D1FB /* ShareSheetView.swift */; };
 		0369C28D357DC89548A9CF71 /* QuickSendContactStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C55D1066ECBE9ED09826A40 /* QuickSendContactStore.swift */; };
 		0A932F628E1DA811D4270E99 /* AzureDocumentIntelligenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */; };
 		10EBDAD489DA8B06819F4551 /* BillReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEC8FCD6E9B669200EEEC134 /* BillReviewView.swift */; };
@@ -242,6 +243,7 @@
 		CDBA80332CC2662CA3FB1FD8 /* AttachmentThumbnail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentThumbnail.swift; sourceTree = "<group>"; };
 		CEC8FCD6E9B669200EEEC134 /* BillReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillReviewView.swift; sourceTree = "<group>"; };
 		CF380D2280F12372F67471C0 /* CategoryDeleteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryDeleteService.swift; sourceTree = "<group>"; };
+		D65E49DF78FE2F53DF54D1FB /* ShareSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheetView.swift; sourceTree = "<group>"; };
 		D7CE5CF9262C43188D5295AB /* BillEvalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillEvalView.swift; sourceTree = "<group>"; };
 		D82B6FF53C985F3570C022F3 /* ReceiptDrop.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ReceiptDrop.entitlements; sourceTree = "<group>"; };
 		E03258CA24E3618F36E11AE7 /* BillCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillCaptureView.swift; sourceTree = "<group>"; };
@@ -299,6 +301,7 @@
 			children = (
 				096738F483C15B82B353EC44 /* Info.plist */,
 				A390548284FDD4A341F7ABF5 /* ShareExtension.entitlements */,
+				D65E49DF78FE2F53DF54D1FB /* ShareSheetView.swift */,
 				1A93982D67223B82A377969E /* ShareViewController.swift */,
 			);
 			path = ShareExtension;
@@ -621,6 +624,7 @@
 				91871ABF3C86D896510A1CE1 /* ReceiptPhotoClassifier.swift in Sources */,
 				B311E2C1168EE57DB4DE55D2 /* ReceiptSubmitView.swift in Sources */,
 				E520FAD5D609E53E000FD1CA /* SettingsInfoLink.swift in Sources */,
+				0357085443A9651EF4E77F6E /* ShareSheetView.swift in Sources */,
 				D103EE8EA7FB89F874E54221 /* ShareViewController.swift in Sources */,
 				BF823103E7489F33241DBF6A /* SubmissionPipeline.swift in Sources */,
 				54EBDEACA67CDD0340D4C3E1 /* SubmissionStore.swift in Sources */,
