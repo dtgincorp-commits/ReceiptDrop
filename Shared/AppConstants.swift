@@ -61,6 +61,7 @@ enum AppConstants {
         static let hasCompletedAISetup = "hasCompletedAISetup"  // guided Connect-AI wizard shown/skipped
         static let appTextSize = "appTextSize"                  // per-app text size override; see AppTextSize
         static let appCurrency = "appCurrency"                  // display currency; see AppCurrency
+        static let lastUsedCategory = "lastUsedCategory"        // share extension's default; see LastUsedCategoryStore
     }
 
     /// Date format written to the Work_Date column.

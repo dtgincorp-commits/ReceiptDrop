@@ -1,5 +1,18 @@
 # Multi-Receipt Share Extension — Implementation Plan
 
+> **Superseded, in part.** The two views this plan produced —
+> `ShareSheetView` and `ExtensionBatchSubmitView` — no longer exist. The
+> share extension has no UI at all now: tapping Receipts4Tax parks every
+> shared photo in the waiting area under the last-used category and
+> dismisses (see `ShareViewController`). The 5-photo friendly limit went with
+> them.
+>
+> What survives, and is still the reason the extension works the way it does,
+> is **The critical constraint** below: an extension process can be killed the
+> moment `completeRequest` is called, so it must never hold an in-flight AI
+> round-trip. Parking bytes durably and letting the main app extract later is
+> exactly that rule, applied to every share rather than only to batches.
+
 Lets the user select several photos in the iOS share sheet and send them all
 to ReceiptDrop at once. Today ReceiptDrop silently disappears from the share
 sheet whenever more than one photo is selected.

@@ -81,6 +81,13 @@ struct SubmissionPipeline {
              forcedProvider: ExtractionProvider? = nil,
              allowDuplicate: Bool = false,
              onStage: @MainActor (Stage) -> Void = { _ in }) async throws -> HistoryEntry {
+        // Every filed receipt passes through here, whatever route it came
+        // in by, which makes this the one place that reliably knows what
+        // the user actually files under — see LastUsedCategoryStore, which
+        // the share extension reads so it can park a receipt without
+        // having any UI to ask in.
+        LastUsedCategoryStore.record(category)
+
         await onStage(.reading)
 
         // Content-identity check FIRST, before extraction even runs — the
