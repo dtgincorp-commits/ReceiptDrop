@@ -43,7 +43,15 @@ struct ShareSheetView: View {
     private enum ParkResult: Equatable {
         case now(Int)
         case overnight(Int)
+
+        var isOvernight: Bool {
+            if case .overnight = self { return true }
+            return false
+        }
     }
+
+    private var count: Int { batchAttachments?.count ?? (attachment == nil ? 0 : 1) }
+    private var isSingle: Bool { count == 1 }
 
     var body: some View {
         Group {
@@ -51,43 +59,8 @@ struct ShareSheetView: View {
                 ReceiptSubmitView(attachment: attachment, onCancel: onCancel,
                                   onComplete: onComplete, initialCategory: category)
             } else {
-                NavigationStack {
-                    Group {
-                        if let loadError {
-                            Label(loadError, systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(.red)
-                        } else if let parked {
-                            confirmation(parked)
-                        } else if attachment != nil || batchAttachments != nil {
-                            choices
-                        } else {
-                            ProgressView("Loading receipt…")
-                        }
-                    }
-                    .navigationTitle("Receipts4Tax")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel", action: onCancel)
-                                .disabled(parked != nil)
-                        }
-                    }
-                }
+                card
             }
-        }
-        .safeAreaInset(edge: .bottom) {
-            // A low-key way back for someone meeting this app for the first
-            // time via the share sheet — they've never seen an AI-provider
-            // setup screen or their receipt history, and nothing else in this
-            // extension hints those exist.
-            Button(action: onOpenMainApp) {
-                Text("Connect an AI provider or see all your receipts — open Receipts4Tax")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity)
-            .background(.bar)
         }
         .sheet(isPresented: $showCategoryPicker) {
             categoryPicker
@@ -95,85 +68,166 @@ struct ShareSheetView: View {
         .onAppear(perform: loadAttachments)
     }
 
-    private var count: Int { batchAttachments?.count ?? (attachment == nil ? 0 : 1) }
-    private var isSingle: Bool { count == 1 }
-
-    private var choices: some View {
-        Form {
-            Section {
-                Button {
-                    showCategoryPicker = true
-                } label: {
-                    HStack {
-                        Text("Filing under")
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        Text(category).foregroundStyle(.secondary)
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                    }
+    /// The extension's own look, deliberately unlike the app's: a single dark
+    /// card floating over whatever the user was doing, rather than another
+    /// Form that reads as "you are now in Receipts4Tax". The point is that
+    /// this is a passing interruption — glance, tap, gone — and it should not
+    /// feel like arriving somewhere.
+    private var card: some View {
+        VStack {
+            Spacer(minLength: 0)
+            VStack(spacing: 18) {
+                header
+                if let loadError {
+                    Text(loadError)
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .multilineTextAlignment(.center)
+                } else if let parked {
+                    confirmation(parked)
+                } else if attachment != nil || batchAttachments != nil {
+                    choices
+                    categoryChip
+                } else {
+                    ProgressView()
+                        .tint(.white)
+                        .frame(height: 96)
                 }
-            } header: {
-                Text(count == 1 ? "1 receipt" : "\(count) receipts")
+                firstRunLink
             }
-
-            Section {
-                Button {
-                    readNow()
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Read Now").bold()
-                        Text(isSingle
-                             ? "Reads it here and shows you the result."
-                             : "Queued now, read the next time you open Receipts4Tax.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Button {
-                    readOvernight()
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Read Overnight")
-                        // Honest about the one thing iOS will not promise:
-                        // background runs are granted at the system's
-                        // discretion, so the app falls back to reading held
-                        // receipts on next open after a day.
-                        Text("Saved now, read tonight — or next time you open the app.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            } footer: {
-                Text("Either way your receipts are saved on this phone straight away.")
-            }
+            .padding(20)
+            .background(cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 14)
         }
+        // Transparent so the card reads as an overlay on the user's photos
+        // rather than a screen that replaced them.
+        .background(Color.clear)
+    }
+
+    private var cardBackground: some View {
+        LinearGradient(
+            colors: [Color(red: 0.11, green: 0.13, blue: 0.28),
+                     Color(red: 0.06, green: 0.07, blue: 0.16)],
+            startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    private var header: some View {
+        HStack {
+            Text(count == 1 ? "1 receipt" : "\(count) receipts")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.75))
+            Spacer()
+            Button(action: onCancel) {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .padding(7)
+                    .background(.white.opacity(0.12), in: Circle())
+            }
+            .disabled(parked != nil)
+            .accessibilityLabel("Cancel")
+        }
+    }
+
+    /// Two tiles, side by side, no explanatory text under either.
+    ///
+    /// The wording carries the whole difference — "Now" against "Tonight" —
+    /// because anything longer is something to read, and this screen exists
+    /// to be answered without reading. What each one does precisely is in the
+    /// app's queue, where the user can act on it; here it would only slow the
+    /// tap down.
+    private var choices: some View {
+        HStack(spacing: 12) {
+            choiceTile(title: "Now", icon: "bolt.fill",
+                       tint: Color(red: 0.30, green: 0.72, blue: 1.0),
+                       action: readNow)
+            choiceTile(title: "Tonight", icon: "moon.stars.fill",
+                       tint: Color(red: 0.62, green: 0.55, blue: 1.0),
+                       action: readOvernight)
+        }
+    }
+
+    private func choiceTile(title: String, icon: String, tint: Color,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 24, weight: .semibold))
+                Text(title)
+                    .font(.headline)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
+            .background(tint.opacity(0.9), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The category, small and quiet. Visible so a receipt is never silently
+    /// misfiled, tappable so it can be fixed, and sized so nobody feels
+    /// obliged to think about it.
+    private var categoryChip: some View {
+        Button {
+            showCategoryPicker = true
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "folder.fill").font(.caption2)
+                Text(category)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+            }
+            .foregroundStyle(.white.opacity(0.65))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.white.opacity(0.1), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Only for someone who has never set up a provider — otherwise this is a
+    /// line of text on every share, for a trip into the app they do not need
+    /// to make. Read straight from the App Group defaults rather than through
+    /// ConnectAIView, which lives in the app target.
+    @ViewBuilder
+    private var firstRunLink: some View {
+        if !hasCompletedAISetup {
+            Button(action: onOpenMainApp) {
+                Text("Set up Receipts4Tax to read these")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var hasCompletedAISetup: Bool {
+        UserDefaults(suiteName: AppConstants.appGroupID)?
+            .bool(forKey: AppConstants.DefaultsKeys.hasCompletedAISetup) ?? false
     }
 
     @ViewBuilder
     private func confirmation(_ result: ParkResult) -> some View {
+        // Asked of the value rather than compared against
+        // `.overnight(count)`: the parked count is whatever actually got
+        // written, which can be smaller than the number shared if a provider
+        // failed to load.
+        let isOvernight = result.isOvernight
         VStack(spacing: 10) {
-            switch result {
-            case .now(let n):
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 34)).foregroundStyle(.green)
-                Text("\(n) receipt\(n == 1 ? "" : "s") saved")
-                    .font(.headline)
-                Text("They'll be read the next time you open Receipts4Tax.")
-                    .font(.caption).foregroundStyle(.secondary)
-            case .overnight(let n):
-                Image(systemName: "moon.stars.fill")
-                    .font(.system(size: 34)).foregroundStyle(.indigo)
-                Text("\(n) receipt\(n == 1 ? "" : "s") saved for tonight")
-                    .font(.headline)
-                Text("They'll be read overnight.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+            Image(systemName: isOvernight ? "moon.stars.fill" : "checkmark.circle.fill")
+                .font(.system(size: 32))
+                .foregroundStyle(isOvernight
+                                 ? Color(red: 0.62, green: 0.55, blue: 1.0)
+                                 : Color(red: 0.30, green: 0.85, blue: 0.55))
+            Text(isOvernight ? "Saved for tonight" : "Saved")
+                .font(.headline)
+                .foregroundStyle(.white)
         }
-        .multilineTextAlignment(.center)
-        .padding(24)
+        .frame(height: 96)
     }
 
     private var categoryPicker: some View {

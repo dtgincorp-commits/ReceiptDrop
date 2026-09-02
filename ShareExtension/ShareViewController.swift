@@ -28,6 +28,12 @@ final class ShareViewController: UIViewController {
         )
 
         let host = UIHostingController(rootView: rootView)
+        // Clear on both, so ShareSheetView's card floats over the host app's
+        // content instead of sitting on an opaque page. UIHostingController
+        // paints a system background by default, which would defeat the
+        // card's own background and shadow.
+        host.view.backgroundColor = .clear
+        view.backgroundColor = .clear
         addChild(host)
         view.addSubview(host.view)
         host.view.frame = view.bounds
