@@ -202,6 +202,29 @@ struct SettingsView: View {
                     }
                 }
 
+                #if DEBUG
+                // Developer-only harnesses. `BillEvalView` had no entry point
+                // at all — it was written, committed, and reachable from
+                // nowhere — so it is wired up here alongside the new one
+                // rather than left as dead code.
+                Section {
+                    NavigationLink {
+                        ReceiptDetectionEvalView()
+                    } label: {
+                        Label("Receipt Detection Eval", systemImage: "scope")
+                    }
+                    NavigationLink {
+                        BillEvalView()
+                    } label: {
+                        Label("Bill Itemization Eval", systemImage: "list.number")
+                    }
+                } header: {
+                    Text("Developer")
+                } footer: {
+                    Text("DEBUG builds only. Neither screen ships.")
+                }
+                #endif
+
                 Section {
                     Picker("Text Size", selection: $appTextSize) {
                         ForEach(AppTextSize.allCases) { size in

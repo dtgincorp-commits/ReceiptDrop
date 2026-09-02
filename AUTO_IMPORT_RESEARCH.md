@@ -26,8 +26,20 @@ The Share Extension already handles **multi-photo batches**:
 background rather than holding the user on a progress screen. He can select
 twenty receipts in Photos → Share → Receipts4Tax → done.
 
-So the feature may already exist and simply not be known. **Test that before
-building anything.**
+**Checked, and the doc above was wrong about it.** `ExtensionBatchSubmitView`
+caps at `friendlyLimit = 5` and shows a dead-end "please pick 5 or fewer"
+screen above that — with no Save button at all — while the Info.plist
+activation rule advertises 20. So selecting twenty receipts does *not* work
+today; it hits a wall.
+
+Worth noting the limit now looks stale. It was set when a batch meant N live
+Claude round-trips inside a short-lived extension process; `saveAll()` today
+just writes each photo to the App Group pending queue — synchronous local file
+writes, no network — and the main app runs them later via
+`PendingSubmissionProcessor`. The original reason for a low ceiling no longer
+applies to this code path. Raising it is a cheap experiment that costs no
+permission and no App Review conversation, and should be tried before any of
+the below.
 
 Cheapest experiment of all: a weekly local notification — "You haven't added
 any receipts in 7 days." No permissions, no scanning, no classification,
@@ -109,10 +121,12 @@ TAX, VISA). `PHAsset.mediaSubtypes.contains(.photoScreenshot)` is another
 strong hint — several real receipts here are screenshots. Expect false
 positives from menus, business cards, whiteboards and bank statements.
 
-**Worth checking before designing anything:** iOS 18's Photos app auto-groups
-receipts under its Utilities section. Whether PhotoKit exposes that collection
-through a public API is unknown — if it does, it beats anything we would build.
-Ten minutes in the PhotoKit documentation answers it.
+**Checked — PhotoKit does NOT expose it.** iOS 18's Photos app auto-groups
+receipts under Utilities, but that grouping is app-internal. In the iOS 26.5
+SDK, `PHAssetCollectionSubtype` ends at `SmartAlbumScreenRecordings` (220) and
+`SmartAlbumSpatial` (219); there is no Utilities, Documents, Receipts or
+Handwriting subtype, and none of those words appear anywhere in the Photos or
+PhotosUI headers. So there is no free ride — the classifier has to be ours.
 
 ### Costs to accept before starting
 
@@ -225,12 +239,30 @@ low battery or thermal pressure.
 
 ### Phasing
 
-**Phase 0 — spike, ~300 lines.** A hidden developer screen that runs the
-classifier over a folder of images and prints scores. No permission, no tray,
-no import path. Feed it the 16 fixtures in `test-receipts/` plus ~30 ordinary
-camera-roll photos and read the confusion matrix. This answers the only
-question that matters — *is detection good enough to justify the permission?* —
-for a fraction of the cost of finding out later.
+**Phase 0 — spike. BUILT.** `Shared/ReceiptPhotoClassifier.swift` (the
+scoring, pure text-in/score-out, no PhotoKit and no Vision so it survives into
+Phase 1 unchanged) and `ReceiptDrop/ReceiptDetectionEvalView.swift` (DEBUG-only
+eval screen, reachable from Settings → Developer). The screen picks photos via
+`PhotosPicker`, which runs out of process and needs no
+`NSPhotoLibraryUsageDescription` — the point of Phase 0 is to find out whether
+the permission is worth spending, so Phase 0 must not spend it. It OCRs each
+photo at `.fast` on a 1000px downscale, scores it, and reports precision,
+recall, a full confusion matrix and median OCR time, with a threshold slider so
+`suggestedThreshold` gets picked off a curve rather than guessed.
+
+Ground truth is tagged by hand per row. Nothing is extracted, submitted, saved
+or spent anywhere in this screen.
+
+**Still to do: run it.** Feed it the receipts you want found plus ~30 ordinary
+camera-roll photos — people, pets, menus, whiteboards, business cards,
+non-receipt screenshots. Precision is the number that decides the feature;
+recall barely matters, since a miss costs nothing the user doesn't already
+have today. `test-receipts/` is all positives and cannot measure precision at
+all, which is why the screen reads the camera roll instead.
+
+One gap the eval does not cover: `PhotosPicker` yields no `PHAsset`, so the
+`.photoScreenshot` hint is passed as `false` throughout. Phase 1 reads it from
+`PHAsset.mediaSubtypes`; read these numbers as excluding that signal.
 
 **Negatives have to be supplied.** `test-receipts/` is all positives, so
 precision is currently unmeasurable. Photos of people, pets, menus,
