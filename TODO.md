@@ -172,6 +172,47 @@ Lowest priority of the set — nice, not load-bearing.
 
 ---
 
+## Parked — not onboarding
+
+Not part of "make the first scan work", and not sequenced with the numbered
+items above. Recorded here so it isn't lost.
+
+### Multi-page document scanning is already available and thrown away
+
+`DocumentScannerView.Coordinator` (`ReceiptDrop/NewReceiptView.swift:286`)
+takes `scan.imageOfPage(at: 0)` and discards every other page.
+`VNDocumentCameraViewController` — the "Scan Receipt" menu item, the same
+scanner Notes and Files use — already lets the user capture **many pages in
+one session** without leaving the camera. `VNDocumentCameraScan.pageCount`
+holds them all; we read one.
+
+So the multi-receipt capture flow is sitting unused inside an API the app
+already ships. Scan five receipts, tap Save, and they arrive as a batch —
+which is roughly what the share-sheet work has been circling, but at the
+moment of capture rather than afterwards in Photos.
+
+**What it would take:** loop `imageOfPage(at:)` over `pageCount`, hand the
+result to `BatchReceiptSubmitView` / `BatchSubmissionRunner` (which already
+take `[SharedAttachment]` and are used by the photo-picker batch path), and
+decide the one real question — whether N pages means N separate receipts or
+one multi-page receipt. Almost certainly N separate ones for this app, but a
+long restaurant bill photographed in two halves is the counter-case.
+
+**Worth doing because** the document scanner's output is materially better
+input than a plain photo: edges found, perspective corrected, background
+removed, contrast normalized. Fewer tokens per receipt and better extraction
+than "Take Photo", which hands the AI the table and your hand as well.
+
+### Minor: "Scan Receipt" and "Take Photo" are weighted equally
+
+They sit side by side in `newReceiptMenuItems` as equal choices, but the
+scanner produces distinctly better input for extraction. Making it read as
+the default is a small change. Deliberately not urgent — "Take Photo" is
+genuinely the better option on a crumpled thermal receipt whose edges the
+detector can't lock onto.
+
+---
+
 ## Explicitly not doing
 
 **No account or cloud fallback.** That is the TaxLens/Expensify model and the
