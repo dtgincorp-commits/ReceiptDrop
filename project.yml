@@ -62,6 +62,15 @@ targets:
         UIRequiresFullScreen: true
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: Used to take a photo of a receipt to submit.
+        # Declared here, not in Info.plist — see the CFBundleURLTypes note
+        # below. Required by the "Receipts Only" album feature
+        # (ReceiptAlbumService); without it iOS terminates the app the moment
+        # it asks for photo access, so a missing key here is a crash, not a
+        # degraded feature.
+        NSPhotoLibraryUsageDescription: >-
+          Lets Receipts4Tax create and read a "Receipts Only" album, so receipt
+          photos you add to it can be filed. Only photos you put in that album
+          are read, and only when you tap Import.
         # Exposes Documents/Receipts in the Files app under "On My iPhone > ReceiptDrop".
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true

@@ -37,6 +37,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Used to take a photo of a receipt to submit.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Lets Receipts4Tax create and read a "Receipts Only" album, so receipt photos you add to it can be filed. Only photos you put in that album are read, and only when you tap Import.</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchScreen</key>
