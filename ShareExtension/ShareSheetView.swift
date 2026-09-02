@@ -22,7 +22,19 @@ struct ShareSheetView: View {
     var body: some View {
         Group {
             if let attachment {
-                ReceiptSubmitView(attachment: attachment, onCancel: onCancel, onComplete: onComplete)
+                ReceiptSubmitView(
+                    attachment: attachment, onCancel: onCancel, onComplete: onComplete,
+                    onSaveForLater: { category in
+                        // Same durable local write the batch path uses, just
+                        // flagged to be read overnight instead of on next
+                        // open. No network here, so it is safe to complete
+                        // the extension immediately afterwards.
+                        SubmissionStore.enqueueHeld(
+                            data: attachment.data,
+                            category: category,
+                            kind: attachment.kind == .image ? .image : .pdf)
+                        onComplete()
+                    })
             } else if let batchAttachments {
                 ExtensionBatchSubmitView(attachments: batchAttachments, onCancel: onCancel, onComplete: onComplete)
             } else {

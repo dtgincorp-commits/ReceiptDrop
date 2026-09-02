@@ -595,7 +595,9 @@ private struct QueueRow: View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.category).font(.headline)
-                Text(entry.isPending ? "Waiting to process" : entry.error)
+                Text(entry.isPending
+                     ? (entry.isHeld ? "Waiting for tonight" : "Waiting to process")
+                     : entry.error)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -687,7 +689,14 @@ private struct QueueEntryDetailView: View {
                     // on itself (see PendingSubmissionProcessor). It'll be
                     // processed automatically next launch; Retry here just
                     // runs that same step immediately instead of waiting.
-                    Text("Not processed yet — this will run automatically the next time Receipts4Tax opens, or tap Retry to process it now.")
+                    //
+                    // A held item is the same thing on a different schedule,
+                    // and must not claim it will run on next open — that is
+                    // precisely what "Save for Later" opted out of. Retry is
+                    // the escape hatch for someone who changes their mind.
+                    Text(entry.isHeld
+                         ? "Saved for later — this will be read overnight, or tap Retry to read it now. If tonight's run doesn't happen, it's read the next time you open the app."
+                         : "Not processed yet — this will run automatically the next time Receipts4Tax opens, or tap Retry to process it now.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {

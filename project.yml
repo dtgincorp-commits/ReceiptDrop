@@ -61,6 +61,15 @@ targets:
           - UIInterfaceOrientationPortrait
         UIRequiresFullScreen: true
         ITSAppUsesNonExemptEncryption: false
+        # Overnight reading of receipts parked by the share extension's
+        # "Save for Later" (OvernightProcessingService). Declared here, not in
+        # Info.plist, which xcodegen regenerates from this file — and
+        # BGTaskScheduler throws at registration if the identifier is missing,
+        # so a dropped key here is a launch crash.
+        UIBackgroundModes:
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.datatechnologygroup.receipts4tax.overnight
         NSCameraUsageDescription: Used to take a photo of a receipt to submit.
         # Exposes Documents/Receipts in the Files app under "On My iPhone > ReceiptDrop".
         UIFileSharingEnabled: true

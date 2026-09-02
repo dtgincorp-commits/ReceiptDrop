@@ -17,9 +17,34 @@ import Foundation
 /// failing network connection or a misconfigured API key repeatedly instead
 /// of waiting for the user to notice and act.
 enum PendingSubmissionProcessor {
+    /// Foreground path. Skips entries the user parked with "Save for Later"
+    /// until they have waited out `QueueEntry.heldGracePeriod` — see
+    /// `OvernightProcessingService` for the run that is meant to catch them
+    /// first, and `heldLongEnoughToForce` for why this path still eventually
+    /// does.
     static func processPendingIfAny() {
-        let pending = SubmissionStore.loadQueue().filter(\.isPending)
-        guard !pending.isEmpty else { return }
+        processPending(SubmissionStore.loadQueue().filter {
+            $0.isPending && (!$0.isHeld || $0.heldLongEnoughToForce)
+        })
+    }
+
+    /// Overnight path: everything pending, held or not.
+    ///
+    /// `completion` fires when the queue is drained, so a `BGProcessingTask`
+    /// can call `setTaskCompleted` at the right moment — a background task
+    /// that never reports completion is killed and counts against the app's
+    /// future scheduling.
+    static func processAllPending(completion: (@Sendable () -> Void)? = nil) {
+        processPending(SubmissionStore.loadQueue().filter(\.isPending),
+                       completion: completion)
+    }
+
+    private static func processPending(_ pending: [QueueEntry],
+                                       completion: (@Sendable () -> Void)? = nil) {
+        guard !pending.isEmpty else {
+            completion?()
+            return
+        }
 
         Task.detached(priority: .utility) {
             for entry in pending {
@@ -51,6 +76,7 @@ enum PendingSubmissionProcessor {
                 }
             }
             LocalReceiptStore.drainSpoolIntoDocuments()
+            completion?()
         }
     }
 }

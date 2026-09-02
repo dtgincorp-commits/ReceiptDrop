@@ -1397,9 +1397,31 @@ struct QueueEntry: Codable, Identifiable {
     let error: String
     let timestamp: Date
     var isPending: Bool = false
+    /// Pending, but deliberately deferred: parked by the share extension's
+    /// "Save for Later" so it is read overnight rather than the next time the
+    /// app opens. Only meaningful alongside `isPending` — a genuine failure
+    /// is never held.
+    ///
+    /// A held entry is still processed on foreground once
+    /// `heldGracePeriod` has passed, because iOS decides whether background
+    /// work runs at all: the user may never charge overnight, may force-quit
+    /// the app (which stops background tasks entirely), or the system may
+    /// simply not grant time for days. Without the grace period, "later"
+    /// could mean never.
+    var isHeld: Bool = false
+
+    /// How long a held entry waits for a background run before the app gives
+    /// up and reads it on the next foreground instead.
+    static let heldGracePeriod: TimeInterval = 24 * 60 * 60
+
+    /// True when a held entry has waited long enough that it should be
+    /// processed on foreground regardless of the overnight schedule.
+    var heldLongEnoughToForce: Bool {
+        isHeld && Date().timeIntervalSince(timestamp) >= Self.heldGracePeriod
+    }
 
     init(id: UUID = UUID(), category: String, filename: String, kind: ReceiptKind,
-         error: String, timestamp: Date, isPending: Bool = false) {
+         error: String, timestamp: Date, isPending: Bool = false, isHeld: Bool = false) {
         self.id = id
         self.category = category
         self.filename = filename
@@ -1407,13 +1429,14 @@ struct QueueEntry: Codable, Identifiable {
         self.error = error
         self.timestamp = timestamp
         self.isPending = isPending
+        self.isHeld = isHeld
     }
 
     // Custom Decodable so queue entries persisted before `isPending` existed
     // (App Group UserDefaults) still decode, defaulting to `false` — i.e.
     // "genuine failure", which is what every existing entry actually is.
     private enum CodingKeys: String, CodingKey {
-        case id, category, filename, kind, error, timestamp, isPending
+        case id, category, filename, kind, error, timestamp, isPending, isHeld
     }
 
     init(from decoder: Decoder) throws {
@@ -1425,6 +1448,10 @@ struct QueueEntry: Codable, Identifiable {
         error = try container.decode(String.self, forKey: .error)
         timestamp = try container.decode(Date.self, forKey: .timestamp)
         isPending = try container.decodeIfPresent(Bool.self, forKey: .isPending) ?? false
+        // Same reasoning as `isPending` above: entries persisted before this
+        // field existed were never held, and defaulting to false keeps them
+        // processing on foreground exactly as they did before.
+        isHeld = try container.decodeIfPresent(Bool.self, forKey: .isHeld) ?? false
     }
 }
 

@@ -18,6 +18,14 @@ struct ReceiptSubmitView: View {
     let attachment: SharedAttachment
     let onCancel: () -> Void
     let onComplete: () -> Void
+    /// Supplied only by the share extension, which is the one place where
+    /// "deal with this tonight" makes sense: in the main app the user is
+    /// already here, so submitting now costs them nothing extra. Nil hides
+    /// the control entirely rather than showing a dead one.
+    ///
+    /// Receives the category the user picked — it lives in this view's own
+    /// state, so the caller has no other way to know it.
+    let onSaveForLater: ((String) -> Void)?
 
     @StateObject private var categoryStore = CategoryStore.shared
     @State private var selectedCategory: String = ""
@@ -65,10 +73,11 @@ struct ReceiptSubmitView: View {
     private let startInManualMode: Bool
 
     init(attachment: SharedAttachment, onCancel: @escaping () -> Void, onComplete: @escaping () -> Void,
-         startInManualMode: Bool = false) {
+         onSaveForLater: ((String) -> Void)? = nil, startInManualMode: Bool = false) {
         self.attachment = attachment
         self.onCancel = onCancel
         self.onComplete = onComplete
+        self.onSaveForLater = onSaveForLater
         self.startInManualMode = startInManualMode
         _proceedWithoutAI = State(initialValue: startInManualMode)
     }
@@ -525,6 +534,15 @@ struct ReceiptSubmitView: View {
                         Button("Submit", action: submit)
                             .bold()
                             .disabled(!canSubmit)
+                    }
+                    if let onSaveForLater {
+                        // Bottom bar rather than beside Submit: two
+                        // confirmation-side buttons read as equal choices,
+                        // and this one is deliberately the quieter option.
+                        ToolbarItem(placement: .bottomBar) {
+                            Button("Save for Later") { onSaveForLater(selectedCategory) }
+                                .disabled(selectedCategory.isEmpty)
+                        }
                     }
                 }
             }

@@ -41,6 +41,10 @@ struct ExtensionBatchSubmitView: View {
     private enum Phase: Equatable {
         case idle
         case saved
+        /// Parked for tonight rather than for the next app open — same
+        /// durability, different schedule, so it gets its own confirmation
+        /// wording instead of claiming the receipts are already being read.
+        case held
     }
 
     var body: some View {
@@ -59,7 +63,7 @@ struct ExtensionBatchSubmitView: View {
                                 Spacer()
                             }
                         } footer: {
-                            Text("These will be saved now and read automatically the next time you open Receipts4Tax.")
+                            Text("Save All reads these the next time you open Receipts4Tax. Save for Later reads them overnight instead, so a big batch doesn't use data or AI credits right now. Either way they're saved on your phone straight away.")
                         }
 
                         Section("Category") {
@@ -110,9 +114,15 @@ struct ExtensionBatchSubmitView: View {
         switch phase {
         case .idle:
             Button {
-                saveAll()
+                saveAll(held: false)
             } label: {
                 HStack { Spacer(); Text("Save All").bold(); Spacer() }
+            }
+            .disabled(selectedCategory.isEmpty)
+            Button {
+                saveAll(held: true)
+            } label: {
+                HStack { Spacer(); Text("Save for Later"); Spacer() }
             }
             .disabled(selectedCategory.isEmpty)
         case .saved:
@@ -120,6 +130,13 @@ struct ExtensionBatchSubmitView: View {
                 Spacer()
                 Label("\(attachments.count) receipts saved", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
+                Spacer()
+            }
+        case .held:
+            HStack {
+                Spacer()
+                Label("\(attachments.count) saved for tonight", systemImage: "moon.stars.fill")
+                    .foregroundStyle(.indigo)
                 Spacer()
             }
         }
@@ -130,7 +147,7 @@ struct ExtensionBatchSubmitView: View {
     /// end this view's lifetime — by the time `phase` flips to `.saved`,
     /// every photo is already durable, so the brief confirmation delay below
     /// is purely cosmetic, not something the data's safety depends on.
-    private func saveAll() {
+    private func saveAll(held: Bool) {
         let category = selectedCategory
         for attachment in attachments {
             let kind: ReceiptKind = attachment.kind == .image ? .image : .pdf
@@ -144,9 +161,13 @@ struct ExtensionBatchSubmitView: View {
             } else {
                 data = attachment.data
             }
-            SubmissionStore.enqueuePending(data: data, category: category, kind: kind)
+            if held {
+                SubmissionStore.enqueueHeld(data: data, category: category, kind: kind)
+            } else {
+                SubmissionStore.enqueuePending(data: data, category: category, kind: kind)
+            }
         }
-        phase = .saved
+        phase = held ? .held : .saved
         Task {
             try? await Task.sleep(nanoseconds: 500_000_000)
             onComplete()

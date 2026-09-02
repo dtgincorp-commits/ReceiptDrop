@@ -124,6 +124,22 @@ enum SubmissionStore {
         encode(items, key: AppConstants.DefaultsKeys.retryQueue)
     }
 
+    /// Parks a receipt the user asked to deal with later, rather than now.
+    ///
+    /// Identical to `enqueuePending` except that the entry is marked held, so
+    /// `PendingSubmissionProcessor` leaves it alone on foreground and the
+    /// overnight background task picks it up instead. The bytes are written
+    /// exactly the same way — "later" must not mean "less durable".
+    static func enqueueHeld(data: Data, category: String, kind: ReceiptKind) {
+        let filename = parkFile(data: data, kind: kind)
+        var items = loadQueue()
+        items.insert(
+            QueueEntry(category: category, filename: filename, kind: kind,
+                       error: "", timestamp: Date(), isPending: true, isHeld: true),
+            at: 0)
+        encode(items, key: AppConstants.DefaultsKeys.retryQueue)
+    }
+
     /// Writes `data` into the App Group's PendingReceipts folder under a
     /// fresh UUID filename, shared by `enqueue` and `enqueuePending`.
     private static func parkFile(data: Data, kind: ReceiptKind) -> String {

@@ -8,6 +8,9 @@ struct ReceiptDropApp: App {
         // Keep receipt images off iCloud/device backups — enforce, don't just
         // advise. Runs every launch so the flag survives folder recreation.
         LocalReceiptStore.excludeReceiptsFromBackup()
+        // Must happen before the app finishes launching — BGTaskScheduler
+        // rejects a registration made any later.
+        OvernightProcessingService.register()
     }
 
     var body: some Scene {
@@ -40,6 +43,10 @@ struct ReceiptDropApp: App {
                 ReceiptHashBackfillService.runOnForeground()
             case .background:
                 AutoBackupService.attemptBestEffortBackupOnBackground()
+                // Receipts parked by the share extension's "Save for Later"
+                // are read overnight rather than on next open. No-ops when
+                // nothing is held.
+                OvernightProcessingService.scheduleIfNeeded()
             case .inactive:
                 break
             @unknown default:
