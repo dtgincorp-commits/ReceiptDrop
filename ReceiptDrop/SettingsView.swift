@@ -202,8 +202,6 @@ struct SettingsView: View {
                     }
                 }
 
-                ReceiptAlbumSettingsSection()
-
                 #if DEBUG
                 // Developer-only harnesses. `BillEvalView` had no entry point
                 // at all — it was written, committed, and reachable from

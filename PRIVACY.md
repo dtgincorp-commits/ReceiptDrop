@@ -63,21 +63,7 @@ You can remove a stored key at any time in Settings.
 
 **Camera** — used only to photograph a receipt or bill when you choose to. Photos taken this way are saved to the app's own storage.
 
-**Photo Library** — used in two ways. Picking an existing image to import
-needs no permission at all: the picker runs outside the app, and the app only
-ever receives the one photo you chose.
-
-The optional "Receipts Only" album feature does need permission, because
-reading an album is not something the out-of-process picker can do. If you
-turn it on, the app asks for full photo access so it can create that album,
-see what you have put in it, and remove photos from it once they are filed.
-Photos are read only when you tap Import, only from that album, and never
-automatically. Removing a photo from the album does not delete it — it stays
-in your library. If you never create the album, the app never asks.
-
-Note that iOS offers a "Selected Photos" option for this permission. Albums
-are not visible to an app under that setting, so the album feature cannot work
-with it; the app will say so rather than appear to be broken.
+**Photo Library** — used only when you pick an existing image to import.
 
 **Contacts** — optional. If you use the "Check a Bill" quick-send feature, the app asks you to pick one recipient so later shares open a pre-addressed Messages draft. Only that person's **name and phone number** are saved, only on your device, and only to pre-fill the share. The app does not read, upload, or index your contacts. You can clear the saved recipient in Settings.
 

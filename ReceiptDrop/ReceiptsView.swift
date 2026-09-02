@@ -96,12 +96,6 @@ struct ReceiptsView: View {
     /// as you navigated away, with no way back to it short of re-merging.
     /// This is the durable, always-current replacement.
     @State private var duplicateGroups: [DuplicateDetectionService.Group] = []
-    /// How many photos are sitting unfiled in the "Receipts Only" album.
-    /// Recomputed on appear and on every foreground, since the user adds to
-    /// that album in Photos — outside this app entirely — so there is no
-    /// in-app event that would otherwise tell us it changed.
-    @State private var albumWaitingCount = 0
-    @State private var showAlbumImporter = false
 
     /// Scales the tree's row insets with the ambient text size. `@ScaledMetric`
     /// reports how far the current size is from the default, so dividing by
@@ -419,44 +413,6 @@ struct ReceiptsView: View {
         .listRowSeparator(.hidden)
     }
 
-    /// "6 receipts waiting in your album" — the album feature's only
-    /// discoverable entry point.
-    ///
-    /// Settings is where the album is created and explained, but it is the
-    /// wrong home for the recurring prompt: the whole point of the album is
-    /// that filing happens in Photos, away from this app, so the moment that
-    /// matters is the next time the user opens it. A row buried three taps
-    /// deep would mean photos sitting unfiled indefinitely.
-    ///
-    /// Shown only when the count is non-zero, so a user who never creates the
-    /// album never sees it — same rule the two banners above follow.
-    @ViewBuilder
-    private var albumImportBanner: some View {
-        if albumWaitingCount > 0 {
-            Button {
-                showAlbumImporter = true
-            } label: {
-                HStack {
-                    Image(systemName: "photo.stack.fill")
-                        .foregroundStyle(Theme.actionBlue)
-                    Text("\(albumWaitingCount) receipt\(albumWaitingCount == 1 ? "" : "s") waiting in your album")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(12)
-                .background(Theme.actionBlue.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-            .listRowSeparator(.hidden)
-        }
-    }
-
     /// Same layout as `needsReviewBanner`, purple instead of orange so the
     /// two are visually distinct at a glance — always present when
     /// `duplicateGroups` is non-empty, not just right after a merge.
@@ -629,26 +585,6 @@ struct ReceiptsView: View {
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.top, 2)
-
-                        // The empty state renders instead of the List, so
-                        // `albumImportBanner` never appears here — and this
-                        // is exactly the user who most needs it: someone who
-                        // set the album up, filled it from Photos, and has
-                        // not filed a single receipt yet. Without this they
-                        // would meet "No Receipts Yet" with their receipts
-                        // already waiting three taps away in Settings.
-                        if albumWaitingCount > 0 {
-                            Button {
-                                showAlbumImporter = true
-                            } label: {
-                                Label("\(albumWaitingCount) waiting in your album",
-                                      systemImage: "photo.stack.fill")
-                                    .font(.subheadline.weight(.medium))
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(Theme.actionBlue)
-                            .padding(.top, 10)
-                        }
                     }
                 } else if isSearching || reviewFilterActive {
                     List {
@@ -750,7 +686,6 @@ struct ReceiptsView: View {
                         if !duplicateGroups.isEmpty {
                             duplicatesBanner
                         }
-                        albumImportBanner
                         categoryPillRow
                         ForEach(flatRows(from: YearGroup.build(from: filteredEntries, groupByWorkDate: groupByWorkDate))) { row in
                             rowView(for: row)
@@ -1017,9 +952,6 @@ struct ReceiptsView: View {
         }
         .onAppear(perform: reload)
         .onChange(of: scenePhase) { if $0 == .active { reload() } }
-        .sheet(isPresented: $showAlbumImporter, onDismiss: reload) {
-            ReceiptAlbumImportView(onDone: { showAlbumImporter = false })
-        }
         .onReceive(NotificationCenter.default.publisher(for: .receiptDropDidUpdateHistory)) { _ in
             reload()
         }
@@ -1181,12 +1113,6 @@ struct ReceiptsView: View {
         commentsMap = LocalReceiptStore.commentsByReceipt(
             categories: Array(Set(entries.map(\.category))))
         duplicateGroups = DuplicateDetectionService.findGroups(in: entries)
-        // Cheap and safe to call unconditionally: it short-circuits to 0
-        // unless the user has granted full photo access *and* created the
-        // album, so it costs a permission check for everyone else and never
-        // prompts on its own — the permission is only ever requested from
-        // the explicit button in Settings.
-        albumWaitingCount = ReceiptAlbumService.pendingAssets().count
     }
 
     /// The AI-written Comments for this entry (its per-receipt summary), or
