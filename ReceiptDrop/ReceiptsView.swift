@@ -438,8 +438,7 @@ struct ReceiptsView: View {
                 receiptsNavigator.showPending()
             } label: {
                 HStack {
-                    Image(systemName: waitingSoon == 0 ? "moon.stars.fill" : "clock.fill")
-                        .foregroundStyle(waitingSoon == 0 ? .indigo : Theme.actionBlue)
+                    waitingIcons
                     Text(waitingLabel)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.primary)
@@ -456,6 +455,24 @@ struct ReceiptsView: View {
             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             .listRowSeparator(.hidden)
         }
+    }
+
+    /// A clock, plus a moon whenever anything is deferred.
+    ///
+    /// The pair carries what one symbol cannot: the clock says "queued, not
+    /// done" — deliberately not a bare checkmark, which would read as
+    /// finished — and the moon says when. The moon appears only while
+    /// something is actually waiting for the overnight run, so its absence is
+    /// meaningful too: clock alone means everything here is imminent.
+    @ViewBuilder
+    private var waitingIcons: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "clock.badge.checkmark")
+            if waitingLater > 0 {
+                Image(systemName: "moon.stars.fill")
+            }
+        }
+        .foregroundStyle(waitingSoon == 0 ? .indigo : Theme.actionBlue)
     }
 
     private var waitingLabel: String {
@@ -655,9 +672,11 @@ struct ReceiptsView: View {
                             Button {
                                 receiptsNavigator.showPending()
                             } label: {
-                                Label(waitingLabel, systemImage:
-                                        waitingSoon == 0 ? "moon.stars.fill" : "clock.fill")
-                                    .font(.subheadline.weight(.medium))
+                                HStack(spacing: 6) {
+                                    waitingIcons
+                                    Text(waitingLabel)
+                                }
+                                .font(.subheadline.weight(.medium))
                             }
                             .buttonStyle(.bordered)
                             .tint(waitingSoon == 0 ? .indigo : Theme.actionBlue)
