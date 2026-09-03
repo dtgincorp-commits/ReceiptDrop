@@ -114,21 +114,33 @@ struct ShareSheetView: View {
             startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
+    /// Title centred in the card, close button overlaid at the trailing
+    /// edge. A ZStack rather than an HStack with a Spacer: the latter centres
+    /// the title in the space *left over* beside the button, which puts it
+    /// visibly off-centre in a card this narrow.
     private var header: some View {
-        HStack {
-            Text(count == 1 ? "1 receipt" : "\(count) receipts")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.75))
-            Spacer()
-            Button(action: onCancel) {
-                Image(systemName: "xmark")
-                    .font(.footnote.weight(.bold))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .padding(7)
-                    .background(.white.opacity(0.12), in: Circle())
+        ZStack {
+            Text(count == 1 ? "Process 1 receipt" : "Process \(count) receipts")
+                .font(.headline)
+                .foregroundStyle(.white.opacity(0.9))
+                .multilineTextAlignment(.center)
+                // Keeps a long count clear of the close button rather than
+                // sliding under it.
+                .padding(.horizontal, 40)
+                .frame(maxWidth: .infinity)
+
+            HStack {
+                Spacer()
+                Button(action: onCancel) {
+                    Image(systemName: "xmark")
+                        .font(.footnote.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .padding(7)
+                        .background(.white.opacity(0.12), in: Circle())
+                }
+                .disabled(parked != nil)
+                .accessibilityLabel("Cancel")
             }
-            .disabled(parked != nil)
-            .accessibilityLabel("Cancel")
         }
     }
 
