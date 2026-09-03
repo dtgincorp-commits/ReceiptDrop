@@ -631,7 +631,7 @@ private struct QueueRow: View {
                     Text(entry.category).font(.headline)
                 }
                 Text(entry.isPending
-                     ? (entry.isHeld ? "Queued for processing later" : "Waiting to process")
+                     ? "Queued for processing"
                      : entry.error)
                     .font(.caption)
                     .foregroundStyle(.secondary)

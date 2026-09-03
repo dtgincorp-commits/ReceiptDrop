@@ -464,18 +464,16 @@ struct ReceiptsView: View {
             .foregroundStyle(waitingSoon == 0 ? .indigo : Theme.actionBlue)
     }
 
+    /// One sentence, one number, whatever the mix.
+    ///
+    /// The two waits were once spelled out separately ("2 queued for
+    /// processing, 4 for later"), which made the user parse an arithmetic
+    /// problem to learn the only thing the row is for: how much is
+    /// outstanding. `QueuedIcons`'s moon carries the when — that is what an
+    /// icon is good at — leaving the words to carry the how many.
     private var waitingLabel: String {
-        func receipts(_ n: Int) -> String { "\(n) receipt\(n == 1 ? "" : "s")" }
-        switch (waitingSoon, waitingLater) {
-        case (0, let later):
-            return "\(receipts(later)) queued for processing later"
-        case (let soon, 0):
-            return "\(receipts(soon)) queued for processing"
-        case (let soon, let later):
-            // Both kinds present: name each rather than summing them, since
-            // the counts answer different questions.
-            return "\(soon) queued for processing, \(later) for later"
-        }
+        let total = waitingSoon + waitingLater
+        return "\(total) receipt\(total == 1 ? "" : "s") queued for processing"
     }
 
     /// Same layout as `needsReviewBanner`, purple instead of orange so the
