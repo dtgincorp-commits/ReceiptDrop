@@ -96,12 +96,12 @@ struct ReceiptsView: View {
     /// as you navigated away, with no way back to it short of re-merging.
     /// This is the durable, always-current replacement.
     @State private var duplicateGroups: [DuplicateDetectionService.Group] = []
-    /// Receipts parked and not yet read: `waitingTonight` are the ones the
-    /// share extension held for the overnight run, `waitingSoon` the ones due
+    /// Receipts parked and not yet read: `waitingLater` are the ones the
+    /// share extension held for the deferred run, `waitingSoon` the ones due
     /// on this or the next foreground. Both are invisible on this screen
     /// otherwise — they aren't history entries yet — so without a banner a
     /// user has no way to know anything is in flight.
-    @State private var waitingTonight = 0
+    @State private var waitingLater = 0
     @State private var waitingSoon = 0
 
     /// Scales the tree's row insets with the ambient text size. `@ScaledMetric`
@@ -420,17 +420,20 @@ struct ReceiptsView: View {
         .listRowSeparator(.hidden)
     }
 
-    /// "4 receipts waiting for tonight" — what has been parked but not yet
-    /// read.
+    /// "4 receipts queued for processing later" — what has been parked but
+    /// not yet read.
     ///
     /// Distinguishes the two waits, because they mean different things to
     /// someone deciding whether to act: one resolves by itself in a moment,
-    /// the other not until tonight (or the grace period, if iOS never grants
-    /// a background run). Tapping opens the Pending tab, where Retry forces
-    /// either through immediately.
+    /// the other not until the deferred run (or the grace period, if iOS
+    /// never grants a background one). Says "later" rather than
+    /// "tonight" deliberately: overnight is when it is *scheduled*, not a
+    /// time iOS commits to, and a promise the app cannot keep is worse
+    /// than a vaguer one it can. Tapping opens the Pending tab, where
+    /// Retry forces either through immediately.
     @ViewBuilder
     private var waitingBanner: some View {
-        if waitingTonight + waitingSoon > 0 {
+        if waitingLater + waitingSoon > 0 {
             Button {
                 receiptsNavigator.showPending()
             } label: {
@@ -457,15 +460,15 @@ struct ReceiptsView: View {
 
     private var waitingLabel: String {
         func receipts(_ n: Int) -> String { "\(n) receipt\(n == 1 ? "" : "s")" }
-        switch (waitingSoon, waitingTonight) {
-        case (0, let tonight):
-            return "\(receipts(tonight)) waiting for tonight"
+        switch (waitingSoon, waitingLater) {
+        case (0, let later):
+            return "\(receipts(later)) queued for processing later"
         case (let soon, 0):
-            return "\(receipts(soon)) being read now"
-        case (let soon, let tonight):
+            return "\(receipts(soon)) queued for processing"
+        case (let soon, let later):
             // Both kinds present: name each rather than summing them, since
             // the counts answer different questions.
-            return "\(soon) being read now, \(tonight) waiting for tonight"
+            return "\(soon) queued for processing, \(later) for later"
         }
     }
 
@@ -648,7 +651,7 @@ struct ReceiptsView: View {
                         // first receipts came in through the share sheet and
                         // haven't been read yet. Without this they meet "No
                         // Receipts Yet" while their receipts sit in the queue.
-                        if waitingTonight + waitingSoon > 0 {
+                        if waitingLater + waitingSoon > 0 {
                             Button {
                                 receiptsNavigator.showPending()
                             } label: {
@@ -1193,8 +1196,8 @@ struct ReceiptsView: View {
         // A held entry past its grace period is no longer waiting for the
         // night — the next foreground takes it — so it counts as imminent,
         // which is what the user will actually observe.
-        waitingTonight = queued.filter { $0.isHeld && !$0.heldLongEnoughToForce }.count
-        waitingSoon = queued.count - waitingTonight
+        waitingLater = queued.filter { $0.isHeld && !$0.heldLongEnoughToForce }.count
+        waitingSoon = queued.count - waitingLater
     }
 
     /// The AI-written Comments for this entry (its per-receipt summary), or

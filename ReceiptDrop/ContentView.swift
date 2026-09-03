@@ -603,7 +603,7 @@ private struct QueueRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.category).font(.headline)
                 Text(entry.isPending
-                     ? (entry.isHeld ? "Waiting for tonight" : "Waiting to process")
+                     ? (entry.isHeld ? "Queued for processing later" : "Waiting to process")
                      : entry.error)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -702,7 +702,7 @@ private struct QueueEntryDetailView: View {
                     // precisely what "Save for Later" opted out of. Retry is
                     // the escape hatch for someone who changes their mind.
                     Text(entry.isHeld
-                         ? "Saved for later — this will be read overnight, or tap Retry to read it now. If tonight's run doesn't happen, it's read the next time you open the app."
+                         ? "Queued for later — this is scheduled to be processed overnight, or tap Retry to process it now. If the overnight run doesn't happen, it's processed the next time you open the app."
                          : "Not processed yet — this will run automatically the next time Receipts4Tax opens, or tap Retry to process it now.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
