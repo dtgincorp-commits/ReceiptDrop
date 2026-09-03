@@ -45,6 +45,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var receiptsNavigator = ReceiptsNavigator.shared
     @State private var selectedTab = 0
+    @State private var queueCount = 0
     @State private var showBackupReminder = false
     @State private var showConnectAI = false
     @State private var caseVariantHealMessage = ""
@@ -70,6 +71,12 @@ struct ContentView: View {
                 // Same reasoning as Receipt Date over Work Date (TODO item 2):
                 // the internal name stays, the label speaks the user's words.
                 .tabItem { Label("Pending", systemImage: "arrow.clockwise") }
+                // The count, so a user who never opens this tab still knows
+                // something is waiting in it. Counts everything in the queue,
+                // failures included — a failed receipt needs attention at
+                // least as much as a queued one, and a badge that hid them
+                // would be quietly wrong.
+                .badge(queueCount)
                 .tag(2)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gear") }
@@ -89,12 +96,19 @@ struct ContentView: View {
             healCaseVariantFolders()
             showBackupReminder = BackupSettings.isReminderDue()
             maybeShowAISetup()
+            refreshQueueCount()
+        }
+        // Fires as each queued receipt finishes, so the badge counts down
+        // while the user watches rather than only on the next foreground.
+        .onReceive(NotificationCenter.default.publisher(for: .receiptDropDidUpdateHistory)) { _ in
+            refreshQueueCount()
         }
         .onChange(of: scenePhase) {
             if $0 == .active {
                 LocalReceiptStore.drainSpoolIntoDocuments()
                 healCaseVariantFolders()
                 showBackupReminder = BackupSettings.isReminderDue()
+                refreshQueueCount()
             }
         }
         .alert("Back up your receipts?", isPresented: $showBackupReminder) {
@@ -122,6 +136,10 @@ struct ContentView: View {
             selectedTab = tab
             receiptsNavigator.selectedTab = nil
         }
+    }
+
+    private func refreshQueueCount() {
+        queueCount = SubmissionStore.loadQueue().count
     }
 
     /// Must run only after `drainSpoolIntoDocuments()` — spooled files that
@@ -601,7 +619,17 @@ private struct QueueRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text(entry.category).font(.headline)
+                HStack(spacing: 6) {
+                    // Only for entries actually waiting. A genuine failure
+                    // keeps its plain heading — it is not queued for
+                    // anything, and a clock beside it would say it is.
+                    if entry.isPending {
+                        QueuedIcons(includesDeferred: entry.isHeld && !entry.heldLongEnoughToForce)
+                            .font(.caption)
+                            .foregroundStyle(entry.isHeld ? .indigo : Color.accentColor)
+                    }
+                    Text(entry.category).font(.headline)
+                }
                 Text(entry.isPending
                      ? (entry.isHeld ? "Queued for processing later" : "Waiting to process")
                      : entry.error)

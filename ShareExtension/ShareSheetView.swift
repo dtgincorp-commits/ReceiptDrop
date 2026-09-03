@@ -230,8 +230,13 @@ struct ShareSheetView: View {
         // failed to load.
         let isOvernight = result.isOvernight
         VStack(spacing: 10) {
-            Image(systemName: isOvernight ? "moon.stars.fill" : "checkmark.circle.fill")
-                .font(.system(size: 32))
+            // The same pair the app's Receipts banner and Pending list
+            // use (QueuedIcons), so what the user is shown here is what they
+            // will recognise in the app a moment later. Both cases are
+            // queued — neither has been read yet — so both keep the clock;
+            // only the moon differs.
+            QueuedIcons(includesDeferred: isOvernight)
+                .font(.system(size: 30))
                 .foregroundStyle(isOvernight
                                  ? Color(red: 0.62, green: 0.55, blue: 1.0)
                                  : Color(red: 0.30, green: 0.85, blue: 0.55))

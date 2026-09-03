@@ -457,22 +457,11 @@ struct ReceiptsView: View {
         }
     }
 
-    /// A clock, plus a moon whenever anything is deferred.
-    ///
-    /// The pair carries what one symbol cannot: the clock says "queued, not
-    /// done" — deliberately not a bare checkmark, which would read as
-    /// finished — and the moon says when. The moon appears only while
-    /// something is actually waiting for the overnight run, so its absence is
-    /// meaningful too: clock alone means everything here is imminent.
-    @ViewBuilder
+    /// See `QueuedIcons` — shared with the Pending list and the share
+    /// extension so the same pair means the same thing everywhere.
     private var waitingIcons: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "clock.badge.checkmark")
-            if waitingLater > 0 {
-                Image(systemName: "moon.stars.fill")
-            }
-        }
-        .foregroundStyle(waitingSoon == 0 ? .indigo : Theme.actionBlue)
+        QueuedIcons(includesDeferred: waitingLater > 0)
+            .foregroundStyle(waitingSoon == 0 ? .indigo : Theme.actionBlue)
     }
 
     private var waitingLabel: String {
