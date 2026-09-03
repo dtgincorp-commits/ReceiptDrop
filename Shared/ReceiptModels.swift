@@ -313,12 +313,36 @@ struct ExtractedReceipt {
             // so guessing which one is "the" total risks writing a
             // different wrong figure into a tax record. Flag only.
             //
-            // An empty detector result means "this receipt's amount format
-            // wasn't recognized," not "the model invented it" — same
-            // reasoning as the date guardrail's empty-detector case.
+            // An empty detector result used to skip this check entirely, on
+            // the reasoning that "no amounts found" means the format wasn't
+            // recognized rather than that the model invented one. That left
+            // the guardrail switched off in exactly the case where invention
+            // is most likely — an image with no amount anywhere on it.
+            //
+            // Found by photographing the document-scanner screen itself: the
+            // model returned $142.51, which is not a coincidence and was not
+            // free invention. It was the literal example value from this
+            // app's own prompt ("e.g. 142.51", FoundationModelsService's
+            // amount @Guide), echoed back because there was nothing to read.
+            // Almost certainly the same cause as the original $142.51 case
+            // AMOUNT_GUARDRAIL_PLAN.md records. The prompt no longer uses a
+            // memorable number, and this no longer stays silent.
             let printed = ReceiptAmountDetector.amounts(in: sourceText)
             let normalizedAmount = String(format: "%.2f", amountValue)
-            if !printed.isEmpty && !printed.contains(normalizedAmount) {
+            //
+            // Gated on the same length rule the date guardrail uses: an
+            // empty `sourceText`, or a fragment of one, means OCR failed or
+            // the render did — not that the image had no amount on it.
+            // Flagging that would mark every receipt from a provider that
+            // supplies no text, and every bad photo, for review.
+            if printed.isEmpty,
+               sourceText.trimmingCharacters(in: .whitespacesAndNewlines).count
+                >= minimumSourceTextLengthForNoDateRejection {
+                needsReview = true
+                if reason.isEmpty {
+                    reason = "No amount could be found on this image — please check $\(amount)."
+                }
+            } else if !printed.isEmpty, !printed.contains(normalizedAmount) {
                 needsReview = true
                 if reason.isEmpty {
                     reason = "Amount $\(amount) isn't printed on this receipt — please check it."

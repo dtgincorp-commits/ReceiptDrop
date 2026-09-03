@@ -745,6 +745,15 @@ final class ExtractionLogicTests: XCTestCase {
         // Detector finds nothing (unusual/unsupported format) — that means
         // "can't verify," not "the model is wrong." Punishing correct reads
         // on unusual receipts would be worse than not checking at all.
+        //
+        // Narrowed since: this holds only while `sourceText` is too short to
+        // read as a document (see
+        // `minimumSourceTextLengthForNoDateRejection`). A *full* page of
+        // recognized text containing no currency-shaped figure anywhere is
+        // now flagged, because that is what a photographed non-receipt looks
+        // like — see `AmountWithNoPrintedAmountsTests`. The fixture below is
+        // deliberately short, and that is load-bearing rather than
+        // incidental.
         let r = ExtractedReceipt.build(
             vendor: "Some Shop", rawWorkDate: recentDate, amount: "10.00",
             comments: "", rawVendorType: "retail",
@@ -1717,5 +1726,77 @@ final class NonTransactionDateTests: XCTestCase {
         XCTAssertFalse(ReceiptDateDetector.namesNonTransactionDate("Reborn Coffee"))
         XCTAssertFalse(ReceiptDateDetector.namesNonTransactionDate("Doborn Ltd"))
         XCTAssertFalse(ReceiptDateDetector.namesNonTransactionDate("TOTAL $12.00"))
+    }
+}
+
+/// Covers the amount cross-check when the image contains no amounts at all —
+/// the case that used to pass silently.
+///
+/// Found by photographing the document-scanner screen itself: OCR read its
+/// button labels ("Flash Filters Shutter") as a vendor, and the model
+/// returned $142.51 — the literal example value from this app's own prompt
+/// (`FoundationModelsService`'s amount `@Guide`), echoed back because there
+/// was nothing to read. Almost certainly the same cause as the original
+/// $142.51 failure recorded in AMOUNT_GUARDRAIL_PLAN.md.
+///
+/// Every fixture here uses a valid printed date, so the date guardrail can't
+/// be what trips `needsReview` — the amount rule is what's under test.
+final class AmountWithNoPrintedAmountsTests: XCTestCase {
+
+    /// Long enough to clear `minimumSourceTextLengthForNoDateRejection`, i.e.
+    /// to read as a document OCR genuinely processed rather than a failed
+    /// pass — and containing a date, but no currency amount anywhere.
+    private let screenshotOfACameraUI = """
+    3:51 Yesterday 2026-03-20 Position the document in view
+    Cancel Flash Filters Shutter Photos Library Recents Albums Done
+    """
+
+    func testAnAmountIsFlaggedWhenReadableTextShowsNoAmountsAtAll() {
+        let receipt = ExtractedReceipt.build(
+            vendor: "Flash Filters Shutter", rawWorkDate: "2026-03-20", amount: "142.51",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: screenshotOfACameraUI)
+
+        XCTAssertTrue(receipt.needsReview,
+                      "An amount returned for an image with no amounts on it must be flagged.")
+        XCTAssertFalse(receipt.reviewReason.isEmpty)
+    }
+
+    func testAnAmountPrintedOnTheReceiptIsStillNotFlagged() {
+        // The obvious over-correction: this must not flag every receipt whose
+        // amount the detector did find.
+        let receipt = ExtractedReceipt.build(
+            vendor: "Monteras", rawWorkDate: "2026-03-20", amount: "14.66",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false, modelReason: "",
+            sourceText: """
+            MONTERAS CAFE 3333 Bristol Street, Costa Mesa CA 92626
+            2026-03-20 SUBTOTAL 13.45 SALES TAX 1.21 TOTAL $14.66 VISA
+            """)
+
+        XCTAssertFalse(receipt.needsReview, receipt.reviewReason)
+    }
+
+    func testShortOrEmptySourceTextIsNotTreatedAsAnAbsentAmount() {
+        // OCR failing, or a provider that supplies no text at all, means "we
+        // have nothing to check against" — not "the image had no amount".
+        // Flagging these would mark every receipt from such a provider, and
+        // every bad photo, for review.
+        for text in ["", "blur", "TOTAL"] {
+            let receipt = ExtractedReceipt.build(
+                vendor: "Monteras", rawWorkDate: "2026-03-20", amount: "14.66",
+                comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+                modelReason: "", sourceText: text)
+            XCTAssertFalse(receipt.needsReview,
+                           "sourceText \"\(text)\" is a failed read, not an absent amount: \(receipt.reviewReason)")
+        }
+    }
+
+    func testNoSourceTextAtAllSkipsTheCrossCheck() {
+        let receipt = ExtractedReceipt.build(
+            vendor: "Monteras", rawWorkDate: "2026-03-20", amount: "14.66",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: nil)
+
+        XCTAssertFalse(receipt.needsReview, receipt.reviewReason)
     }
 }
