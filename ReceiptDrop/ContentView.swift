@@ -32,6 +32,13 @@ final class ReceiptsNavigator: ObservableObject {
         pendingCategoryFilter = category
         selectedTab = 0
     }
+
+    /// The Pending tab (tag 2) — where parked receipts wait, and where the
+    /// user can force one through with Retry rather than waiting for
+    /// tonight's run.
+    func showPending() {
+        selectedTab = 2
+    }
 }
 
 struct ContentView: View {

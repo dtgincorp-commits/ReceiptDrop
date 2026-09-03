@@ -96,6 +96,13 @@ struct ReceiptsView: View {
     /// as you navigated away, with no way back to it short of re-merging.
     /// This is the durable, always-current replacement.
     @State private var duplicateGroups: [DuplicateDetectionService.Group] = []
+    /// Receipts parked and not yet read: `waitingTonight` are the ones the
+    /// share extension held for the overnight run, `waitingSoon` the ones due
+    /// on this or the next foreground. Both are invisible on this screen
+    /// otherwise — they aren't history entries yet — so without a banner a
+    /// user has no way to know anything is in flight.
+    @State private var waitingTonight = 0
+    @State private var waitingSoon = 0
 
     /// Scales the tree's row insets with the ambient text size. `@ScaledMetric`
     /// reports how far the current size is from the default, so dividing by
@@ -413,6 +420,55 @@ struct ReceiptsView: View {
         .listRowSeparator(.hidden)
     }
 
+    /// "4 receipts waiting for tonight" — what has been parked but not yet
+    /// read.
+    ///
+    /// Distinguishes the two waits, because they mean different things to
+    /// someone deciding whether to act: one resolves by itself in a moment,
+    /// the other not until tonight (or the grace period, if iOS never grants
+    /// a background run). Tapping opens the Pending tab, where Retry forces
+    /// either through immediately.
+    @ViewBuilder
+    private var waitingBanner: some View {
+        if waitingTonight + waitingSoon > 0 {
+            Button {
+                receiptsNavigator.showPending()
+            } label: {
+                HStack {
+                    Image(systemName: waitingSoon == 0 ? "moon.stars.fill" : "clock.fill")
+                        .foregroundStyle(waitingSoon == 0 ? .indigo : Theme.actionBlue)
+                    Text(waitingLabel)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .background((waitingSoon == 0 ? Color.indigo : Theme.actionBlue).opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            .listRowSeparator(.hidden)
+        }
+    }
+
+    private var waitingLabel: String {
+        func receipts(_ n: Int) -> String { "\(n) receipt\(n == 1 ? "" : "s")" }
+        switch (waitingSoon, waitingTonight) {
+        case (0, let tonight):
+            return "\(receipts(tonight)) waiting for tonight"
+        case (let soon, 0):
+            return "\(receipts(soon)) being read now"
+        case (let soon, let tonight):
+            // Both kinds present: name each rather than summing them, since
+            // the counts answer different questions.
+            return "\(soon) being read now, \(tonight) waiting for tonight"
+        }
+    }
+
     /// Same layout as `needsReviewBanner`, purple instead of orange so the
     /// two are visually distinct at a glance — always present when
     /// `duplicateGroups` is non-empty, not just right after a merge.
@@ -585,6 +641,25 @@ struct ReceiptsView: View {
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.top, 2)
+
+                        // The empty state renders instead of the List, so
+                        // `waitingBanner` never appears here — and this is
+                        // exactly the user who most needs it: someone whose
+                        // first receipts came in through the share sheet and
+                        // haven't been read yet. Without this they meet "No
+                        // Receipts Yet" while their receipts sit in the queue.
+                        if waitingTonight + waitingSoon > 0 {
+                            Button {
+                                receiptsNavigator.showPending()
+                            } label: {
+                                Label(waitingLabel, systemImage:
+                                        waitingSoon == 0 ? "moon.stars.fill" : "clock.fill")
+                                    .font(.subheadline.weight(.medium))
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(waitingSoon == 0 ? .indigo : Theme.actionBlue)
+                            .padding(.top, 10)
+                        }
                     }
                 } else if isSearching || reviewFilterActive {
                     List {
@@ -686,6 +761,7 @@ struct ReceiptsView: View {
                         if !duplicateGroups.isEmpty {
                             duplicatesBanner
                         }
+                        waitingBanner
                         categoryPillRow
                         ForEach(flatRows(from: YearGroup.build(from: filteredEntries, groupByWorkDate: groupByWorkDate))) { row in
                             rowView(for: row)
@@ -1113,6 +1189,12 @@ struct ReceiptsView: View {
         commentsMap = LocalReceiptStore.commentsByReceipt(
             categories: Array(Set(entries.map(\.category))))
         duplicateGroups = DuplicateDetectionService.findGroups(in: entries)
+        let queued = SubmissionStore.loadQueue().filter(\.isPending)
+        // A held entry past its grace period is no longer waiting for the
+        // night — the next foreground takes it — so it counts as imminent,
+        // which is what the user will actually observe.
+        waitingTonight = queued.filter { $0.isHeld && !$0.heldLongEnoughToForce }.count
+        waitingSoon = queued.count - waitingTonight
     }
 
     /// The AI-written Comments for this entry (its per-receipt summary), or
