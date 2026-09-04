@@ -146,7 +146,7 @@ struct ShareSheetView: View {
 
     /// Two tiles, side by side, no explanatory text under either.
     ///
-    /// The wording carries the whole difference — "Now" against "Tonight" —
+    /// The wording carries the whole difference — "Now" against "Later" —
     /// because anything longer is something to read, and this screen exists
     /// to be answered without reading. What each one does precisely is in the
     /// app's queue, where the user can act on it; here it would only slow the
@@ -156,7 +156,7 @@ struct ShareSheetView: View {
             choiceTile(title: "Now", icon: "bolt.fill",
                        tint: Color(red: 0.30, green: 0.72, blue: 1.0),
                        action: readNow)
-            choiceTile(title: "Tonight", icon: "moon.stars.fill",
+            choiceTile(title: "Later", icon: "moon.stars.fill",
                        tint: Color(red: 0.62, green: 0.55, blue: 1.0),
                        action: readOvernight)
         }
@@ -240,7 +240,7 @@ struct ShareSheetView: View {
                 .foregroundStyle(isOvernight
                                  ? Color(red: 0.62, green: 0.55, blue: 1.0)
                                  : Color(red: 0.30, green: 0.85, blue: 0.55))
-            Text(isOvernight ? "Saved for tonight" : "Saved")
+            Text(isOvernight ? "Saved for later" : "Saved")
                 .font(.headline)
                 .foregroundStyle(.white)
         }
