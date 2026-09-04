@@ -30,6 +30,7 @@
 		22D8A781125DF11A585649F7 /* BillItemizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F671CC05560D0329CB8D2F /* BillItemizationService.swift */; };
 		264DFAA6B9F7093E17F0C285 /* ReceiptHashBackfillService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C3764C1A5A44BD4C06230FE /* ReceiptHashBackfillService.swift */; };
 		2758563DD364D2869806A2C4 /* TorchPreferenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF53CB390C89FC9984BDC13 /* TorchPreferenceStore.swift */; };
+		2A318A2464EDCBE57695364C /* DeterministicFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14E7A6E75E13317A92540AC4 /* DeterministicFallbackTests.swift */; };
 		2B49F9F5E944FE86389D3C10 /* CameraPermissionPrimingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73AC06E4421B3B7CA2D9CDF9 /* CameraPermissionPrimingTests.swift */; };
 		2BD92C8F060343A02A106B45 /* ReceiptDetectionEvalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 588D4BE73A224F115F3AEA37 /* ReceiptDetectionEvalView.swift */; };
 		2CAE2204791C62216D81F2DE /* ClaudeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7730A1380B462CC48DB1C5E /* ClaudeService.swift */; };
@@ -182,6 +183,7 @@
 		0C3764C1A5A44BD4C06230FE /* ReceiptHashBackfillService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptHashBackfillService.swift; sourceTree = "<group>"; };
 		0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AzureDocumentIntelligenceService.swift; sourceTree = "<group>"; };
 		1382CDDFE7302436FCD876C7 /* PhotoPickerTip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoPickerTip.swift; sourceTree = "<group>"; };
+		14E7A6E75E13317A92540AC4 /* DeterministicFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeterministicFallbackTests.swift; sourceTree = "<group>"; };
 		1A93982D67223B82A377969E /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		1E9F98C3A8C057A179F0CBE1 /* ManualEntryOCRPrefillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualEntryOCRPrefillTests.swift; sourceTree = "<group>"; };
 		2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptDateDetector.swift; sourceTree = "<group>"; };
@@ -291,6 +293,7 @@
 				6D5D15E75C57846F860C9D3B /* AttachmentThumbnailTests.swift */,
 				73AC06E4421B3B7CA2D9CDF9 /* CameraPermissionPrimingTests.swift */,
 				3F2D0A26164BC1EB50AC9510 /* CategoriesViewTests.swift */,
+				14E7A6E75E13317A92540AC4 /* DeterministicFallbackTests.swift */,
 				7388B59DE9B18D379CB272D2 /* DuplicateDetectionIdenticalFileTests.swift */,
 				E83B99BED2895734ED701F6F /* DuplicateGroupingTests.swift */,
 				FC78B1AAC3FBFF71578F7ECE /* ExtractionEvalHarnessTests.swift */,
@@ -688,6 +691,7 @@
 				390DB692A79E23CA647F6C80 /* AttachmentThumbnailTests.swift in Sources */,
 				2B49F9F5E944FE86389D3C10 /* CameraPermissionPrimingTests.swift in Sources */,
 				E20C16E9ECEDB4D1F9D8706A /* CategoriesViewTests.swift in Sources */,
+				2A318A2464EDCBE57695364C /* DeterministicFallbackTests.swift in Sources */,
 				AA3442B6991750EC95C83B8F /* DuplicateDetectionIdenticalFileTests.swift in Sources */,
 				B295BDC75E8F7CFDCF68B913 /* DuplicateGroupingTests.swift in Sources */,
 				A98335142AB411013D2A67F2 /* ExtractionEvalHarnessTests.swift in Sources */,

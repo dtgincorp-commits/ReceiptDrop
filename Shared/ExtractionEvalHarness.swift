@@ -102,10 +102,29 @@ enum ExtractionEvalHarness {
         let a = normalizedVendor(expected)
         let b = normalizedVendor(got)
         guard !a.isEmpty, !b.isEmpty else { return a == b }
+        if a == b { return true }
         // A fragment must not pass by containment alone — "sul" is inside
         // nothing here, but "a" would be inside almost everything.
-        guard min(a.count, b.count) >= 4 else { return a == b }
-        return a == b || a.contains(b) || b.contains(a)
+        guard min(a.count, b.count) >= 4 else { return false }
+        if a.contains(b) || b.contains(a) { return true }
+
+        // Word overlap, because containment alone scored "Felipe Monteras
+        // Tree Trimming" against "Felipe Monteras tree trimmer" as WRONG in
+        // the first fixture run — the model had read the receipt correctly
+        // and the scorer said otherwise. A scorer that reports false
+        // failures is worse than no scorer: it sends you looking for bugs
+        // that are not there.
+        //
+        // Two-thirds of the shorter name's words must match, so a shared
+        // first name or a common word cannot carry it: "Felipe Monteras
+        // Tree" and "Felipe Sanchez Landscaping" share one word of three
+        // and still score wrong.
+        let wordsA = Set(a.split(separator: " ").map(String.init))
+        let wordsB = Set(b.split(separator: " ").map(String.init))
+        let shared = wordsA.intersection(wordsB).count
+        let smaller = min(wordsA.count, wordsB.count)
+        guard smaller >= 2 else { return false }
+        return Double(shared) / Double(smaller) >= 0.66
     }
 
     static func normalizedVendor(_ value: String) -> String {

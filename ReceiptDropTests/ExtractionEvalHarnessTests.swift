@@ -54,6 +54,23 @@ final class ExtractionEvalHarnessTests: XCTestCase {
         XCTAssertFalse(ExtractionEvalHarness.vendorMatches(expected: "NAAN AND KABOB LLC", got: ""))
     }
 
+    func testWordOverlapForgivesAnInflectedWord() {
+        // From the first fixture run: the model said "Felipe Monteras Tree
+        // Trimming", the log says "Felipe Monteras tree trimmer". The model
+        // read the receipt correctly and the scorer called it wrong, which
+        // sends you hunting a bug that is not there.
+        XCTAssertTrue(ExtractionEvalHarness.vendorMatches(
+            expected: "Felipe Monteras tree trimmer", got: "Felipe Monteras Tree Trimming"))
+    }
+
+    func testWordOverlapDoesNotForgiveADifferentBusiness() {
+        // Sharing a first name must not be enough.
+        XCTAssertFalse(ExtractionEvalHarness.vendorMatches(
+            expected: "Felipe Monteras Tree", got: "Felipe Sanchez Landscaping"))
+        XCTAssertFalse(ExtractionEvalHarness.vendorMatches(
+            expected: "Floor & decor - Tile supplier", got: "Santorini Tile"))
+    }
+
     func testAShortFragmentCannotPassByContainment() {
         // "co" normalizes away as a suffix, but a two-letter fragment like
         // "an" is inside "Naan and Kabob" — containment alone would score it
@@ -93,10 +110,14 @@ final class ExtractionEvalHarnessTests: XCTestCase {
                 vendor: "Sul", rawWorkDate: "2026-09-03", amount: "13.48", comments: "",
                 rawVendorType: "", modelReportedLowConfidence: true, modelReason: "unclear total"),
             seconds: 1)
+        // Wrong but plausible-looking, so nothing flags it — "Santorini
+        // Tile" is a real miss from the fixture run. Deliberately not "Sul"
+        // any more: the jargon guardrail now catches that, which is exactly
+        // what it is for, and this test needs a case that still gets through.
         let wrongAndSilent = ExtractionEvalHarness.score(
             truth: truth,
             extracted: ExtractedReceipt.build(
-                vendor: "Sul", rawWorkDate: "2026-09-03", amount: "13.48", comments: "",
+                vendor: "Santorini Tile", rawWorkDate: "2026-09-03", amount: "13.48", comments: "",
                 rawVendorType: "", modelReportedLowConfidence: false, modelReason: ""),
             seconds: 1)
 

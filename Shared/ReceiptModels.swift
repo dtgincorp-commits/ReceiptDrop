@@ -226,6 +226,40 @@ struct ExtractedReceipt {
     /// as a fragment rather than a document regardless of what it contains.
     static let minimumSourceTextLengthForNoDateRejection = 60
 
+    /// Whether a vendor string is receipt furniture rather than a business
+    /// name — payment-processing words, or a fragment too short to be one.
+    ///
+    /// Deliberately a small, literal list rather than anything clever. It has
+    /// to be wrong in only one direction: a real business called "Total
+    /// Fitness" must not be rejected, so matching is whole-string, not
+    /// substring, and multi-word names are left alone entirely.
+    static func looksLikeReceiptJargon(_ vendor: String) -> Bool {
+        let normalized = vendor
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "[^a-z ]", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        guard !normalized.isEmpty else { return false }
+
+        // "CRE", "Sul" — no business name is three letters of one word. A
+        // multi-word answer is left alone whatever it says: brevity is only
+        // suspicious when there is nothing else to go on.
+        let words = normalized.split(separator: " ")
+        if words.count == 1 && normalized.count <= 3 { return true }
+
+        let jargon: Set<String> = [
+            "credit card", "credit voucher", "debit card", "visa sale", "visa",
+            "mastercard", "amex", "american express", "discover",
+            "merchant", "merchant copy", "customer copy", "cardholder",
+            "approval", "approval code", "auth code", "chip read", "contactless",
+            "subtotal", "sub total", "total", "grand total", "amount due",
+            "sales tax", "tax", "tip", "gratuity", "change due", "cash",
+            "receipt", "invoice", "order", "thank you", "sale", "refund",
+            "prime checking", "checking", "savings", "transaction",
+        ]
+        return jargon.contains(normalized)
+    }
+
     /// Today, in the sheet's date format — what an absurd or unreadable date
     /// falls back to.
     static func todayString() -> String {
@@ -292,9 +326,43 @@ struct ExtractedReceipt {
                       sourceText: String? = nil) -> ExtractedReceipt {
         var needsReview = modelReportedLowConfidence
         var reason = modelReason
+        var resolvedVendor = vendor
         if vendor.isEmpty {
             needsReview = true
             if reason.isEmpty { reason = "Vendor name missing" }
+        } else if looksLikeReceiptJargon(vendor) {
+            // Same precedence as the date branches below: deterministic text
+            // beats model inference, and a name the model plainly did not
+            // read off the top of the receipt is worse than no name at all,
+            // because it looks plausible in a tax record and never gets a
+            // second glance.
+            //
+            // Real cases, all from one photo of a NAAN AND KABOB card slip:
+            // "CRE" (from CREDIT VOUCHER) and, on two later runs, "Sul"
+            // (from Sub-total) — both belonging to a second receipt at the
+            // edge of the frame.
+            //
+            // ManualEntryOCRPrefill.likelyVendorLine is the right substitute
+            // precisely because it is conservative: it prefers a printed
+            // email domain, rejects digit-heavy lines and addresses, and
+            // returns nil rather than guess. When it does answer, it has
+            // earned it — and its answer is checked against the same jargon
+            // test, so one heuristic cannot hand another its own mistake.
+            needsReview = true
+            if let sourceText,
+               let better = ManualEntryOCRPrefill.likelyVendorLine(in: sourceText),
+               !looksLikeReceiptJargon(better) {
+                resolvedVendor = better
+                if reason.isEmpty {
+                    reason = "Vendor read as \"\(better)\" from the receipt itself, not \"\(vendor)\" — please confirm."
+                }
+            } else if reason.isEmpty {
+                // Nothing better to offer, so the model's answer stands —
+                // but flagged, which is the whole point. Never silently
+                // replaced by a blank: the user can still see what was read
+                // and correct it.
+                reason = "\"\(vendor)\" doesn't look like a business name — please check it."
+            }
         }
         if amount.isEmpty || Double(amount) == nil || Double(amount) == 0 {
             needsReview = true
@@ -475,13 +543,50 @@ struct ExtractedReceipt {
             }
         } else {
             needsReview = true
+            // The model gave nothing usable. Before falling back to today,
+            // ask the deterministic detector what is actually printed — the
+            // same precedence the corrected-date branch above already
+            // applies ("deterministic text beats model inference"), just
+            // extended to the case where the model offered no inference at
+            // all. It was never consulted here, so a date the app could see
+            // was thrown away in favour of today's.
+            //
+            // Measured: on the 15 fixture receipts, Apple On-Device produced
+            // no usable date 8 times out of 12, every one of which landed
+            // here.
+            //
+            // Only an unambiguous single date is taken, exactly as above.
+            // Several printed dates with no model answer to arbitrate is
+            // genuine ambiguity, and guessing between them would write a
+            // confident wrong date into a tax record — the failure this
+            // whole function exists to prevent.
+            var recovered = false
+            if let sourceText,
+               !ReceiptDateDetector.containsExcludedNonTransactionDate(in: sourceText) {
+                let printed = ReceiptDateDetector.dates(in: sourceText)
+                if printed.count == 1 {
+                    let formatter = DateFormatter()
+                    formatter.locale = Locale(identifier: "en_US_POSIX")
+                    formatter.dateFormat = AppConstants.sheetDateFormat
+                    resolvedWorkDate = formatter.string(from: printed[0])
+                    recovered = true
+                    if reason.isEmpty {
+                        reason = "Date read as \(resolvedWorkDate) from the receipt itself — please confirm."
+                    }
+                }
+            }
+
             // Include the actual string the AI returned (when there was one)
             // so a future "why didn't this parse?" is answerable by reading
             // the review reason instead of re-scanning and guessing. Both
             // branches end in "defaulted to today" — callers that need to
             // detect this case (the "set the date" prompt) match on that
             // suffix rather than the exact string, so this stays compatible.
-            if reason.isEmpty {
+            // A recovered date deliberately does NOT end that way: the app
+            // now has a real answer, so the prompt asking the user to supply
+            // one would be asking for something it already has. It stays
+            // flagged either way.
+            if reason.isEmpty && !recovered {
                 reason = rawWorkDate.isEmpty
                     ? "Date unreadable, defaulted to today"
                     : "Couldn't parse date: \"\(rawWorkDate)\" — defaulted to today"
@@ -492,7 +597,7 @@ struct ExtractedReceipt {
         // silently corrupt it.
         let resolvedVendorType = VendorTypeToken.resolve(rawVendorType) ?? ""
         return ExtractedReceipt(
-            vendor: vendor,
+            vendor: resolvedVendor,
             workDate: resolvedWorkDate,
             amount: amount,
             comments: comments,
