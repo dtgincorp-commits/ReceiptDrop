@@ -180,23 +180,33 @@ struct ShareSheetView: View {
     }
 
     /// The category, small and quiet. Visible so a receipt is never silently
-    /// misfiled, tappable so it can be fixed, and sized so nobody feels
-    /// obliged to think about it.
+    /// misfiled, and tappable so it can be fixed.
+    ///
+    /// Legible rather than whispered: at 65% white on a caption it read as
+    /// disabled text, and a receipt filed into the wrong category is a wrong
+    /// tax record. It still sits below the two tiles and stays a capsule, so
+    /// it reads as a setting being reported rather than a third choice
+    /// competing with Now and Later.
     private var categoryChip: some View {
         Button {
             showCategoryPicker = true
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "folder.fill").font(.caption2)
+            HStack(spacing: 6) {
+                Image(systemName: "folder.fill").font(.caption)
                 Text(category)
-                    .font(.caption.weight(.medium))
+                    .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.6))
             }
-            .foregroundStyle(.white.opacity(0.65))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(.white.opacity(0.1), in: Capsule())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(.white.opacity(0.18), in: Capsule())
+            // A hairline edge so the capsule keeps its shape against the
+            // card's lighter top-left gradient corner, where an 18% fill
+            // alone nearly disappears.
+            .overlay(Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
