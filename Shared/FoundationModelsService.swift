@@ -53,7 +53,15 @@ enum FoundationModelsError: LocalizedError {
 @available(iOS 26.0, *)
 @Generable
 struct ReceiptDraft {
-    @Guide(description: "The contractor or vendor / business name on the receipt. Empty string if not present.")
+    // Hardened after a NAAN AND KABOB card slip came back as "CRE" and, on
+    // two later runs of the same photo, "Sul" — fragments of CREDIT VOUCHER
+    // and Sub(total) belonging to a second receipt intruding at the left
+    // edge of the frame. The model was not reading the receipt's structure
+    // at all; it was picking large, high-contrast tokens. This guide was one
+    // sentence while the amount guide beside it had been hardened three
+    // times, and that asymmetry was the whole difference: nothing here told
+    // it where a business name lives or what one is not.
+    @Guide(description: "The business or contractor name, normally printed at the very TOP of the receipt, above the address. It is a real business name — a proper noun, usually two or more words or a recognisable brand. NEVER use payment or processing text such as 'CREDIT CARD', 'VISA SALE', 'CREDIT VOUCHER', 'MERCHANT', 'APPROVAL', 'CHIP READ', 'SUBTOTAL' or 'TOTAL', and never a truncated fragment of a word. If more than one receipt appears in the image, use the one that is fully visible and in focus. Empty string if no business name is clearly readable — never guess, and never fall back to whatever text is largest.")
     var vendor: String
 
     // Deliberately asks for the raw printed date rather than yyyy-MM-dd (the
@@ -67,7 +75,13 @@ struct ReceiptDraft {
     @Guide(description: "The primary date on the receipt, copied exactly as printed (e.g. \"07/24/26\", \"8/8/26 2:29 PM\", \"March 3, 2026\" — whatever format is shown, do not convert or reformat it yourself). Empty string if none is clearly shown — never guess or invent one, and never use today's date.")
     var workDate: String
 
-    @Guide(description: "The GRAND TOTAL at the very bottom of the receipt — the final amount owed, appearing AFTER the subtotal and tax lines, usually labeled 'Total', 'Grand Total', or 'Amount Due'. NEVER use an individual line-item food or drink price, no matter how large. Plain number, no currency symbol, formatted like 1234.56. Empty string if the bottom-of-receipt total is not found — never guess or invent an amount, and never copy the format example above as if it were a real figure.")
+    // The gratuity-guidelines clause is not hypothetical: a card slip whose
+    // TOTAL AMOUNT line was left blank (tip never filled in) came back with
+    // $13.48 — the 15% suggestion printed at the foot of the slip — while
+    // the correct figure, PRE-TIP AMT $89.93, sat three lines above it. A
+    // blank total is precisely when the model starts shopping for a nearby
+    // number, so that is the case worth naming explicitly.
+    @Guide(description: "The GRAND TOTAL at the very bottom of the receipt — the final amount owed, appearing AFTER the subtotal and tax lines, usually labeled 'Total', 'Grand Total', or 'Amount Due'. NEVER use an individual line-item food or drink price, no matter how large. NEVER use a figure from a tip or gratuity suggestion table (lines like '15% = $13.48' or '20% = $17.98') — those are suggestions, not the amount owed. If the total line is printed but left blank because no tip was written in, use the pre-tip amount instead (a line labelled 'PRE-TIP AMT', 'Subtotal' plus tax, or similar). Plain number, no currency symbol, formatted like 1234.56. Empty string if the bottom-of-receipt total is not found — never guess or invent an amount, and never copy the format example above as if it were a real figure.")
     var amount: String
 
     @Guide(description: "A short, specific note about what was purchased or the receipt's purpose.")
