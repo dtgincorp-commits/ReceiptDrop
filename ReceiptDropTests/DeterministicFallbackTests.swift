@@ -71,17 +71,32 @@ final class DeterministicFallbackTests: XCTestCase {
         XCTAssertTrue(receipt.reviewReason.contains("defaulted to today"))
     }
 
+    // MARK: - Provider capability
+
+    func testOnlyAppleOnDeviceIsTextOnly() {
+        // The full-image retry in SubmissionPipeline.extractWithFallback is
+        // meaningless against a provider that never looks at the image, and
+        // keeping its result discarded a perfectly good first attempt.
+        XCTAssertFalse(ExtractionProvider.appleOnDevice.seesTheImage)
+        for provider in ExtractionProvider.allCases where provider != .appleOnDevice {
+            XCTAssertTrue(provider.seesTheImage, provider.displayName)
+        }
+    }
+
     // MARK: - Vendor
 
     func testJargonIsRecognisedAndPlainNamesAreNot() {
         for jargon in ["CRE", "Sul", "CREDIT CARD", "Visa Sale", "SUBTOTAL",
-                       "Merchant Copy", "PRIME CHECKING"] {
+                       "Merchant Copy", "PRIME CHECKING", "Manager", "Server",
+                       "Table", "Check"] {
             XCTAssertTrue(ExtractedReceipt.looksLikeReceiptJargon(jargon), jargon)
         }
         // Must be wrong in only one direction — a real business whose name
         // contains a receipt word has to survive.
         for name in ["Total Fitness", "Naan and Kabob LLC", "Eureka!",
-                     "Cash Converters", "Tax Advisors Group", "IKEA"] {
+                     "Cash Converters", "Tax Advisors Group", "IKEA",
+                     "Manager's Special Deli", "The Bar Method",
+                     "Checkers Drive-In"] {
             XCTAssertFalse(ExtractedReceipt.looksLikeReceiptJargon(name), name)
         }
     }

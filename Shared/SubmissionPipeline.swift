@@ -184,7 +184,27 @@ struct SubmissionPipeline {
 
         let fromText = try await extractor.extract(ocrText: ocrText, categoryContext: categoryContext)
         guard fromText.needsReview else { return fromText }
-        return (try? await extractor.extract(data: data, kind: kind, categoryContext: categoryContext)) ?? fromText
+
+        // The retry is only worth making against a provider that will
+        // actually look at the image. Apple On-Device is text-only — its
+        // extract(data:) runs Vision OCR and re-enters this same text path —
+        // so retrying there is not a second, better-informed attempt. It is
+        // the identical attempt with a fresh random sample, and the code
+        // below used to keep that sample unconditionally, discarding the
+        // first result for no reason. The same photo of one card slip
+        // produced $187.91, then $46.94, then $102.31 on consecutive scans;
+        // this is where the dice were being rolled twice and the second roll
+        // kept.
+        guard effectiveProvider.seesTheImage else { return fromText }
+
+        // Keep the retry only if it is actually better. "Second attempt" is
+        // not a synonym for "more correct": if the image pass comes back
+        // flagged and the text pass was too, there is nothing to choose
+        // between them, and preferring the newer one is arbitrary. Prefer an
+        // unflagged result; otherwise stay with what we had.
+        guard let fromImage = try? await extractor.extract(
+            data: data, kind: kind, categoryContext: categoryContext) else { return fromText }
+        return fromImage.needsReview ? fromText : fromImage
     }
 
     /// Records a receipt with no photo/PDF attached — the user typed the

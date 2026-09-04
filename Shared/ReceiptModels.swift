@@ -256,6 +256,11 @@ struct ExtractedReceipt {
             "sales tax", "tax", "tip", "gratuity", "change due", "cash",
             "receipt", "invoice", "order", "thank you", "sale", "refund",
             "prime checking", "checking", "savings", "transaction",
+            // Staff and table furniture, from the itemized restaurant slip
+            // behind the card slip: "Manager: THU" came back as the vendor
+            // on a fourth scan of the same photo.
+            "manager", "server", "cashier", "host", "hostess", "waiter",
+            "table", "guest", "guests", "check", "bar", "dine in", "take out",
         ]
         return jargon.contains(normalized)
     }
@@ -715,6 +720,23 @@ enum ExtractionProvider: String, Codable, CaseIterable, Identifiable {
     /// that *can* run Apple On-Device hits the same accuracy problem, and an
     /// older iPhone can't select it in the first place.
     var supportsBillItemization: Bool {
+        self != .appleOnDevice
+    }
+
+    /// Whether this provider actually looks at the image, or only ever sees
+    /// on-device OCR text.
+    ///
+    /// Apple On-Device is text-only: `FoundationModelsService.extract(data:)`
+    /// runs Vision OCR and hands the result to the same text path
+    /// `extract(ocrText:)` uses. So "send the full image instead" is not a
+    /// different attempt for it — it is the identical attempt with a fresh
+    /// random sample, which is why the same photo produced $187.91, then
+    /// $46.94, then $102.31 on consecutive scans.
+    ///
+    /// `SubmissionPipeline.extractWithFallback` uses this to decide whether
+    /// its full-image retry means anything. Azure Document Intelligence reads
+    /// the document directly; the cloud LLMs are all vision models.
+    var seesTheImage: Bool {
         self != .appleOnDevice
     }
 }
