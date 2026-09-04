@@ -226,6 +226,54 @@ struct ExtractedReceipt {
     /// as a fragment rather than a document regardless of what it contains.
     static let minimumSourceTextLengthForNoDateRejection = 60
 
+    /// Whether a vendor name appears where a business name is actually
+    /// printed: at the top of the receipt, above the address.
+    ///
+    /// A generalisation of the hand-written jargon list below, and a better
+    /// test than the two obvious ones. "Is it a noun?" fails — Manager, Sub,
+    /// Credit and Total are all nouns, and those were the actual wrong
+    /// answers. "Is it a proper noun rather than a common word?" fails the
+    /// other way — Apple, Target, Shell and Chase are real vendors and
+    /// ordinary words. Position separates them cleanly: a business name is
+    /// at the top, receipt furniture is not.
+    ///
+    /// Same shape as the amount cross-check — is this actually printed where
+    /// it should be? — and, like it, returns true (no objection) whenever
+    /// there is not enough text to judge, so a provider that supplies no OCR
+    /// text is unaffected.
+    static func appearsNearTheTop(_ vendor: String, of sourceText: String?) -> Bool {
+        guard let sourceText,
+              sourceText.trimmingCharacters(in: .whitespacesAndNewlines).count
+                >= minimumSourceTextLengthForNoDateRejection
+        else { return true }
+
+        let lines = sourceText
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard lines.count > topLinesForVendor else { return true }
+
+        // Generous: the top eighth of the receipt, and never fewer than six
+        // lines. A name can sit under a logo, a phone number or a store
+        // number, and OCR on a crumpled slip reorders more than you would
+        // like. This is meant to catch text from the middle and bottom, not
+        // to police the exact line.
+        let window = max(topLinesForVendor, lines.count / 8)
+        let top = lines.prefix(window).joined(separator: " ").lowercased()
+        let needle = vendor.lowercased().trimmingCharacters(in: .whitespaces)
+
+        // Matched on the first significant word rather than the whole
+        // string, since the model routinely returns a tidied-up form
+        // ("Naan and Kabob" for "NAAN AND KABOB LLC") that no longer matches
+        // the printed text verbatim.
+        guard let firstWord = needle.split(separator: " ").first(where: { $0.count >= 3 })
+        else { return true }
+        return top.contains(firstWord)
+    }
+
+    /// Floor for the top-of-receipt window — see `appearsNearTheTop`.
+    static let topLinesForVendor = 6
+
     /// Whether a vendor string is receipt furniture rather than a business
     /// name — payment-processing words, or a fragment too short to be one.
     ///
@@ -335,7 +383,7 @@ struct ExtractedReceipt {
         if vendor.isEmpty {
             needsReview = true
             if reason.isEmpty { reason = "Vendor name missing" }
-        } else if looksLikeReceiptJargon(vendor) {
+        } else if looksLikeReceiptJargon(vendor) || !appearsNearTheTop(vendor, of: sourceText) {
             // Same precedence as the date branches below: deterministic text
             // beats model inference, and a name the model plainly did not
             // read off the top of the receipt is worse than no name at all,

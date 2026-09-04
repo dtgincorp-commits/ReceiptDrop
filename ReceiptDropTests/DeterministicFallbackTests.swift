@@ -71,6 +71,94 @@ final class DeterministicFallbackTests: XCTestCase {
         XCTAssertTrue(receipt.reviewReason.contains("defaulted to today"))
     }
 
+    // MARK: - Vendor position
+
+    /// A real restaurant slip: business name at the top, staff and totals
+    /// far below. Long enough to clear the minimum-text gate.
+    private let fullSlip = """
+    NAAN AND KABOB LLC
+    416 E 1ST ST
+    TUSTIN, CA 92780
+    09/03/2026  18:26:34
+    MID: XXXXXXXXXXXX023
+    CREDIT CARD
+    VISA SALE
+    Manager: THU
+    Sub-total  82.11
+    Tax  7.82
+    PRE-TIP AMT  $89.93
+    TOTAL AMOUNT
+    Gratuity Guidelines 15% = $13.48
+    CREDIT VOUCHER
+    """
+
+    func testANameFromTheTopIsAccepted() {
+        XCTAssertTrue(ExtractedReceipt.appearsNearTheTop("NAAN AND KABOB LLC", of: fullSlip))
+        // The tidied-up form the model usually returns still matches, since
+        // comparison is on the first significant word.
+        XCTAssertTrue(ExtractedReceipt.appearsNearTheTop("Naan and Kabob", of: fullSlip))
+    }
+
+    func testTextFromLowerDownIsRejected() {
+        // Wrong vendors from four scans of one photo. All nouns, which is
+        // why a part-of-speech test would have passed every one of them.
+        for wrong in ["Manager", "Sub-total", "Gratuity"] {
+            XCTAssertFalse(ExtractedReceipt.appearsNearTheTop(wrong, of: fullSlip), wrong)
+        }
+    }
+
+    func testThePositionalCheckAndTheJargonListCoverDifferentGround() {
+        // "CREDIT VOUCHER" is printed at the FOOT of the slip, but the words
+        // "CREDIT CARD" appear in the header block — so position alone
+        // accepts it. The jargon list is what catches it, and this is why
+        // both checks exist rather than one.
+        XCTAssertTrue(ExtractedReceipt.appearsNearTheTop("CREDIT VOUCHER", of: fullSlip))
+        XCTAssertTrue(ExtractedReceipt.looksLikeReceiptJargon("CREDIT VOUCHER"))
+
+        let receipt = ExtractedReceipt.build(
+            vendor: "CREDIT VOUCHER", rawWorkDate: "2026-09-03", amount: "89.93",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: fullSlip)
+        XCTAssertTrue(receipt.needsReview)
+    }
+
+    func testAOneWordDictionaryBrandAtTheTopIsAccepted() {
+        // The case that rules out "is it a proper noun?" as the test: Apple,
+        // Target, Shell and Chase are real vendors and ordinary words. They
+        // pass because of where they are printed, not what they mean.
+        let appleStore = """
+        Apple
+        The Grove, 189 The Grove Drive
+        Los Angeles, CA 90036
+        09/03/2026
+        Order Number W1234567
+        Subtotal 999.00
+        Sales Tax 89.91
+        Manager approved
+        TOTAL 1088.91
+        """
+        XCTAssertTrue(ExtractedReceipt.appearsNearTheTop("Apple", of: appleStore))
+        XCTAssertFalse(ExtractedReceipt.appearsNearTheTop("Manager", of: appleStore))
+    }
+
+    func testShortOrMissingTextRaisesNoObjection() {
+        // Same rule as every other cross-check here: with too little text to
+        // judge, say nothing rather than flag everything.
+        XCTAssertTrue(ExtractedReceipt.appearsNearTheTop("Anything", of: nil))
+        XCTAssertTrue(ExtractedReceipt.appearsNearTheTop("Anything", of: "blurry"))
+    }
+
+    func testAVendorFromLowerDownIsFlaggedEndToEnd() {
+        let receipt = ExtractedReceipt.build(
+            vendor: "Manager", rawWorkDate: "2026-09-03", amount: "89.93", comments: "",
+            rawVendorType: "", modelReportedLowConfidence: false, modelReason: "",
+            sourceText: fullSlip)
+
+        XCTAssertTrue(receipt.needsReview)
+        XCTAssertNotEqual(receipt.vendor, "Manager",
+                          "The deterministic read from the top of the receipt should win.")
+    }
+
     // MARK: - Provider capability
 
     func testOnlyAppleOnDeviceIsTextOnly() {
