@@ -41,11 +41,21 @@ final class DeterministicFallbackTests: XCTestCase {
         XCTAssertTrue(receipt.needsReview, "A recovered date is still unverified — it must stay flagged.")
     }
 
-    func testAmbiguousDatesStillDefaultToTodayRatherThanGuessing() {
-        // Two dates printed and no model answer to arbitrate between them.
-        // Picking one would write a confident wrong date into a tax record.
+    func testTheFirstPrintedDateWinsWhenSeveralAreShown() {
+        // Deliberately changed. This test used to assert that several dates
+        // meant "default to today", on the principle that picking one would
+        // be guessing. The fixture run showed that principle made the whole
+        // fallback dead code — real receipts nearly always carry more than
+        // one date-shaped string, so it never fired and all 8 date failures
+        // still stored today.
+        //
+        // The choice here is not between a printed date and the model's
+        // date; there is no model date. It is between the first printed date
+        // and *today's*, which is certainly wrong. The transaction date is
+        // the first date printed on almost every receipt, and the result
+        // stays flagged, so the user still confirms.
         let twoDates = """
-        SOME STORE, 100 MAIN ST
+        SOME STORE, 100 MAIN ST, ANYTOWN CA 90210
         Ordered: 01/04/2026
         Delivered: 02/09/2026
         TOTAL $42.00
@@ -55,8 +65,25 @@ final class DeterministicFallbackTests: XCTestCase {
             rawVendorType: "", modelReportedLowConfidence: false, modelReason: "",
             sourceText: twoDates)
 
+        XCTAssertEqual(receipt.workDate, "2026-01-04")
+        XCTAssertTrue(receipt.needsReview, "A recovered date is still unconfirmed.")
+    }
+
+    func testNoPrintedDateAtAllStillDefaultsToTodayWithThePromptSuffix() {
+        // The suffix other screens match on to raise the set-the-date
+        // prompt. With nothing printed there is genuinely nothing to
+        // recover, and that path must keep working.
+        let noDates = """
+        SOME STORE, 100 MAIN ST, ANYTOWN CA 90210
+        THANK YOU FOR YOUR CUSTOM
+        TOTAL $42.00
+        """
+        let receipt = ExtractedReceipt.build(
+            vendor: "Some Store", rawWorkDate: "", amount: "42.00", comments: "",
+            rawVendorType: "", modelReportedLowConfidence: false, modelReason: "",
+            sourceText: noDates)
+
         XCTAssertEqual(receipt.workDate, ExtractedReceipt.todayString())
-        XCTAssertTrue(receipt.needsReview)
         XCTAssertTrue(receipt.reviewReason.contains("defaulted to today"),
                       "Callers raise the set-the-date prompt off that suffix: \(receipt.reviewReason)")
     }
@@ -149,6 +176,7 @@ final class DeterministicFallbackTests: XCTestCase {
     }
 
     func testAVendorFromLowerDownIsFlaggedEndToEnd() {
+        // "Manager" is jargon as well as mispositioned, so it is replaced.
         let receipt = ExtractedReceipt.build(
             vendor: "Manager", rawWorkDate: "2026-09-03", amount: "89.93", comments: "",
             rawVendorType: "", modelReportedLowConfidence: false, modelReason: "",
@@ -157,6 +185,34 @@ final class DeterministicFallbackTests: XCTestCase {
         XCTAssertTrue(receipt.needsReview)
         XCTAssertNotEqual(receipt.vendor, "Manager",
                           "The deterministic read from the top of the receipt should win.")
+    }
+
+    func testAMispositionedButPlausibleNameIsFlaggedAndKept() {
+        // The regression this pins. A plausible business name that simply
+        // isn't at the top — an emailed receipt, a payment-app screenshot —
+        // must be flagged but LEFT ALONE. Substituting on this signal alone
+        // turned a correct "Felipe Monteras Tree Trimming" into the chat
+        // chrome "Q Need help?" on the fixture set.
+        let emailedReceipt = """
+        Inbox
+        Q Need help?
+        All set!
+        Mail · Today at 09:14
+        To: neeraj@example.com
+        Reply  Forward  Archive
+        Thanks for your business, see the details below.
+        Your receipt from Felipe Monteras Tree Trimming
+        Service date 07/17/2026
+        Amount charged $200.00
+        """
+        let receipt = ExtractedReceipt.build(
+            vendor: "Felipe Monteras Tree Trimming", rawWorkDate: "2026-07-17",
+            amount: "200.00", comments: "", rawVendorType: "",
+            modelReportedLowConfidence: false, modelReason: "", sourceText: emailedReceipt)
+
+        XCTAssertEqual(receipt.vendor, "Felipe Monteras Tree Trimming",
+                       "A plausible name must not be replaced just for sitting below a header.")
+        XCTAssertTrue(receipt.needsReview)
     }
 
     // MARK: - Provider capability

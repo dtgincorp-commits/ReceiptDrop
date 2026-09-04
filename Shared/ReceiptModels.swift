@@ -383,7 +383,7 @@ struct ExtractedReceipt {
         if vendor.isEmpty {
             needsReview = true
             if reason.isEmpty { reason = "Vendor name missing" }
-        } else if looksLikeReceiptJargon(vendor) || !appearsNearTheTop(vendor, of: sourceText) {
+        } else if looksLikeReceiptJargon(vendor) {
             // Same precedence as the date branches below: deterministic text
             // beats model inference, and a name the model plainly did not
             // read off the top of the receipt is worse than no name at all,
@@ -404,7 +404,15 @@ struct ExtractedReceipt {
             needsReview = true
             if let sourceText,
                let better = ManualEntryOCRPrefill.likelyVendorLine(in: sourceText),
-               !looksLikeReceiptJargon(better) {
+               !looksLikeReceiptJargon(better),
+               // The substitute has to clear the same bar as the answer it
+               // replaces. Measured the hard way: substituting on a weaker
+               // test turned a CORRECT "Felipe Monteras Tree Trimming" into
+               // "Q Need help?", and produced "All set!" and "< Inbox" on
+               // two others — chat and mail chrome that likelyVendorLine
+               // happily returns from a screenshot, and that the jargon list
+               // knows nothing about.
+               appearsNearTheTop(better, of: sourceText) {
                 resolvedVendor = better
                 if reason.isEmpty {
                     reason = "Vendor read as \"\(better)\" from the receipt itself, not \"\(vendor)\" — please confirm."
@@ -415,6 +423,19 @@ struct ExtractedReceipt {
                 // replaced by a blank: the user can still see what was read
                 // and correct it.
                 reason = "\"\(vendor)\" doesn't look like a business name — please check it."
+            }
+        } else if !appearsNearTheTop(vendor, of: sourceText) {
+            // Flag only, never substitute. A vendor printed somewhere other
+            // than the top is suspicious, but it is a much weaker signal
+            // than outright jargon: emailed receipts, payment-app
+            // screenshots and invoices routinely put the business name
+            // below a header, and on those the deterministic reader has
+            // nothing better to offer — it returns the app's own chrome.
+            // Replacing a plausible name on this signal alone lost a
+            // correct answer in testing.
+            needsReview = true
+            if reason.isEmpty {
+                reason = "\"\(vendor)\" isn't printed at the top of this receipt — please check it."
             }
         }
         if amount.isEmpty || Double(amount) == nil || Double(amount) == 0 {
@@ -616,12 +637,24 @@ struct ExtractedReceipt {
             var recovered = false
             if let sourceText,
                !ReceiptDateDetector.containsExcludedNonTransactionDate(in: sourceText) {
+                // The first date in the text, not the only one. Requiring
+                // exactly one made this dead code: real receipts carry
+                // several date-shaped strings (card expiry, "valid until",
+                // times misread as dates), so on the fixture set it never
+                // fired once and all 8 failures still stored today.
+                //
+                // Taking the first is defensible where correcting a wrong
+                // answer would not be. The alternative here is not the
+                // model's date — there isn't one — it is *today's*, which is
+                // certainly wrong. The first date printed is where the
+                // transaction date lives on almost every receipt, and the
+                // result is flagged either way, so the user still confirms.
                 let printed = ReceiptDateDetector.dates(in: sourceText)
-                if printed.count == 1 {
+                if let first = printed.first {
                     let formatter = DateFormatter()
                     formatter.locale = Locale(identifier: "en_US_POSIX")
                     formatter.dateFormat = AppConstants.sheetDateFormat
-                    resolvedWorkDate = formatter.string(from: printed[0])
+                    resolvedWorkDate = formatter.string(from: first)
                     recovered = true
                     if reason.isEmpty {
                         reason = "Date read as \(resolvedWorkDate) from the receipt itself — please confirm."
