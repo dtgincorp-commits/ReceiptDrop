@@ -62,6 +62,7 @@ enum AppConstants {
         static let appTextSize = "appTextSize"                  // per-app text size override; see AppTextSize
         static let appCurrency = "appCurrency"                  // display currency; see AppCurrency
         static let lastUsedCategory = "lastUsedCategory"        // share extension's default; see LastUsedCategoryStore
+        static let hasSeenPhotoPickerTip = "hasSeenPhotoPickerTip"  // one-time multi-select tip; see PhotoPickerTip
     }
 
     /// Date format written to the Work_Date column.

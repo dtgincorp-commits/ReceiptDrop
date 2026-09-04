@@ -542,7 +542,12 @@ struct ReceiptsView: View {
         Button {
             newReceiptSource = .library
         } label: {
-            Label("Choose from Library", systemImage: "photo.on.rectangle")
+            // "Photos", plural, and a stacked symbol: the menu is the only
+            // place to signal that several receipts can come in at once,
+            // since SwiftUI menu rows render as native UIMenu items and
+            // ignore font and colour modifiers entirely — wording and symbol
+            // are the only emphasis available here.
+            Label("Choose Photos — Pick Several", systemImage: "photo.stack")
         }
         Button {
             newReceiptSource = .file

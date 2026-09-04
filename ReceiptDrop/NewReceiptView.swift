@@ -34,6 +34,7 @@ struct NewReceiptView: View {
     /// place that decides whether to prime first; see
     /// `CameraPermissionPriming.swift`.
     @State private var showCameraPriming = false
+    @State private var showPhotoPickerTip = false
     @State private var pendingCameraPresentation: (() -> Void)?
     @State private var showPhotoPicker = false
     @State private var showFileImporter = false
@@ -103,6 +104,15 @@ struct NewReceiptView: View {
                 showCameraPriming = false
                 pendingCameraPresentation?()
                 pendingCameraPresentation = nil
+            }
+        }
+        .fullScreenCover(isPresented: $showPhotoPickerTip) {
+            PhotoPickerTipView {
+                // Marked seen on Continue rather than on appear: someone who
+                // kills the app mid-tip should meet it once more, not never.
+                markPhotoPickerTipSeen()
+                showPhotoPickerTip = false
+                showPhotoPicker = true
             }
         }
         .fullScreenCover(isPresented: $showCamera) {
@@ -200,7 +210,15 @@ struct NewReceiptView: View {
             case .camera: presentCameraTrigger { showCamera = true }
             case .scanDocument: presentCameraTrigger { showDocumentScanner = true }
             case .scanText: presentCameraTrigger { showTextScanner = true }
-            case .library: showPhotoPicker = true
+            case .library:
+                // The tip has to land before the picker opens — nothing can
+                // be shown inside it, and afterwards is too late. See
+                // PhotoPickerTipView.
+                if shouldShowPhotoPickerTip() {
+                    showPhotoPickerTip = true
+                } else {
+                    showPhotoPicker = true
+                }
             case .file: showFileImporter = true
             case .manual: showManualEntry = true
             }
