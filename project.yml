@@ -29,6 +29,23 @@ targets:
       - Shared
     dependencies:
       - target: ShareExtension
+    # Copies the hand-verified fixtures in test-receipts/ into the app bundle
+    # for DEBUG builds only, where ExtractionEvalView scores extraction
+    # against their *_log.csv ground truth. 18MB of the developer's own
+    # receipts has no business in a shipped binary, and XcodeGen has no
+    # per-configuration `resources`, so the guard is in the script itself.
+    postBuildScripts:
+      - name: Bundle eval fixtures (Debug only)
+        script: |
+          if [ "$CONFIGURATION" = "Debug" ]; then
+            DEST="$BUILT_PRODUCTS_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/TestReceipts"
+            rm -rf "$DEST"
+            mkdir -p "$DEST"
+            cp "$SRCROOT/test-receipts/"*.jpg "$DEST/" 2>/dev/null || true
+            cp "$SRCROOT/test-receipts/"*.pdf "$DEST/" 2>/dev/null || true
+            cp "$SRCROOT/test-receipts/"*_log.csv "$DEST/" 2>/dev/null || true
+          fi
+        basedOnDependencyAnalysis: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.datatechnologygroup.receipts4tax

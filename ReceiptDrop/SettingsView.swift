@@ -214,6 +214,11 @@ struct SettingsView: View {
                         Label("Receipt Detection Eval", systemImage: "scope")
                     }
                     NavigationLink {
+                        ExtractionEvalView()
+                    } label: {
+                        Label("Extraction Eval", systemImage: "checklist")
+                    }
+                    NavigationLink {
                         BillEvalView()
                     } label: {
                         Label("Bill Itemization Eval", systemImage: "list.number")

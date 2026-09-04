@@ -162,7 +162,13 @@ struct SubmissionPipeline {
     /// the phone"), and `forcedProvider` accepts any `ExtractionProvider`, so
     /// the check has to hold for whatever's effectively selected rather than
     /// trusting every future caller to only ever force `.appleOnDevice`.
-    private static func extractWithFallback(data: Data, kind: ReceiptKind, categoryContext: String,
+    /// Internal rather than private so `ExtractionEvalHarness` can score the
+    /// real extraction path — OCR-first attempt, needs-review retry on the
+    /// full image, provider dispatch and all — rather than a reimplementation
+    /// of it that could drift. Everything `run` does around this (duplicate
+    /// checks, file save, CSV append, history) is deliberately not reachable
+    /// from there: an eval must never write a receipt.
+    static func extractWithFallback(data: Data, kind: ReceiptKind, categoryContext: String,
                                               forcedProvider: ExtractionProvider? = nil) async throws -> ExtractedReceipt {
         let effectiveProvider = forcedProvider ?? ExtractionSettings.provider
         try ExtractionSettings.assertProviderAllowed(effectiveProvider)
