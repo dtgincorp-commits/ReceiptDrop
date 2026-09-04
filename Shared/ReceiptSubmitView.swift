@@ -78,6 +78,11 @@ struct ReceiptSubmitView: View {
         _selectedCategory = State(initialValue: initialCategory ?? "")
     }
 
+    /// True once `offerThePrintedAmount` has replaced the model's rejected
+    /// figure with one actually printed on the receipt, so the prompt can
+    /// say which of the two the user is looking at.
+    @State private var amountCameFromReceipt = false
+
     /// True while on-device OCR (`prefillManualFieldsFromOCR`) is running,
     /// so the Details section can show a lightweight spinner instead of
     /// silently populating fields out from under someone who's already
@@ -564,6 +569,32 @@ struct ReceiptSubmitView: View {
     /// must never block or crash the manual-entry path that exists
     /// precisely so people without any AI configured can still save a
     /// receipt.
+    /// Replaces the rejected amount with what the receipt actually shows,
+    /// when on-device OCR can find it.
+    ///
+    /// The deterministic reader is not a worse extractor than the model
+    /// here — it is a better one. On the receipt that motivated this it read
+    /// $89.93 correctly on the same photo the model twice invented a figure
+    /// for. Its answer is only ever *offered*, never saved unseen: the user
+    /// still taps Save Amount, which is what keeps this on the right side of
+    /// "flag, never auto-correct" for amounts.
+    ///
+    /// Costs one extra OCR pass, but only on the rare path where extraction
+    /// has already failed its own cross-check.
+    private func offerThePrintedAmount() async {
+        guard let text = try? await VisionOCRService.recognizeText(in: attachment.data),
+              let printed = ManualEntryOCRPrefill.likelyGrandTotal(in: text)
+        else { return }
+        // Don't stomp on someone who has already started typing — same rule
+        // prefillManualFieldsFromOCR follows.
+        // SubmitState carries associated values and isn't Equatable, so
+        // pattern-match rather than compare.
+        guard case .needsAmount = submitState,
+              pickedAmount == pendingAmountEntry?.amount else { return }
+        pickedAmount = printed
+        amountCameFromReceipt = true
+    }
+
     private func prefillManualFieldsFromOCR() async {
         guard !ExtractionSettings.aiConfigured || proceedWithoutAI else { return }
 
@@ -754,7 +785,9 @@ struct ReceiptSubmitView: View {
                 Label("Couldn't read the amount on this receipt", systemImage: "exclamationmark.circle")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.orange)
-                Text("The amount saved doesn't appear on the receipt. Check it below, or take a clearer photo — Scan Receipt usually reads far better than Take Photo.")
+                Text(amountCameFromReceipt
+                     ? "The AI's amount doesn't appear on the receipt, so this is the total read from the receipt itself. Check it against the photo, then save."
+                     : "The amount saved doesn't appear on the receipt. Check it below, or take a clearer photo — Scan Receipt usually reads far better than Take Photo.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
@@ -986,8 +1019,17 @@ struct ReceiptSubmitView: View {
         } else if entry.verificationStatus == .needsReview,
                   entry.reviewReason.contains(Self.amountNotPrintedMarker) {
             pendingAmountEntry = entry
+            // Seeded with the model's number only as a last resort. The app
+            // has just established this figure is NOT printed on the
+            // receipt, so offering it as the prefilled answer invites the
+            // user to confirm the very thing the guardrail rejected — which
+            // is what happened on a NAAN AND KABOB slip: $187.91 on one run
+            // and $46.94 on the next, neither anywhere on the paper, each
+            // sitting under a Save button.
             pickedAmount = entry.amount
+            amountCameFromReceipt = false
             submitState = .needsAmount
+            Task { await offerThePrintedAmount() }
         } else {
             // The one unambiguous "it worked" in the app. Fired here rather
             // than at each call site because this is the shared funnel — see
