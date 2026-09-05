@@ -380,6 +380,7 @@ struct ExtractedReceipt {
         var needsReview = modelReportedLowConfidence
         var reason = modelReason
         var resolvedVendor = vendor
+        var resolvedAmount = amount
         if vendor.isEmpty {
             needsReview = true
             if reason.isEmpty { reason = "Vendor name missing" }
@@ -486,8 +487,54 @@ struct ExtractedReceipt {
                 }
             } else if !printed.isEmpty, !printed.contains(normalizedAmount) {
                 needsReview = true
-                if reason.isEmpty {
+
+                // The model's figure is provably not on this receipt, so
+                // there is no case for keeping it over one that is. This is
+                // narrower than "guess the total", which the comment above
+                // rightly rejects: the substitute must be a figure the
+                // detector actually found printed, and it only ever replaces
+                // an answer already shown to be absent.
+                //
+                // The evidence for allowing it at all: on one NAAN AND KABOB
+                // card slip, Apple On-Device produced $13.48 (a gratuity
+                // suggestion), then $100.41, $134.48, $187.91, $46.94,
+                // $102.31 and $46 (a SEQ number) across seven scans, while
+                // ManualEntryOCRPrefill read $89.93 correctly every time
+                // from the same OCR text. Claude, which sees the image, also
+                // read $89.93 first time.
+                //
+                // Still flagged, always: this improves the stored figure, it
+                // does not verify it.
+                if let candidate = ManualEntryOCRPrefill.likelyGrandTotal(in: sourceText),
+                   let candidateValue = Double(candidate),
+                   printed.contains(String(format: "%.2f", candidateValue)),
+                   candidateValue != amountValue {
+                    resolvedAmount = candidate
+                    if reason.isEmpty {
+                        reason = "Amount read as $\(candidate) from the receipt — $\(amount) isn't printed on it. Please confirm."
+                    }
+                } else if reason.isEmpty {
                     reason = "Amount $\(amount) isn't printed on this receipt — please check it."
+                }
+            } else if !printed.isEmpty,
+                      let candidate = ManualEntryOCRPrefill.likelyGrandTotal(in: sourceText),
+                      let candidateValue = Double(candidate),
+                      abs(candidateValue - amountValue) >= 0.005 {
+                // The model's figure IS printed — it just may not be the
+                // total. This is the gratuity-table case: on a card slip
+                // whose TOTAL AMOUNT line is blank, "15% = $13.48" is
+                // printed, so the not-printed check above passes it
+                // silently, and $13.48 lands in a tax record as the cost of
+                // dinner.
+                //
+                // Flag only, deliberately, and this is where the original
+                // "never auto-correct" reasoning still applies in full: both
+                // figures are genuinely on the receipt, so choosing between
+                // them is a judgement about which line is the total, not a
+                // matter of presence. The user is shown both and decides.
+                needsReview = true
+                if reason.isEmpty {
+                    reason = "Amount $\(amount) is printed here, but $\(candidate) looks like the total — please check which is right."
                 }
             }
         }
@@ -685,7 +732,7 @@ struct ExtractedReceipt {
         return ExtractedReceipt(
             vendor: resolvedVendor,
             workDate: resolvedWorkDate,
-            amount: amount,
+            amount: resolvedAmount,
             comments: comments,
             vendorType: resolvedVendorType,
             needsReview: needsReview,

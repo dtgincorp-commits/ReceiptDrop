@@ -215,6 +215,51 @@ final class DeterministicFallbackTests: XCTestCase {
         XCTAssertTrue(receipt.needsReview)
     }
 
+    // MARK: - Amount
+
+    func testTheSequenceNumberIsReplacedByThePrintedTotal() {
+        // $46 came from "SEQ #: 46" / "INVOICE 46" on a real scan. A bare
+        // integer isn't currency-shaped, so the detector never counted it as
+        // an amount — which is exactly why the cross-check caught it.
+        let receipt = ExtractedReceipt.build(
+            vendor: "Naan and Kabob", rawWorkDate: "2026-09-03", amount: "46.00",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: fullSlip)
+
+        XCTAssertEqual(receipt.amount, "89.93")
+        XCTAssertTrue(receipt.needsReview)
+    }
+
+    func testAGratuitySuggestionIsFlaggedEvenThoughItIsPrinted() {
+        // $13.48 is the 15% line, and it IS printed — so the not-printed
+        // cross-check passes it silently and $13.48 lands in a tax record as
+        // the cost of dinner. Caught only by comparing against what the
+        // deterministic reader thinks the total is.
+        //
+        // Flagged, not replaced: both figures are genuinely on the receipt,
+        // so choosing between them is a judgement about which line is the
+        // total, and that is the user's to make.
+        let receipt = ExtractedReceipt.build(
+            vendor: "Naan and Kabob", rawWorkDate: "2026-09-03", amount: "13.48",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: fullSlip)
+
+        XCTAssertTrue(receipt.needsReview, "reason: \(receipt.reviewReason)")
+        XCTAssertEqual(receipt.amount, "13.48")
+        XCTAssertTrue(receipt.reviewReason.contains("89.93"),
+                      "the better candidate should be named: \(receipt.reviewReason)")
+    }
+
+    func testACorrectAmountIsLeftAlone() {
+        let receipt = ExtractedReceipt.build(
+            vendor: "Naan and Kabob", rawWorkDate: "2026-09-03", amount: "89.93",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: fullSlip)
+
+        XCTAssertEqual(receipt.amount, "89.93")
+        XCTAssertFalse(receipt.needsReview, receipt.reviewReason)
+    }
+
     // MARK: - Provider capability
 
     func testOnlyAppleOnDeviceIsTextOnly() {

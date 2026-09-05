@@ -716,20 +716,45 @@ final class ExtractionLogicTests: XCTestCase {
         XCTAssertFalse(r.needsReview)
     }
 
-    func testFabricatedAmountIsFlaggedNotCorrected() {
-        // The actual bug: model returns a plausible-looking total that
-        // appears nowhere on the receipt. Unlike the date guardrail, this
-        // must NOT auto-correct — the amount stays exactly as reported,
-        // just flagged, since a receipt has too many numbers to safely
-        // guess which one is "the" total.
+    func testAFabricatedAmountIsReplacedByOneActuallyPrinted() {
+        // Policy changed deliberately, and this test now asserts the
+        // opposite of what it used to. It previously required "flag only,
+        // never auto-correct", on the reasoning that a receipt has too many
+        // numbers to safely guess which is the total. That reasoning still
+        // holds for *guessing* — and this is not guessing.
+        //
+        // Two conditions gate it, and both matter: the model's figure has
+        // already been shown to appear nowhere on the receipt, and the
+        // replacement is one the detector found printed on it. Keeping a
+        // number that is provably absent, over one that is provably present,
+        // was never the safer choice — it just looked like restraint.
+        //
+        // What forced the change: on one card slip Apple On-Device produced
+        // $13.48, $100.41, $134.48, $187.91, $46.94, $102.31 and $46 across
+        // seven scans, none printed anywhere, while the deterministic reader
+        // read $89.93 correctly every time from the same OCR text.
         let r = ExtractedReceipt.build(
             vendor: "Naan and Kabob", rawWorkDate: recentDate, amount: "142.51",
             comments: "", rawVendorType: "restaurant",
             modelReportedLowConfidence: false, modelReason: "",
             sourceText: naanAndKabobText)
-        XCTAssertEqual(r.amount, "142.51", "amount must be left unchanged — flag only, never auto-correct")
+        XCTAssertEqual(r.amount, "66.23", "the printed total should replace one that is not printed")
+        XCTAssertTrue(r.needsReview, "Substituting improves the figure; it does not verify it.")
+        XCTAssertTrue(r.reviewReason.contains("142.51"),
+                      "the rejected figure must still be named, so the correction is auditable")
+    }
+
+    func testAFabricatedAmountIsKeptAndFlaggedWhenNothingBetterIsPrinted() {
+        // The restraint that survives: with no printed candidate to offer,
+        // the model's answer stands rather than being blanked or guessed at.
+        // The user can still see what was read.
+        let r = ExtractedReceipt.build(
+            vendor: "Some Shop", rawWorkDate: recentDate, amount: "142.51",
+            comments: "", rawVendorType: "retail",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: "SOME SHOP, 100 MAIN STREET, ANYTOWN CA 90210 — THANK YOU FOR SHOPPING WITH US TODAY")
+        XCTAssertEqual(r.amount, "142.51")
         XCTAssertTrue(r.needsReview)
-        XCTAssertTrue(r.reviewReason.contains("142.51"))
     }
 
     func testAmountNormalizationMatchesTrailingZero() {
