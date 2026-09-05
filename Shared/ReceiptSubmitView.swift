@@ -233,7 +233,7 @@ struct ReceiptSubmitView: View {
         /// can show what it matched against, and stays on screen — no
         /// auto-dismiss timer — until the user picks "Save Anyway" or
         /// "Discard".
-        case duplicate(existing: HistoryEntry)
+        case duplicate(existing: HistoryEntry, certainty: SubmissionError.Certainty)
     }
 
     private var controlsDisabled: Bool {
@@ -902,7 +902,7 @@ struct ReceiptSubmitView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.red)
             }
-        case .duplicate(let existing):
+        case .duplicate(let existing, let certainty):
             // Info-colored (blue), not green — this is explicitly not a
             // "Submitted" confirmation. The match that triggered this only
             // checks category/date/amount, not vendor, so it's a real
@@ -910,15 +910,36 @@ struct ReceiptSubmitView: View {
             // charged twice); showing the existing entry's details is what
             // lets the user actually judge whether that's what happened.
             VStack(alignment: .leading, spacing: 12) {
-                Label("Already Saved", systemImage: "checkmark.circle.badge.questionmark")
+                Label(certainty == .identicalFile ? "Same Photo Already Saved" : "Already Saved",
+                      systemImage: "checkmark.circle.badge.questionmark")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.blue)
-                Text("A receipt already matches this category, date, and amount:")
+                // Say which check actually fired. An identical file is
+                // proof; matching fields is a guess that a repeat coffee
+                // order or a flat fee charged twice trips regularly. Both
+                // used to claim the weaker one, so the stronger evidence was
+                // described as the weaker case.
+                Text(certainty == .identicalFile
+                     ? "This is the same photo as a receipt you've already filed:"
+                     : "A receipt already matches this category, date, and amount:")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("\(existing.vendor.isEmpty ? "this vendor" : existing.vendor) — \(existing.workDate) — $\(existing.amount)")
                     .font(.caption.weight(.medium))
-                Text("If this is a different receipt, save it anyway. Otherwise, discard this one — nothing further needs to happen.")
+                // The saved receipt may itself be wrong — it is what an
+                // earlier extraction produced, flag and all. Without this
+                // the user is asked to judge against a record they have no
+                // reason to distrust, and "Manager — $102.31" looks as
+                // authoritative as anything else here.
+                if existing.verificationStatus == .needsReview {
+                    Label("That saved receipt is flagged for review — check it before deciding.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                Text(certainty == .identicalFile
+                     ? "Saving again would file the same photo twice. Discard unless you meant to."
+                     : "If this is a different receipt, save it anyway. Otherwise, discard this one — nothing further needs to happen.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button {
@@ -1143,14 +1164,14 @@ struct ReceiptSubmitView: View {
                 }
                 pendingOfflineSubmission = nil
                 await finishAfterSave(entry)
-            } catch SubmissionError.duplicate(let existing) {
+            } catch SubmissionError.duplicate(let existing, let certainty) {
                 pendingOfflineSubmission = nil
                 // See `SubmitState.duplicate` — held so "Save Anyway" can
                 // redo this exact forced-provider save with the bypass.
                 pendingDuplicateRetry = .run(data: pending.data, kind: pending.kind,
                                               category: pending.category, forcedProvider: .appleOnDevice)
                 Haptics.warning()
-                submitState = .duplicate(existing: existing)
+                submitState = .duplicate(existing: existing, certainty: certainty)
             } catch {
                 // Don't offer Apple Intelligence again — it just failed on
                 // this receipt. Keep the same pending bytes so Continue
@@ -1205,14 +1226,14 @@ struct ReceiptSubmitView: View {
                 // — stop and ask the user to set it (works for library images
                 // too, where retaking a photo isn't possible).
                 await finishAfterSave(entry)
-            } catch SubmissionError.duplicate(let existing) {
+            } catch SubmissionError.duplicate(let existing, let certainty) {
                 // Already recorded by category/date/amount — but that match
                 // doesn't check vendor, so this could genuinely be a
                 // different receipt. Hold what's needed to redo this exact
                 // save with the bypass if the user says so via "Save Anyway".
                 pendingDuplicateRetry = .run(data: data, kind: kind, category: category, forcedProvider: nil)
                 Haptics.warning()
-                submitState = .duplicate(existing: existing)
+                submitState = .duplicate(existing: existing, certainty: certainty)
             } catch {
                 if ExtractionFailureClass.classify(error) == .connectivity {
                     // AI just couldn't be reached — the receipt itself is
@@ -1398,7 +1419,7 @@ struct ReceiptSubmitView: View {
                 submitState = .success
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 onComplete()
-            } catch SubmissionError.duplicate(let existing) {
+            } catch SubmissionError.duplicate(let existing, let certainty) {
                 // Hold everything needed to redo this exact hand-typed save
                 // with the bypass — including the resolved vendor/needsReview
                 // values (not the raw `manualVendor` text), so "Save Anyway"
@@ -1408,7 +1429,7 @@ struct ReceiptSubmitView: View {
                     vendor: vendor, workDate: workDate, amount: normalizedAmount, comments: comments,
                     needsReview: needsReview, reviewReason: reviewReason)
                 Haptics.warning()
-                submitState = .duplicate(existing: existing)
+                submitState = .duplicate(existing: existing, certainty: certainty)
             } catch {
                 message = "Couldn't save: \(error.localizedDescription)"
                 submitState = .idle

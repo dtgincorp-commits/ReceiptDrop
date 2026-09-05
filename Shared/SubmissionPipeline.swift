@@ -1,14 +1,27 @@
 import Foundation
 
 /// Thrown by `SubmissionPipeline` when a receipt looks like one already
-/// recorded (same category, date, and amount) — callers should treat this as
-/// "nothing to do" rather than a failure to retry.
+/// recorded — callers should treat this as "nothing to do" rather than a
+/// failure to retry.
 enum SubmissionError: LocalizedError {
-    case duplicate(HistoryEntry)
+    /// How sure we are, which is not a detail. An identical file is proof;
+    /// matching fields is a guess that a repeat coffee order or a flat fee
+    /// charged twice can trip. The UI told the user "matches this category,
+    /// date, and amount" for both cases, which was untrue half the time —
+    /// and gave the weaker reason for the stronger evidence.
+    enum Certainty: Equatable {
+        /// Byte-for-byte the same file (`ReceiptFileHash`). Not a guess.
+        case identicalFile
+        /// Same category, date and amount. Vendor is not compared, so this
+        /// has a real false-positive rate.
+        case matchingFields
+    }
+
+    case duplicate(HistoryEntry, Certainty)
 
     var errorDescription: String? {
         switch self {
-        case .duplicate(let entry):
+        case .duplicate(let entry, _):
             let vendor = entry.vendor.isEmpty ? "this vendor" : entry.vendor
             return "Already submitted as \(vendor) on \(entry.workDate) for $\(entry.amount)."
         }
@@ -104,7 +117,7 @@ struct SubmissionPipeline {
         if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
             !$0.fileHash.isEmpty && $0.fileHash == fileHash
         }) {
-            throw SubmissionError.duplicate(existing)
+            throw SubmissionError.duplicate(existing, .identicalFile)
         }
 
         let categoryContext = CategoryStore.shared.description(for: category)
@@ -119,7 +132,7 @@ struct SubmissionPipeline {
         if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == extracted.workDate && $0.amount == extracted.amount
         }) {
-            throw SubmissionError.duplicate(existing)
+            throw SubmissionError.duplicate(existing, .matchingFields)
         }
 
         await onStage(.saving)
@@ -219,7 +232,7 @@ struct SubmissionPipeline {
         if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == workDate && $0.amount == amount
         }) {
-            throw SubmissionError.duplicate(existing)
+            throw SubmissionError.duplicate(existing, .matchingFields)
         }
 
         try LocalReceiptStore.appendLog(
@@ -265,12 +278,12 @@ struct SubmissionPipeline {
         if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
             !$0.fileHash.isEmpty && $0.fileHash == fileHash
         }) {
-            throw SubmissionError.duplicate(existing)
+            throw SubmissionError.duplicate(existing, .identicalFile)
         }
         if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == workDate && $0.amount == amount
         }) {
-            throw SubmissionError.duplicate(existing)
+            throw SubmissionError.duplicate(existing, .matchingFields)
         }
 
         let filename = try LocalReceiptStore.save(data: data, category: category, kind: kind)
@@ -304,7 +317,7 @@ struct SubmissionPipeline {
         if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
             $0.category == category && $0.workDate == extracted.workDate && $0.amount == extracted.amount
         }) {
-            throw SubmissionError.duplicate(existing)
+            throw SubmissionError.duplicate(existing, .matchingFields)
         }
 
         try LocalReceiptStore.appendLog(
