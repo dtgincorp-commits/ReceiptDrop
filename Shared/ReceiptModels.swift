@@ -274,6 +274,33 @@ struct ExtractedReceipt {
     /// Floor for the top-of-receipt window — see `appearsNearTheTop`.
     static let topLinesForVendor = 6
 
+    /// Stricter test used only when vetting a REPLACEMENT vendor: rejects a
+    /// candidate containing any receipt word at all, not just one that is
+    /// entirely receipt furniture.
+    ///
+    /// Needed because the looser test deliberately leaves multi-word answers
+    /// alone — a real business can be called "Total Fitness" — and that
+    /// permissiveness is fine for judging what the model said, but not for
+    /// choosing what to store instead. "Sub  Tax  Tota", a column fragment
+    /// from a second receipt in frame, passed the loose test and would have
+    /// been written into a tax record as the vendor.
+    ///
+    /// The asymmetry is deliberate. Rejecting a legitimate candidate here
+    /// costs nothing but keeping the model's answer, flagged; accepting a
+    /// bad one silently stores nonsense.
+    static func containsAnyReceiptWord(_ vendor: String) -> Bool {
+        let words = vendor
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z ]", with: " ", options: .regularExpression)
+            .split(separator: " ")
+            .map(String.init)
+        // Set membership only — deliberately NOT looksLikeReceiptJargon,
+        // whose "a single word of three letters or fewer is a fragment" rule
+        // is right for a whole answer and wrong for a word inside one. It
+        // rejected "NAAN AND KABOB LLC" on the strength of "and" and "llc".
+        return words.contains { receiptWords.contains($0) }
+    }
+
     /// Whether a vendor string is receipt furniture rather than a business
     /// name — payment-processing words, or a fragment too short to be one.
     ///
@@ -295,7 +322,13 @@ struct ExtractedReceipt {
         let words = normalized.split(separator: " ")
         if words.count == 1 && normalized.count <= 3 { return true }
 
-        let jargon: Set<String> = [
+        return receiptWords.contains(normalized)
+    }
+
+    /// Words and phrases that are receipt furniture rather than business
+    /// names. Whole-string matched by `looksLikeReceiptJargon`, word-by-word
+    /// by `containsAnyReceiptWord`.
+    private static let receiptWords: Set<String> = [
             "credit card", "credit voucher", "debit card", "visa sale", "visa",
             "mastercard", "amex", "american express", "discover",
             "merchant", "merchant copy", "customer copy", "cardholder",
@@ -309,9 +342,10 @@ struct ExtractedReceipt {
             // on a fourth scan of the same photo.
             "manager", "server", "cashier", "host", "hostess", "waiter",
             "table", "guest", "guests", "check", "bar", "dine in", "take out",
-        ]
-        return jargon.contains(normalized)
-    }
+            // Column-header fragments off a second receipt in frame, which
+            // arrive truncated: "Sub  Tax  Tota".
+            "sub", "tota", "subt", "amt", "qty",
+    ]
 
     /// Today, in the sheet's date format — what an absurd or unreadable date
     /// falls back to.
@@ -403,17 +437,29 @@ struct ExtractedReceipt {
             // earned it — and its answer is checked against the same jargon
             // test, so one heuristic cannot hand another its own mistake.
             needsReview = true
+            // Every candidate, not just the first. On a photo containing two
+            // receipts, OCR can return the intruding one's lines first, so
+            // the single best guess was "Manager" — itself jargon — and a
+            // caller with nothing else on offer kept "CRE". That is how a
+            // guardrail written to replace CRE left it in place on a receipt
+            // whose actual name, NAAN AND KABOB LLC, was three lines away.
+            //
+            // The substitute must clear the same bar as the answer it
+            // replaces. Measured the hard way: substituting on a weaker test
+            // turned a CORRECT "Felipe Monteras Tree Trimming" into "Q Need
+            // help?", and produced "All set!" and "< Inbox" on two others —
+            // chat and mail chrome that these candidates happily include,
+            // and that the jargon list knows nothing about.
             if let sourceText,
-               let better = ManualEntryOCRPrefill.likelyVendorLine(in: sourceText),
-               !looksLikeReceiptJargon(better),
-               // The substitute has to clear the same bar as the answer it
-               // replaces. Measured the hard way: substituting on a weaker
-               // test turned a CORRECT "Felipe Monteras Tree Trimming" into
-               // "Q Need help?", and produced "All set!" and "< Inbox" on
-               // two others — chat and mail chrome that likelyVendorLine
-               // happily returns from a screenshot, and that the jargon list
-               // knows nothing about.
-               appearsNearTheTop(better, of: sourceText) {
+               let better = ManualEntryOCRPrefill.vendorCandidates(in: sourceText).first(where: {
+                   // All three, and each earns its place: the first rules
+                   // out fragments ("THU", "CRE"), the second column
+                   // headers and staff lines ("Sub Tax Tota", "Manager"),
+                   // the third anything from the body of the receipt.
+                   !looksLikeReceiptJargon($0)
+                       && !containsAnyReceiptWord($0)
+                       && appearsNearTheTop($0, of: sourceText)
+               }) {
                 resolvedVendor = better
                 if reason.isEmpty {
                     reason = "Vendor read as \"\(better)\" from the receipt itself, not \"\(vendor)\" — please confirm."

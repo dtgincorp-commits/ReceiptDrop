@@ -215,6 +215,53 @@ final class DeterministicFallbackTests: XCTestCase {
         XCTAssertTrue(receipt.needsReview)
     }
 
+    func testTheRealNameIsFoundEvenWhenAnotherReceiptComesFirstInTheText() {
+        // The exact failure from a live scan: "CRE" was flagged as jargon,
+        // but the only candidate on offer was "Manager" — jargon too — from
+        // the receipt intruding at the left edge of the frame. With nothing
+        // acceptable to substitute, "CRE" was kept and saved.
+        //
+        // OCR order here puts the intruding receipt first, as it did on the
+        // real photo.
+        let twoReceipts = """
+        Manager
+        THU
+        2 D  1 D  1 D
+        Sub  Tax  Tota
+        CRE
+        NAAN AND KABOB LLC
+        416 E 1ST ST
+        TUSTIN, CA 92780
+        09/03/2026
+        PRE-TIP AMT  $89.93
+        """
+        let candidates = ManualEntryOCRPrefill.vendorCandidates(in: twoReceipts)
+        XCTAssertGreaterThan(candidates.count, 1,
+                             "One candidate is not enough when the first is unusable.")
+        XCTAssertTrue(candidates.contains("NAAN AND KABOB LLC"), "\(candidates)")
+
+        let receipt = ExtractedReceipt.build(
+            vendor: "CRE", rawWorkDate: "2026-09-03", amount: "89.93", comments: "",
+            rawVendorType: "", modelReportedLowConfidence: false, modelReason: "",
+            sourceText: twoReceipts)
+        XCTAssertEqual(receipt.vendor, "NAAN AND KABOB LLC")
+        XCTAssertTrue(receipt.needsReview, "Substituting improves the name; it does not verify it.")
+    }
+
+    func testLikelyVendorLineStillReturnsTheFirstCandidate() {
+        // Unchanged for its existing caller — prefilling a form field, where
+        // one answer is all there is room for.
+        let text = """
+        MONTERAS CAFE
+        3333 BRISTOL STREET
+        COSTA MESA, CA 92626
+        TOTAL $14.66
+        """
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text),
+                       ManualEntryOCRPrefill.vendorCandidates(in: text).first)
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyVendorLine(in: text), "MONTERAS CAFE")
+    }
+
     // MARK: - Amount
 
     func testTheSequenceNumberIsReplacedByThePrintedTotal() {

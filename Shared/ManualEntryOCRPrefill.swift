@@ -226,16 +226,32 @@ enum ManualEntryOCRPrefill {
     /// confidently prefilling a slogan, a street address, or "Thank you for
     /// shopping with us" as the vendor.
     static func likelyVendorLine(in text: String) -> String? {
-        if let fromDomain = likelyVendorFromDomain(in: text) { return fromDomain }
+        vendorCandidates(in: text).first
+    }
+
+    /// Every plausible vendor line, in the order they appear — the domain
+    /// match first, then each line that passes `isPlausibleVendorLine`.
+    ///
+    /// `likelyVendorLine` takes the first and is right for prefilling a form,
+    /// where one answer is all a text field can hold. A caller replacing a
+    /// bad AI answer needs more than one, because the first is not always
+    /// usable: on a photo containing two receipts, OCR can return the
+    /// intruding receipt's lines first, and "Manager" arrives ahead of "NAAN
+    /// AND KABOB LLC". With only one candidate on offer, a caller that
+    /// rejects it has nothing left and keeps the AI's answer — which is
+    /// exactly how "CRE" survived a guardrail written to replace it.
+    static func vendorCandidates(in text: String) -> [String] {
+        var candidates: [String] = []
+        if let fromDomain = likelyVendorFromDomain(in: text) { candidates.append(fromDomain) }
 
         let lines = text
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
 
         for line in lines where !line.isEmpty {
-            if isPlausibleVendorLine(line) { return line }
+            if isPlausibleVendorLine(line), !candidates.contains(line) { candidates.append(line) }
         }
-        return nil
+        return candidates
     }
 
     /// Derives a vendor candidate from an email domain printed on the
