@@ -69,8 +69,14 @@ targets:
         # Info.plist. The build number MUST stay in lockstep with the
         # ShareExtension target's below — App Store Connect rejects an
         # upload whose embedded extension build number differs from the app's.
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "5"
+        #
+        # Build numbers are scoped to the version string, which is why this
+        # one restarts at 1: 1.0 reached build 5, and a build number can
+        # never be reused or lowered within a version (uploading 1.0 (4)
+        # again is refused even though that build was never distributed).
+        # A new version string gets a fresh counter.
+        CFBundleShortVersionString: "1.0.1"
+        CFBundleVersion: "1"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -120,8 +126,8 @@ targets:
       properties:
         CFBundleDisplayName: Receipts4Tax
         # Must match the ReceiptDrop target's version keys exactly.
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "5"
+        CFBundleShortVersionString: "1.0.1"
+        CFBundleVersion: "1"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
