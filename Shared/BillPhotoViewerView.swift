@@ -134,7 +134,12 @@ struct BillPhotoViewerView: View {
 /// A `UIScrollView`-backed image view for reliable pinch-to-zoom and pan —
 /// SwiftUI's native gesture modifiers are fussier to get right for this than
 /// the well-worn UIKit pattern (same approach Photos-style viewers use).
-private struct ZoomableImageView: UIViewRepresentable {
+///
+/// Not private to this file: shared by more than one viewer — this bill
+/// photo viewer and Edit Receipt's preview for a not-yet-saved attachment
+/// (see `ImageQuickPreview` in `EditReceiptView.swift`). Check both call
+/// sites before changing its zoom limits or layout.
+struct ZoomableImageView: UIViewRepresentable {
     let image: UIImage
 
     func makeUIView(context: Context) -> UIScrollView {

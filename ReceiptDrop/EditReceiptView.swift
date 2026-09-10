@@ -33,6 +33,13 @@ struct EditReceiptView: View {
     private static let addCustomTypeTag = "__add_custom_type__"
     private static let manageCustomTypesTag = "__manage_custom_types__"
 
+    // A `PhotosPicker` nested inside a `Menu` renders as a row but never
+    // actually presents — tapping it just dismisses the menu, silently doing
+    // nothing. So both photo-library rows below are driven the same way as
+    // every other picker in this app: a plain `Button` that flips one of
+    // these flags, paired with a `.photosPicker(isPresented:)` modifier up
+    // in `body`. Don't "simplify" these back into a nested `PhotosPicker`.
+    @State private var showPhotoLibrary = false
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var newPhotoData: Data?
     @State private var newPhotoImage: UIImage?
@@ -49,6 +56,7 @@ struct EditReceiptView: View {
     /// yet, and is already shown full-width inline.
     private var previewURLs: [URL] { ReceiptPreviewSheet.urls(for: entry) }
 
+    @State private var showExtraPhotoLibrary = false
     @State private var extraPickerItems: [PhotosPickerItem] = []
     @State private var remainingExtraFiles: [String]
     @State private var newExtraImages: [(image: UIImage, data: Data)] = []
@@ -186,6 +194,8 @@ struct EditReceiptView: View {
                 category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
                 amount: entry.amount, receiptFilename: entry.receiptLink)
         }
+        .photosPicker(isPresented: $showPhotoLibrary, selection: $photoPickerItem, matching: .images)
+        .photosPicker(isPresented: $showExtraPhotoLibrary, selection: $extraPickerItems, matching: .images)
         .onChange(of: photoPickerItem) { item in
             guard let item else { return }
             Task {
@@ -376,7 +386,9 @@ struct EditReceiptView: View {
                 } label: {
                     Label("Take Photo", systemImage: "camera")
                 }
-                PhotosPicker(selection: $photoPickerItem, matching: .images) {
+                Button {
+                    showPhotoLibrary = true
+                } label: {
                     Label("Choose from Library", systemImage: "photo.on.rectangle")
                 }
                 Button {
@@ -425,7 +437,9 @@ struct EditReceiptView: View {
                 } label: {
                     Label("Take Photo", systemImage: "camera")
                 }
-                PhotosPicker(selection: $extraPickerItems, matching: .images) {
+                Button {
+                    showExtraPhotoLibrary = true
+                } label: {
                     Label("Choose from Library", systemImage: "photo.on.rectangle")
                 }
             } label: {
@@ -591,10 +605,12 @@ private struct UnsavedAttachmentPreviewTarget: Identifiable {
     let image: UIImage
 }
 
-/// Plain fit-to-screen viewer for an attachment that's only in memory (just
-/// captured/picked, not yet saved to disk) — Quick Look needs a real file
-/// URL, which this doesn't have yet, so this stands in with a much smaller
-/// feature set (no zoom/share/markup) until the receipt is saved.
+/// Viewer for an attachment that's only in memory (just captured/picked, not
+/// yet saved to disk) — Quick Look needs a real file URL, which this doesn't
+/// have yet, so this stands in. It now zooms and pans like Quick Look does,
+/// reusing `ZoomableImageView` from the bill photo viewer, since the whole
+/// reason someone opens an attachment is to read small print on it; it still
+/// has no share/markup, but zoom was the one piece of that gap worth closing.
 private struct ImageQuickPreview: View {
     let image: UIImage
     @Environment(\.dismiss) private var dismiss
@@ -604,9 +620,8 @@ private struct ImageQuickPreview: View {
             Color.black
                 .ignoresSafeArea()
                 .overlay {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
+                    ZoomableImageView(image: image)
+                        .ignoresSafeArea()
                 }
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
