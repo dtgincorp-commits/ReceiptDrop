@@ -573,13 +573,30 @@ struct ExtractedReceipt {
                 // silently, and $13.48 lands in a tax record as the cost of
                 // dinner.
                 //
-                // Flag only, deliberately, and this is where the original
-                // "never auto-correct" reasoning still applies in full: both
-                // figures are genuinely on the receipt, so choosing between
-                // them is a judgement about which line is the total, not a
-                // matter of presence. The user is shown both and decides.
+                // Flag always, but only sometimes silent: a genuine total
+                // can never be smaller than a line item that belongs to it,
+                // so when the labeled total EXCEEDS the model's figure, the
+                // model has picked a line item and the total line is simply
+                // the better answer — this is the multi-page-invoice case,
+                // where "master bedroom light $63" sits ahead of "Total
+                // $1001" and the model latched onto the first line item on
+                // page 1 instead. Substitute there.
+                //
+                // The reverse — a labeled total SMALLER than the model's
+                // figure — is the card-slip case this branch's original
+                // comment protects: a printed "TOTAL 46.94" with a
+                // handwritten tip added on top, where the model's $56.94 is
+                // the truer number and the "total" line is stale. That
+                // direction keeps flag-only behaviour, unchanged. The
+                // asymmetry is deliberate, not an oversight — do not
+                // collapse the two branches back into one.
                 needsReview = true
-                if reason.isEmpty {
+                if candidateValue > amountValue {
+                    resolvedAmount = candidate
+                    if reason.isEmpty {
+                        reason = "Amount read as $\(candidate) from the receipt's Total line — $\(amount) looks like a line item. Please confirm."
+                    }
+                } else if reason.isEmpty {
                     reason = "Amount $\(amount) is printed here, but $\(candidate) looks like the total — please check which is right."
                 }
             }

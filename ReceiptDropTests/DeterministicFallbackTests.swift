@@ -277,24 +277,66 @@ final class DeterministicFallbackTests: XCTestCase {
         XCTAssertTrue(receipt.needsReview)
     }
 
-    func testAGratuitySuggestionIsFlaggedEvenThoughItIsPrinted() {
+    func testAGratuitySuggestionIsCorrectedToThePrintedTotalAndFlagged() {
         // $13.48 is the 15% line, and it IS printed — so the not-printed
         // cross-check passes it silently and $13.48 lands in a tax record as
         // the cost of dinner. Caught only by comparing against what the
         // deterministic reader thinks the total is.
         //
-        // Flagged, not replaced: both figures are genuinely on the receipt,
-        // so choosing between them is a judgement about which line is the
-        // total, and that is the user's to make.
+        // This used to flag without replacing, on the reasoning that both
+        // figures are genuinely printed so choosing between them is the
+        // user's judgement. That deferred to the user in a case where the
+        // evidence is not actually balanced: a grand total can never be
+        // smaller than a component of it, so a labeled total that EXCEEDS
+        // the model's figure means the model read a line — a gratuity
+        // suggestion here, a line item on a multi-page invoice — and the
+        // total line is simply the better answer. Substituting upward is
+        // now the rule; see `ExtractedReceipt.build`.
+        //
+        // Still flagged, always. The substitution improves the stored
+        // figure, it does not verify it. The opposite direction (a labeled
+        // total SMALLER than the model's figure — a printed TOTAL with a
+        // handwritten tip added on top) keeps the old flag-only behaviour,
+        // covered by `testAHandwrittenTipAboveThePrintedTotalIsKept`.
         let receipt = ExtractedReceipt.build(
             vendor: "Naan and Kabob", rawWorkDate: "2026-09-03", amount: "13.48",
             comments: "", rawVendorType: "", modelReportedLowConfidence: false,
             modelReason: "", sourceText: fullSlip)
 
         XCTAssertTrue(receipt.needsReview, "reason: \(receipt.reviewReason)")
-        XCTAssertEqual(receipt.amount, "13.48")
+        XCTAssertEqual(receipt.amount, "89.93")
         XCTAssertTrue(receipt.reviewReason.contains("89.93"),
                       "the better candidate should be named: \(receipt.reviewReason)")
+    }
+
+    func testAHandwrittenTipAboveThePrintedTotalIsKept() {
+        // The asymmetry's other half, and the reason it exists: on a card
+        // slip the printed TOTAL line is pre-tip, so a model reporting a
+        // figure LARGER than that line is usually reading the handwritten
+        // final amount — the truer number. Flag the disagreement, but never
+        // overwrite the larger figure with the stale printed one.
+        //
+        // Needs its own slip rather than `fullSlip`: the tip total has to be
+        // present in the text, or the not-printed branch handles it first
+        // and this branch is never reached at all.
+        let tippedSlip = """
+        NAAN AND KABOB LLC
+        416 E 1ST ST
+        TUSTIN, CA 92780
+        09/03/2026  18:26:34
+        Sub-total  82.11
+        Tax  7.82
+        TOTAL  89.93
+        TIP  15.00
+        104.93
+        """
+        let receipt = ExtractedReceipt.build(
+            vendor: "Naan and Kabob", rawWorkDate: "2026-09-03", amount: "104.93",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: tippedSlip)
+
+        XCTAssertEqual(receipt.amount, "104.93")
+        XCTAssertTrue(receipt.needsReview, "reason: \(receipt.reviewReason)")
     }
 
     func testACorrectAmountIsLeftAlone() {
