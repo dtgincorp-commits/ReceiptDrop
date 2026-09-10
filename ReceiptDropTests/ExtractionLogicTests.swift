@@ -1863,3 +1863,45 @@ final class AmountWithNoPrintedAmountsTests: XCTestCase {
         XCTAssertFalse(receipt.needsReview, receipt.reviewReason)
     }
 }
+
+// MARK: - Backup copy destination labels
+//
+// `exportLocationLabel` names the place a user exported a backup copy to.
+// The document picker confirms that a copy was written, but no public API
+// says what the destination is *called*, so the label is inferred from the
+// on-disk path spelling. That makes it a guess printed as fact on the
+// Archive & Backup screen — worth pinning down, since the failure mode is
+// telling someone their backup is somewhere it isn't.
+
+final class BackupExportLocationTests: XCTestCase {
+
+    func testICloudDriveIsNamedFromItsContainerSpelling() {
+        // How iCloud Drive is actually spelled on disk. The user-visible
+        // name ("iCloud Drive") appears nowhere in the path, which is why
+        // this is matched rather than read.
+        let url = URL(fileURLWithPath:
+            "/private/var/mobile/Library/Mobile Documents/com~apple~CloudDocs/Receipts4Tax-2026-09-09.zip")
+        XCTAssertEqual(ArchiveBackupView.exportLocationLabel(for: url), "iCloud Drive")
+    }
+
+    func testICloudDriveIsStillRecognizedInsideASubfolder() {
+        let url = URL(fileURLWithPath:
+            "/private/var/mobile/Library/Mobile Documents/com~apple~CloudDocs/Taxes/2026/backup.zip")
+        XCTAssertEqual(ArchiveBackupView.exportLocationLabel(for: url), "iCloud Drive")
+    }
+
+    func testAThirdPartyProviderFallsBackToItsFolderName() {
+        // Dropbox, Google Drive and the rest have no spelling worth
+        // special-casing, so the containing folder is the honest answer —
+        // vague, but never wrong the way a guessed brand name would be.
+        let url = URL(fileURLWithPath:
+            "/private/var/mobile/Containers/Shared/AppGroup/ABC/File Provider Storage/Taxes/backup.zip")
+        XCTAssertEqual(ArchiveBackupView.exportLocationLabel(for: url), "Taxes")
+    }
+
+    func testARootLevelDestinationFallsBackToFiles() {
+        // Nothing usable to name: better a generic "Files" than an empty
+        // string rendered into "Last copy saved: , Sep 9".
+        XCTAssertEqual(ArchiveBackupView.exportLocationLabel(for: URL(fileURLWithPath: "/backup.zip")), "Files")
+    }
+}

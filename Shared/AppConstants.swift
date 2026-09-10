@@ -69,6 +69,9 @@ enum AppConstants {
         static let extractionMode = "extractionMode"
         static let offlineOnly = "offlineOnly"                 // block cloud providers; on-device only
         static let lastBackupDate = "lastBackupDate"
+        static let lastExportedCopyLocation = "lastExportedCopyLocation"
+        static let lastExportedCopyDate = "lastExportedCopyDate"
+        static let lastExportedCopyFilename = "lastExportedCopyFilename"
         static let backupReminderFrequency = "backupReminderFrequency"
         static let hasCompletedAISetup = "hasCompletedAISetup"  // guided Connect-AI wizard shown/skipped
         static let appTextSize = "appTextSize"                  // per-app text size override; see AppTextSize

@@ -1180,6 +1180,38 @@ enum BackupSettings {
         set { defaults.set(newValue, forKey: AppConstants.DefaultsKeys.lastBackupDate) }
     }
 
+    /// Where the user last exported a *copy* of a backup to, via the
+    /// document-picker export flow (e.g. "iCloud Drive") — as opposed to
+    /// `lastBackupDate`, which is when the app last built its own zip on
+    /// this phone. These are deliberately separate facts: building a backup
+    /// doesn't mean anyone copied it anywhere else, and having exported a
+    /// copy once doesn't mean today's backup is the one that got copied.
+    /// Collapsing them into a single "backed up" flag would silently claim
+    /// an off-device copy exists when only an on-phone zip does, which is
+    /// exactly the confusion this feature exists to resolve — see the
+    /// share-sheet blind spot documented on `LocalReceiptStore`.
+    static var lastExportedCopyLocation: String? {
+        get { defaults.string(forKey: AppConstants.DefaultsKeys.lastExportedCopyLocation) }
+        set { defaults.set(newValue, forKey: AppConstants.DefaultsKeys.lastExportedCopyLocation) }
+    }
+
+    /// When the copy described by `lastExportedCopyLocation` was made. Kept
+    /// as its own timestamp rather than reusing `lastBackupDate` — the copy
+    /// can happen well after (or well before, if the user re-exports an
+    /// older on-phone backup) the backup it was made from.
+    static var lastExportedCopyDate: Date? {
+        get { defaults.object(forKey: AppConstants.DefaultsKeys.lastExportedCopyDate) as? Date }
+        set { defaults.set(newValue, forKey: AppConstants.DefaultsKeys.lastExportedCopyDate) }
+    }
+
+    /// The filename of the copy described by `lastExportedCopyLocation` —
+    /// "iCloud Drive" alone doesn't help someone find one zip among several
+    /// they may have exported there over time.
+    static var lastExportedCopyFilename: String? {
+        get { defaults.string(forKey: AppConstants.DefaultsKeys.lastExportedCopyFilename) }
+        set { defaults.set(newValue, forKey: AppConstants.DefaultsKeys.lastExportedCopyFilename) }
+    }
+
     static var reminderFrequency: BackupReminderFrequency {
         get {
             // Defaults to Weekly, not Off — `AutoBackupService` relies on

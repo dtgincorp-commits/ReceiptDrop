@@ -637,6 +637,12 @@ private struct AzureAPIKeySection: View {
 struct ArchiveBackupView: View {
     @StateObject private var categoryStore = CategoryStore.shared
 
+    /// Where backup zips actually live, in Files-app terms a user can follow.
+    /// Quoted three times below (backup caption, restore footer, delete
+    /// confirmation) — kept as one constant so the wording can't drift out
+    /// of sync between those spots.
+    private static let backupsFilesPath = "Files → On My iPhone → Receipts4Tax → Backups"
+
     private enum ScopeKind: String, CaseIterable, Identifiable {
         case year = "Year"
         case month = "Month"
@@ -655,6 +661,17 @@ struct ArchiveBackupView: View {
     @State private var shareURL: IdentifiableURL?
     @State private var lastBackupDate: Date? = BackupSettings.lastBackupDate
     @State private var reminderFrequency: BackupReminderFrequency = BackupSettings.reminderFrequency
+    /// Separate from `shareURL` — the two presentations exist for different
+    /// reasons and must stay independently triggerable. Archive exports use
+    /// the share sheet because sharing (AirDrop, Mail, Messages) is the
+    /// whole point there. "Backup Now" drives this one with the document
+    /// picker instead, because only the picker's delegate reports back
+    /// where the file actually went — `UIActivityViewController` can't, so
+    /// it couldn't power the "Last copy saved" caption below.
+    @State private var exportCopyURL: IdentifiableURL?
+    @State private var lastExportedCopyLocation: String? = BackupSettings.lastExportedCopyLocation
+    @State private var lastExportedCopyDate: Date? = BackupSettings.lastExportedCopyDate
+    @State private var lastExportedCopyFilename: String? = BackupSettings.lastExportedCopyFilename
 
     @State private var showRestorePicker = false
     @State private var restoreMessage: String?
@@ -665,6 +682,15 @@ struct ArchiveBackupView: View {
     /// (see the folder-vs-zip discussion) can leave someone unsure exactly
     /// what they just selected.
     @State private var pendingRestoreURL: URL?
+    /// Tapping a row in the on-phone backups list used to restore
+    /// immediately — one tap, no way back — while the Files-import path a
+    /// few rows down always confirmed first. That made the more convenient
+    /// path the only unconfirmed one. These two mirror `pendingRestoreURL`
+    /// but stay separate from it, since that property also drives the
+    /// `RestoreOptionsView` sheet for imported zips and must keep doing
+    /// only that.
+    @State private var pendingLocalRestoreURL: URL?
+    @State private var showLocalRestoreConfirmation = false
     @State private var restoreDuplicateGroups: [DuplicateDetectionService.Group] = []
     /// See `SettingsInfoLink` — long-form detail moved out of the footers.
     @State private var infoTopic: SettingsInfoTopic?
@@ -726,6 +752,18 @@ struct ArchiveBackupView: View {
         .sheet(item: $shareURL) { wrapper in
             ActivityShareSheet(url: wrapper.url)
         }
+        .sheet(item: $exportCopyURL) { wrapper in
+            BackupCopyExporter(url: wrapper.url) { destination in
+                let location = Self.exportLocationLabel(for: destination)
+                let filename = destination.lastPathComponent
+                BackupSettings.lastExportedCopyLocation = location
+                BackupSettings.lastExportedCopyDate = Date()
+                BackupSettings.lastExportedCopyFilename = filename
+                lastExportedCopyLocation = location
+                lastExportedCopyDate = BackupSettings.lastExportedCopyDate
+                lastExportedCopyFilename = filename
+            }
+        }
         .fileImporter(isPresented: $showRestorePicker, allowedContentTypes: [.zip]) { result in
             switch result {
             case .success(let url):
@@ -780,6 +818,21 @@ struct ArchiveBackupView: View {
         } message: { scope in
             Text("A full backup will be made first. Then \(scope.entries.count) receipt\(scope.entries.count == 1 ? "" : "s") from \(scope.label) — including photos — will be permanently deleted. This can only be undone by restoring that backup, and only while it still exists on this phone (the 3 most recent backups are kept).")
         }
+        // The on-phone list used to restore on a single tap while the
+        // Files-import path (above) always confirmed first — the easiest
+        // path to reach was the only one with no way back. This confirms
+        // to inform, not to warn: restoring can't lose data, but it can add
+        // a lot of receipts and surface duplicate groups, so someone who
+        // tapped a row just to inspect it still deserves a way out.
+        .alert("Restore this backup?",
+               isPresented: $showLocalRestoreConfirmation, presenting: pendingLocalRestoreURL) { url in
+            Button("Cancel", role: .cancel) {}
+            Button("Restore") {
+                restore(from: url)
+            }
+        } message: { url in
+            Text("\(Self.backupDate(for: url)?.formatted(date: .abbreviated, time: .shortened) ?? url.lastPathComponent) — \(Self.backupSizeString(for: url)) — \(url.lastPathComponent). Restoring only adds what's missing; nothing already on this phone is overwritten or deleted.")
+        }
     }
 
     @ViewBuilder
@@ -796,11 +849,19 @@ struct ArchiveBackupView: View {
                 Text("No backups on this phone yet — tap \"Backup Now\" above.")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(localBackups, id: \.self) { url in
+                // Indexing by the URL (not the array position) keeps each row's
+                // identity stable across a delete — SwiftUI would otherwise
+                // treat "row 3" as the same row before and after a swipe-delete
+                // shifts the backups above it, animating the wrong entry away.
+                ForEach(Array(localBackups.enumerated()), id: \.element) { index, url in
                     Button {
-                        restore(from: url)
+                        pendingLocalRestoreURL = url
+                        showLocalRestoreConfirmation = true
                     } label: {
-                        HStack {
+                        HStack(spacing: 10) {
+                            Text("\(index + 1).")
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(.secondary)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(Self.backupDate(for: url)?.formatted(date: .abbreviated, time: .shortened) ?? url.lastPathComponent)
                                     .foregroundStyle(.primary)
@@ -841,7 +902,7 @@ struct ArchiveBackupView: View {
             SettingsInfoButton(
                 title: "Restore",
                 detail: """
-                    Backups on this phone are stored at Files → On My iPhone → Receipts4Tax → Backups. Tap one to restore it. Swipe to delete a backup you no longer need.
+                    Backups on this phone are stored at \(Self.backupsFilesPath), listed newest first — "1." is the most recent. Swipe to delete a backup you no longer need.
 
                     Restoring is additive: it never overwrites or deletes anything already on this phone, only adds what's missing.
 
@@ -855,9 +916,14 @@ struct ArchiveBackupView: View {
                     """,
                 topic: $infoTopic)
         } header: {
-            Text("Restore")
+            // A numbered list of the user's backups under a header that only named the
+            // action ("Restore") read as pointing at some other, separate list — the
+            // header named the verb while the rows were a noun. Naming the contents here
+            // means the tap-to-restore affordance the old header implied has to live
+            // somewhere visible, so it moved into the footer below.
+            Text("Your Backups")
         } footer: {
-            Text("Restoring only adds what's missing — it never overwrites or deletes anything already here.")
+            Text("Tap a backup to restore it. Restoring only adds what's missing — it never overwrites or deletes anything already here.")
         }
     }
 
@@ -967,6 +1033,70 @@ struct ArchiveBackupView: View {
             if let lastBackupDate {
                 Text("Last backup: \(lastBackupDate.formatted(date: .abbreviated, time: .shortened))")
                     .foregroundStyle(.secondary)
+                // Says where the zip actually landed — people keep asking
+                // whether "backup" means iCloud. Names the newest backup's
+                // own filename too, since "On this phone: <folder>" alone
+                // doesn't help anyone pick the right zip out of several.
+                // Only shown once a backup exists; pointing at the folder
+                // before then would describe a file that isn't there yet.
+                // The filename used to trail the sentence, but real names
+                // like "Receipts4Tax_Backup_2026-09-09_165312.zip" dominate
+                // and wrap on a phone, and the leading "Receipts4Tax" reads
+                // as a location rather than the start of a filename. So the
+                // place someone is actually looking for leads on its own
+                // line, and the exact filename sits underneath in a smaller
+                // but still legible weight, there to be matched character
+                // by character without competing with the folder path.
+                if let newest = localBackups.first {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("On this phone: Files → On My iPhone → Receipts4Tax → Backups")
+                            .font(.caption).foregroundStyle(.secondary)
+                        // The filename is the one string someone has to match
+                        // character-by-character against what's in the Files
+                        // app, so it needs to be findable at a glance instead
+                        // of sharing the folder path's grey. Theme.skyBlue,
+                        // not actionBlue — that shade is reserved for this
+                        // screen's one primary action, and this isn't it.
+                        // Monospaced because blue elsewhere in this app means
+                        // "tappable" (every button in this section is blue);
+                        // a monospaced face reads as a literal string rather
+                        // than a link, which is what keeps the color from
+                        // being misread as another button.
+                        Text(newest.lastPathComponent)
+                            .font(.caption2.monospaced()).foregroundStyle(Theme.skyBlue)
+                    }
+                    // VoiceOver should read the folder and the filename as
+                    // one statement, not two disconnected fragments.
+                    .accessibilityElement(children: .combine)
+                } else {
+                    Text("On this phone: \(Self.backupsFilesPath)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                // A second, independent fact — not a replacement for the
+                // caption above. "Backed up" (a zip exists on this phone)
+                // and "copied off-device" (the user sent that zip somewhere
+                // else) are both true or false on their own; showing only
+                // whichever happened most recently would erase whichever
+                // fact it replaced, and someone who backed up today but
+                // last exported a copy last month still needs to see both.
+                // Same filename-crowding problem as above, same fix: the
+                // location and date lead, the filename gets its own smaller
+                // line underneath instead of stretching the sentence.
+                if let lastExportedCopyLocation, let lastExportedCopyDate, let lastExportedCopyFilename {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Last copy saved: \(lastExportedCopyLocation), \(lastExportedCopyDate.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption).foregroundStyle(.secondary)
+                        // Same reasoning as the on-phone filename above:
+                        // accent color so it's findable at a glance against
+                        // the Files app, monospaced so the color reads as a
+                        // literal string rather than another tappable blue.
+                        Text(lastExportedCopyFilename)
+                            .font(.caption2.monospaced()).foregroundStyle(Theme.skyBlue)
+                    }
+                    // Same reasoning as the on-phone caption above: one
+                    // spoken statement, not two fragments.
+                    .accessibilityElement(children: .combine)
+                }
             } else {
                 Text("Never backed up").foregroundStyle(.secondary)
             }
@@ -988,7 +1118,7 @@ struct ArchiveBackupView: View {
         } header: {
             Text("Backup")
         } footer: {
-            Text("Backs up everything into one restorable zip. Save it off-device so it survives losing this phone.")
+            Text("Backs up everything into one restorable zip, kept on this phone. It's included in your iPhone's iCloud or computer backup — but not in iCloud Drive, and your receipt photos are deliberately kept out of iCloud entirely. After each backup, you'll get a chance to save a copy off-device so it survives losing this phone — or dismiss it if you don't need to.")
         }
     }
 
@@ -1068,7 +1198,7 @@ struct ArchiveBackupView: View {
                     deleteMonth = nil
                     lastBackupDate = BackupSettings.lastBackupDate
                     localBackups = LocalReceiptStore.listBackups()
-                    deleteMessage = "Backed up to Files → On My iPhone → Receipts4Tax → Backups → \(backupURL.lastPathComponent). Deleted \(entries.count) receipt\(entries.count == 1 ? "" : "s") for \(label)."
+                    deleteMessage = "Backed up to \(Self.backupsFilesPath) → \(backupURL.lastPathComponent). Deleted \(entries.count) receipt\(entries.count == 1 ? "" : "s") for \(label)."
                 }
             } catch {
                 await MainActor.run {
@@ -1126,7 +1256,14 @@ struct ArchiveBackupView: View {
                 let url = try ArchiveBackupService.buildFullBackup()
                 await MainActor.run {
                     isWorking = false
-                    shareURL = IdentifiableURL(url: url)
+                    // The zip is already saved on this phone at this point —
+                    // everything the backup promises has already happened.
+                    // What follows is only the document picker offering an
+                    // optional off-device copy, so backing out of it (see
+                    // `BackupCopyExporter`'s cancellation no-op) must not
+                    // surface as an error, and `lastBackupDate` must still
+                    // reflect the successful backup either way.
+                    exportCopyURL = IdentifiableURL(url: url)
                     BackupSettings.lastBackupDate = Date()
                     lastBackupDate = Date()
                     localBackups = LocalReceiptStore.listBackups()
@@ -1138,6 +1275,34 @@ struct ArchiveBackupView: View {
                 }
             }
         }
+    }
+
+    /// Turns the URL `UIDocumentPickerViewController` hands back after an
+    /// export into a short label worth showing on-screen. There is no
+    /// public API that names a document-picker destination — the delegate
+    /// only ever gives back a file URL — so this is string-matching the
+    /// on-disk path, which is the only signal available at all. iCloud
+    /// Drive is worth special-casing by name since it's the destination
+    /// users ask about most (see the caption text above); every other
+    /// provider (Dropbox, Google Drive, "On My iPhone" subfolders, …) gets
+    /// named after its containing folder instead of hardcoding a list of
+    /// providers that will always be incomplete. This is best-effort
+    /// labeling only — the export itself is already confirmed by the
+    /// delegate having fired; getting the friendly name wrong here would
+    /// misname a real, successful export, not invalidate it.
+    // Internal rather than private so it can be tested directly: this
+    // function decides what the screen claims about where a user's backup
+    // went, and it infers that from a path spelling rather than being told,
+    // so it is exactly the kind of guess that deserves a test.
+    static func exportLocationLabel(for url: URL) -> String {
+        if url.path.contains("com~apple~CloudDocs") {
+            return "iCloud Drive"
+        }
+        let folderName = url.deletingLastPathComponent().lastPathComponent
+        // "/" as well as "": `lastPathComponent` of a root path is "/", not
+        // empty, so checking only for empty let a bare "/" through and the
+        // caption rendered as "Last copy saved: /".
+        return (folderName.isEmpty || folderName == "/") ? "Files" : folderName
     }
 
     private static func monthName(_ month: Int) -> String {
@@ -1279,6 +1444,48 @@ private struct ActivityShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+/// Wraps `UIDocumentPickerViewController(forExporting:)` — unlike the share
+/// sheet above, its delegate is handed the exact URL the user saved a copy
+/// to, which is what lets the screen say where a copy went instead of just
+/// that a share sheet was shown. `asCopy: true` because this exports a copy
+/// of an existing on-phone backup; the original in the app's own Backups
+/// folder is left alone either way.
+private struct BackupCopyExporter: UIViewControllerRepresentable {
+    let url: URL
+    let onExported: (URL) -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onExported: onExported)
+    }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onExported: (URL) -> Void
+
+        init(onExported: @escaping (URL) -> Void) {
+            self.onExported = onExported
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let destination = urls.first else { return }
+            onExported(destination)
+        }
+
+        // Deliberately a no-op. A user who backs out of the picker didn't
+        // export anywhere, so recording anything here — even a "cancelled"
+        // marker — would risk the caption later claiming a location that
+        // was never actually chosen.
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {}
+    }
 }
 
 // MARK: - Custom Vendor Types
