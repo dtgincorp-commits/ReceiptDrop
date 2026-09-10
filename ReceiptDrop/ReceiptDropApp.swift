@@ -18,12 +18,25 @@ struct ReceiptDropApp: App {
             ContentView()
                 // `onOpenURL` is a View modifier, not a Scene one — it has to
                 // sit on the content, not chained onto WindowGroup itself.
-                // The share extension's "open the main app" link (see
-                // ShareSheetView) uses this scheme purely to bring the app to
-                // the foreground — there's no path/query payload to route on,
-                // so landing on the normal ContentView is already the whole
-                // job.
-                .onOpenURL { _ in }
+                // The share extension opens this scheme after every save
+                // (see ShareSheetView's `onFinish`) with a host naming where
+                // the receipt went, so the user lands there instead of just
+                // being dropped back into ContentView with no evidence
+                // anything happened. The first-run "set up the app" link
+                // still opens the bare scheme with no host — for that one,
+                // and for anything else unrecognized, simply coming to the
+                // foreground on the normal ContentView is already the whole
+                // job, same as before this existed.
+                .onOpenURL { url in
+                    switch url.host {
+                    case AppConstants.DeepLinkHost.receipts:
+                        ReceiptsNavigator.shared.selectedTab = 0
+                    case AppConstants.DeepLinkHost.pending:
+                        ReceiptsNavigator.shared.showPending()
+                    default:
+                        break
+                    }
+                }
         }
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {

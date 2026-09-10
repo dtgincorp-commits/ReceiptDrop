@@ -22,12 +22,30 @@ import UniformTypeIdentifiers
 ///   would vanish mid-extraction with nothing saved and no error shown.
 struct ShareSheetView: View {
     let onCancel: () -> Void
-    let onComplete: () -> Void
     let extensionItems: [NSExtensionItem]
     /// Opens the main app via `extensionContext?.open(_:completionHandler:)`
     /// — a share extension has no `UIApplication.shared`, so this is the only
     /// sandbox-safe way back. See ShareViewController for the actual call.
     let onOpenMainApp: () -> Void
+    /// Plain dismissal — completes the extension request with nothing more.
+    /// Used by the Done button on the "couldn't open the app" confirmation
+    /// card below, once the user has actually seen where their receipt went
+    /// and is ready to close the sheet themselves.
+    let onComplete: () -> Void
+    /// The post-save exit, for every path where a receipt was actually
+    /// written: tries to open the app at the given deep-link host (see
+    /// `AppConstants.DeepLinkHost`), and ends the extension request itself
+    /// if that succeeds. `NSExtensionContext.open` is granted inconsistently
+    /// to share extensions — it was refused outright sharing from Messages'
+    /// PDF viewer on-device — so the second parameter is a "couldn't open
+    /// it" callback: when the open fails, this view has to stay up and tell
+    /// the user their receipt was saved rather than silently completing the
+    /// request and dropping them back into whatever app they shared from
+    /// with no confirmation at all. Kept apart from `onOpenMainApp` because
+    /// that one call must complete the request and this one must not — the
+    /// first-run link leaves the card up rather than closing the sheet out
+    /// from under someone who hasn't shared anything yet.
+    let onFinish: (String?, @escaping () -> Void) -> Void
 
     @StateObject private var categoryStore = CategoryStore.shared
     @State private var attachment: SharedAttachment?
@@ -39,6 +57,11 @@ struct ShareSheetView: View {
     /// the full submit flow, which is unchanged.
     @State private var submitNow = false
     @State private var parked: ParkResult?
+    /// Set when `extensionContext.open` came back false — the receipt is
+    /// already saved, but the app never came forward to say so. Takes
+    /// priority over everything else in `body`: there is nothing left to do
+    /// but tell the user and wait for them to dismiss it themselves.
+    @State private var couldNotOpenApp = false
 
     private enum ParkResult: Equatable {
         case now(Int)
@@ -55,9 +78,21 @@ struct ShareSheetView: View {
 
     var body: some View {
         Group {
-            if submitNow, let attachment {
+            if couldNotOpenApp {
+                couldNotOpenCard
+            } else if submitNow, let attachment {
+                // Every `onComplete` path inside ReceiptSubmitView — including
+                // its two "Skip for now" buttons — sits after a successful
+                // save; abandonment goes through `onCancel`, untouched here.
+                // So this can't fire for a receipt that was never written,
+                // and it's safe to always route to Receipts.
                 ReceiptSubmitView(attachment: attachment, onCancel: onCancel,
-                                  onComplete: onComplete, initialCategory: category)
+                                  onComplete: {
+                                      onFinish(AppConstants.DeepLinkHost.receipts) {
+                                          couldNotOpenApp = true
+                                      }
+                                  },
+                                  initialCategory: category)
             } else {
                 card
             }
@@ -257,6 +292,74 @@ struct ShareSheetView: View {
         .frame(height: 96)
     }
 
+    /// Everything `couldNotOpenCard` shows above the Done button: the same
+    /// icon-plus-headline `confirmation(_:)` already draws when a receipt
+    /// was parked, or a plain checkmark when it went through the full
+    /// submit flow instead (parked is nil there — nothing was queued, it
+    /// was read and filed on the spot). Either way, a quiet line naming
+    /// where the receipt went, because the one thing this card exists to
+    /// say is what happened somewhere the user can't currently see.
+    @ViewBuilder
+    private var savedConfirmationBody: some View {
+        if let parked {
+            confirmation(parked)
+        } else {
+            VStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 30))
+                    .foregroundStyle(Color(red: 0.30, green: 0.85, blue: 0.55))
+                Text("Saved")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+            }
+            .frame(height: 96)
+        }
+        // A held receipt is not in Receipts and won't be until tonight's
+        // run, so saying it is would be the same lie the Pending routing
+        // above exists to avoid — name where it actually is instead.
+        Text(parked?.isOvernight == true
+             ? "Waiting in Receipts4Tax — it'll be read overnight"
+             : "In Receipts4Tax, under \(category)")
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(0.6))
+            .multilineTextAlignment(.center)
+    }
+
+    /// Shown instead of everything else once a post-save
+    /// `extensionContext.open` has come back refused. The receipt is
+    /// already durably saved by this point — every `onFinish` call site
+    /// only fires after a write completes — so this view's only job left is
+    /// to say so and hold still until the user taps Done themselves, since
+    /// nothing is going to auto-dismiss it into the app the way the happy
+    /// path does.
+    private var couldNotOpenCard: some View {
+        VStack {
+            Spacer(minLength: 0)
+            VStack(spacing: 18) {
+                savedConfirmationBody
+                Button(action: onComplete) {
+                    Text("Done")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color(red: 0.30, green: 0.72, blue: 1.0),
+                                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(20)
+            .background(cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 14)
+        }
+        // Same as `card`: transparent so this reads as an overlay on
+        // whatever the user was doing, not a screen that replaced it.
+        .background(Color.clear)
+    }
+
     private var categoryPicker: some View {
         NavigationStack {
             List(categoryStore.categories, id: \.self) { name in
@@ -324,7 +427,13 @@ struct ShareSheetView: View {
         parked = held ? .overnight(items.count) : .now(items.count)
         Task {
             try? await Task.sleep(nanoseconds: 700_000_000)
-            onComplete()
+            // Held receipts land on Pending, not Receipts: an overnight
+            // receipt hasn't been read yet, so it isn't in Receipts, and
+            // landing on a list that doesn't contain it would read as the
+            // very failure this change exists to fix.
+            onFinish(held ? AppConstants.DeepLinkHost.pending : AppConstants.DeepLinkHost.receipts) {
+                couldNotOpenApp = true
+            }
         }
     }
 

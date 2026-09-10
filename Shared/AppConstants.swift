@@ -10,10 +10,22 @@ enum AppConstants {
     /// CFBundleURLTypes) so the share extension has a way back to it. A
     /// share-extension process has no `UIApplication.shared` and so can't call
     /// `.open(_:)` directly — `extensionContext?.open(_:completionHandler:)`
-    /// with this scheme is the sandbox-safe equivalent. No path/query is ever
-    /// read on the receiving end today; this just launches the app to its
-    /// normal entry point (see ReceiptDropApp's `onOpenURL`).
+    /// with this scheme is the sandbox-safe equivalent. Used bare (no host)
+    /// for the first-run "set up the app" link, which just needs to bring
+    /// the app forward; with a `DeepLinkHost` it also tells `ReceiptDropApp`'s
+    /// `onOpenURL` which tab to land on.
     static let urlScheme = "receiptdrop"
+
+    /// Deep-link hosts for `receiptdrop://<host>` — the share extension
+    /// opens one of these after a save so the user lands where the
+    /// receipt actually went, rather than back in the host app with no
+    /// evidence anything happened. Constants rather than literals so the
+    /// extension that writes the URL and `ReceiptDropApp` that routes on
+    /// it cannot drift apart.
+    enum DeepLinkHost {
+        static let receipts = "receipts"
+        static let pending = "pending"
+    }
 
     /// Claude model used for receipt extraction. Haiku-class is fast and
     /// cheap and is sufficient for reading receipts. Change here if needed.
