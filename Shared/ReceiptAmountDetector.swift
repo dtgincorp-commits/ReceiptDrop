@@ -46,7 +46,24 @@ enum ReceiptAmountDetector {
         // bare-integer regression above — a looser grouping count is exactly
         // the kind of change that could accidentally let a sequence number
         // through.
-        let pattern = #"[$€£₹¥]\s*\d{1,3}(?:[.,]\d{2,3})*(?:[.,]\d{1,2})?|\d{1,3}(?:[.,]\d{2,3})*[.,]\d{1,2}"#
+        //
+        // The leading digit run is `\d+`, not `\d{1,3}`. A length cap there
+        // was never doing any of the rejection work described above — it
+        // was just silently truncating the first three digits of any figure
+        // with a four-or-more-digit whole-number part and no thousands
+        // separator, then matching what was left over as if it were the
+        // whole number. "$1001" (a real contractor invoice total) matched
+        // as "$100" — the trailing "1" simply fell outside the match.
+        // "1001.50" matched as "001.50", i.e. 1.50, because the cap forced
+        // the match to start three digits later. Both are silent
+        // corruption, not rejection: a genuine printed total quietly turns
+        // into a different, smaller number instead of being flagged as
+        // unparseable. The bare-integer rejection in invariant (a) above
+        // doesn't depend on this cap at all — it lives entirely in the
+        // no-symbol alternative's required trailing `[.,]\d{1,2}` decimal
+        // group, which `\d+` doesn't touch: "972" still has no decimal
+        // group and still won't match, exactly as before.
+        let pattern = #"[$€£₹¥]\s*\d+(?:[.,]\d{2,3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{2,3})*[.,]\d{1,2}"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
 
         let fullRange = NSRange(text.startIndex..., in: text)

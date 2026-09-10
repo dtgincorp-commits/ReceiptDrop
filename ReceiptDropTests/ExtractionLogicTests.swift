@@ -657,6 +657,44 @@ final class ExtractionLogicTests: XCTestCase {
         XCTAssertTrue(amounts.contains("12345678.90"))
     }
 
+    // MARK: - ReceiptAmountDetector — unseparated four-figure totals
+    //
+    // The leading digit run used to be capped at \d{1,3}, which silently
+    // truncated any whole-number part of four digits or more printed
+    // without a thousands separator. This was not a theoretical gap: a
+    // contractor invoice reading "Total $1001" scanned as $100, so the
+    // amount guardrail in `ExtractedReceipt.build` decided the model's
+    // correct $1001 "isn't printed on this receipt" and substituted a
+    // $390 line item over it. The detector's whole job is to say what is
+    // printed, and it was answering with a number that wasn't.
+
+    func testAmountDetectorReadsUnseparatedFourFigureTotal() {
+        let amounts = ReceiptAmountDetector.amounts(in: "Total  $1001")
+        XCTAssertTrue(amounts.contains("1001.00"))
+        // The specific corruption, asserted directly: the first three
+        // digits must not match on their own.
+        XCTAssertFalse(amounts.contains("100.00"))
+    }
+
+    func testAmountDetectorReadsUnseparatedFourFigureAmountWithDecimals() {
+        // Worse than the integer case — the cap forced the match to start
+        // three digits in, so this used to read as $1.50 rather than
+        // failing outright.
+        let amounts = ReceiptAmountDetector.amounts(in: "1001.50")
+        XCTAssertTrue(amounts.contains("1001.50"))
+        XCTAssertFalse(amounts.contains("1.50"))
+    }
+
+    func testAmountDetectorStillIgnoresLongBareIntegers() {
+        // The counterpart risk of an unbounded leading run: an invoice
+        // number is longer than any of the sequence numbers the original
+        // bare-integer regression used, and must still be rejected. The
+        // rejection lives in the no-symbol branch's required decimal
+        // group, not in the leading run's length.
+        let amounts = ReceiptAmountDetector.amounts(in: "INVOICE 686301\nSEQ #0123\nBatch 972")
+        XCTAssertTrue(amounts.isEmpty)
+    }
+
     func testAmountDetectorIgnoresBareIntegersWithLoosenedGrouping() {
         // The grouping fix above widens (?:[.,]\d{3})* to (?:[.,]\d{2,3})*,
         // which is exactly the kind of change that could accidentally let a
