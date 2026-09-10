@@ -148,33 +148,63 @@ struct ReceiptLineClassification {
 @available(iOS 26.0, *)
 struct FoundationModelsService: ReceiptExtractor {
 
-    /// Image/PDF entry point. On iOS 27+ with a vision-capable model, hands
-    /// the model the actual image; otherwise OCRs on-device and reasons over
-    /// the text (iOS 26 path).
+    /// Cap on how many PDF pages get OCR'd. A multi-page invoice needs its
+    /// later pages (the grand total is often on page 2), but a 40-page bank
+    /// statement shared by mistake must not be walked page-by-page inside a
+    /// share extension's time and memory budget — five pages is enough for
+    /// the former without risking the latter.
+    private static let maxOCRPages = 5
+
+    /// Image/PDF entry point. Whatever comes in, Vision reads it and the
+    /// model only ever sees the recognized text.
+    ///
+    /// On-device extraction is OCR-only. FoundationModels takes no image
+    /// input: as of the iOS 26.5 SDK the framework exposes no attachment
+    /// type for prompts and no vision capability to query, so there is
+    /// nothing to fall back *from*. Restoring a multimodal path means
+    /// writing it against whatever Apple actually ships, not restoring
+    /// this one.
     func extract(data: Data, kind: ReceiptKind, categoryContext: String = "") async throws -> ExtractedReceipt {
-        let imageData: Data
         switch kind {
         case .image:
-            imageData = data
+            let ocrText = (try? await VisionOCRService.recognizeText(in: data)) ?? ""
+            return try await extract(ocrText: ocrText, categoryContext: categoryContext)
+
         case .pdf:
-            // Both paths want raster image data; render the first PDF page.
-            guard let rendered = Self.renderPDFPageToPNG(data) else {
+            guard let doc = PDFDocument(data: data), doc.pageCount > 0 else {
                 // Fall back to an empty read → HITL flags it for manual review
                 // rather than throwing the submission away.
                 return try await extract(ocrText: "", categoryContext: categoryContext)
             }
-            imageData = rendered
-        }
 
-        // On-device extraction is OCR-only. FoundationModels takes no image
-        // input: as of the iOS 26.5 SDK the framework exposes no attachment
-        // type for prompts and no vision capability to query, so there is
-        // nothing to fall back *from* — Vision does the reading, and the
-        // model only ever sees text. Restoring a multimodal path means
-        // writing it against whatever Apple actually ships, not restoring
-        // this one.
-        let ocrText = (try? await VisionOCRService.recognizeText(in: imageData)) ?? ""
-        return try await extract(ocrText: ocrText, categoryContext: categoryContext)
+            // Render and OCR one page at a time so only one page's pixels
+            // are ever resident at once — rendering all pages up front is
+            // exactly the kind of peak-memory spike that jetsams a share
+            // extension. A page that fails to render or OCRs to nothing is
+            // skipped rather than treated as fatal: a scanned invoice with
+            // one blank page should still extract from the pages that do
+            // have text on them.
+            var pageTexts: [String] = []
+            let pageCount = min(doc.pageCount, Self.maxOCRPages)
+            for index in 0..<pageCount {
+                var rendered: Data?
+                autoreleasepool {
+                    rendered = Self.renderPDFPage(data, at: index)
+                }
+                guard let rendered else { continue }
+                let text = (try? await VisionOCRService.recognizeText(in: rendered)) ?? ""
+                if !text.isEmpty {
+                    pageTexts.append(text)
+                }
+            }
+
+            guard !pageTexts.isEmpty else {
+                // Every page failed to render or yielded no text → same
+                // HITL fallback as the "couldn't open the document" case.
+                return try await extract(ocrText: "", categoryContext: categoryContext)
+            }
+            return try await extract(ocrText: pageTexts.joined(separator: "\n"), categoryContext: categoryContext)
+        }
     }
 
     /// Text entry point — used directly by the Live Text "Scan Text" flow,
@@ -489,14 +519,38 @@ struct FoundationModelsService: ReceiptExtractor {
 
     // MARK: - PDF → image
 
-    /// Renders a PDF's first page to PNG data at ~2x for legible OCR.
-    static func renderPDFPageToPNG(_ data: Data) -> Data? {
+    /// Longest edge, in pixels, of a rendered PDF page. ~200dpi on a US
+    /// Letter page — comfortably enough for Vision to read 9pt invoice
+    /// text, and small enough that the bitmap can't jetsam a share
+    /// extension.
+    private static let maxRenderedPageEdge: CGFloat = 1600
+
+    /// Renders one page of a PDF to JPEG data, sized so its longest edge is
+    /// capped at `maxRenderedPageEdge` rather than a fixed multiplier of the
+    /// page's point size. The previous implementation hand-rolled a "2x"
+    /// scale but built `UIGraphicsImageRenderer` with no explicit format, so
+    /// UIKit filled in the format's `scale` from the screen (3x on most
+    /// current iPhones) and multiplied on top of that 2x — a US Letter page
+    /// rasterized to ~17 megapixels and a ~70MB bitmap, which a share
+    /// extension's ~120MB budget could not survive. Forcing `format.scale =
+    /// 1` below and driving the pixel size from this cap instead fixes that
+    /// at the source.
+    static func renderPDFPage(_ data: Data, at index: Int) -> Data? {
         #if canImport(UIKit)
-        guard let doc = PDFDocument(data: data), let page = doc.page(at: 0) else { return nil }
+        guard let doc = PDFDocument(data: data), index >= 0, index < doc.pageCount,
+              let page = doc.page(at: index) else { return nil }
         let pageRect = page.bounds(for: .mediaBox)
-        let scale: CGFloat = 2
+        let longEdge = max(pageRect.width, pageRect.height)
+        guard longEdge > 0 else { return nil }
+        // Clamp to [1, 3]: never upscale a tiny page past 3x, and never
+        // shrink it below its natural size just because it's small.
+        let scale = min(max(maxRenderedPageEdge / longEdge, 1), 3)
         let size = CGSize(width: pageRect.width * scale, height: pageRect.height * scale)
-        let renderer = UIGraphicsImageRenderer(size: size)
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
         let image = renderer.image { ctx in
             UIColor.white.set()
             ctx.fill(CGRect(origin: .zero, size: size))
@@ -504,7 +558,11 @@ struct FoundationModelsService: ReceiptExtractor {
             ctx.cgContext.scaleBy(x: scale, y: -scale)
             page.draw(with: .mediaBox, to: ctx.cgContext)
         }
-        return image.pngData()
+        // JPEG rather than PNG: a photographic scan compresses far smaller
+        // as JPEG, and OCR accuracy is unaffected at this quality level —
+        // the second large allocation `.pngData()` made on top of the
+        // bitmap was itself part of what jetsammed the extension.
+        return image.jpegData(compressionQuality: 0.85)
         #else
         return nil
         #endif

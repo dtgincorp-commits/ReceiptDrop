@@ -600,7 +600,7 @@ struct ReceiptSubmitView: View {
 
         // Vision reads still-image data. For a PDF, render its first page
         // to an image first — reusing the thumbnail helper below rather
-        // than `FoundationModelsService.renderPDFPageToPNG`, which is
+        // than `FoundationModelsService.renderPDFPage`, which is
         // gated to iOS 26 + the FoundationModels framework and so isn't
         // available on every deployment target this view ships to.
         let imageData: Data?
