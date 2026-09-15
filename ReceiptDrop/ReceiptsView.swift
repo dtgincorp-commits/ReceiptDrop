@@ -208,6 +208,16 @@ struct ReceiptsView: View {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Which of the three fixed statuses (if any) `searchText` is asking
+    /// for — "duplicates", "needs review", "queued". See
+    /// `ReceiptStatusQuery` for why this is matched locally rather than
+    /// folded into the AI's query schema. Empty outside of an active search,
+    /// so it never fires off `reviewFilterActive`'s own banner tap.
+    private var searchStatusIntents: Set<ReceiptStatusQuery.Intent> {
+        guard isSearching else { return [] }
+        return ReceiptStatusQuery.intents(in: searchText)
+    }
+
     /// Results from the AI-understood filter, if one is active — nil means
     /// no semantic filter is in effect (fall back to `searchResults`). The
     /// vendor-type match is a plain local equality check against
@@ -269,6 +279,13 @@ struct ReceiptsView: View {
     private func runSemanticSearch() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
+        // A query that's ONLY a status word ("duplicates", "queued
+        // receipts") is already fully answered by the matching banner
+        // rendered below — sending it to the AI would just spend a network
+        // round-trip parsing words that never meant a vendor, amount, or
+        // date. A mixed query ("restaurants needing review") still has a
+        // non-empty remainder here, so it falls through and runs normally.
+        guard !ReceiptStatusQuery.strippingIntents(from: query).isEmpty else { return }
         guard ExtractionSettings.aiConfigured else {
             semanticError = "Smart search needs an AI — connect one in Settings. Plain text search above still works."
             return
@@ -510,6 +527,17 @@ struct ReceiptsView: View {
         .listRowSeparator(.hidden)
     }
 
+    /// What a status search shows in place of its banner when that status is
+    /// currently empty — "Nothing needs review" rather than the generic "No
+    /// Matches", since the query was understood, it's just that there's
+    /// nothing to report.
+    private func statusEmptyMessage(_ text: String) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .listRowSeparator(.hidden)
+    }
+
     /// The "add a receipt" choices, shared by the toolbar "+" and the floating
     /// button so the two can't drift apart.
     @ViewBuilder
@@ -697,7 +725,43 @@ struct ReceiptsView: View {
                             Text(semanticError).font(.caption).foregroundStyle(.red)
                                 .listRowSeparator(.hidden)
                         }
-                        if effectiveSearchResults.isEmpty && !isSemanticSearching {
+                        // A query naming one of the three fixed statuses
+                        // ("duplicates", "needs review", "queued") gets the
+                        // exact same banner the main list already shows for
+                        // it, above any ordinary results — see
+                        // `ReceiptStatusQuery`. Before this, these words had
+                        // no filter to attach to, so the AI parse came back
+                        // empty and the screen said "No Matches" for
+                        // something the app plainly has an answer for.
+                        // Ordered consistently regardless of word order in
+                        // the query.
+                        if searchStatusIntents.contains(.needsReview) {
+                            if !needsReviewEntries.isEmpty {
+                                needsReviewBanner
+                            } else {
+                                statusEmptyMessage("Nothing needs review.")
+                            }
+                        }
+                        if searchStatusIntents.contains(.duplicates) {
+                            if !duplicateGroups.isEmpty {
+                                duplicatesBanner
+                            } else {
+                                statusEmptyMessage("No possible duplicates found.")
+                            }
+                        }
+                        if searchStatusIntents.contains(.queued) {
+                            if waitingLater + waitingSoon > 0 {
+                                waitingBanner
+                            } else {
+                                statusEmptyMessage("Nothing is queued.")
+                            }
+                        }
+                        // Suppressed once a status intent matched: with a
+                        // banner (or the specific message above) already
+                        // telling the user what's there — or that nothing
+                        // is — "No Matches" directly underneath would
+                        // contradict it.
+                        if effectiveSearchResults.isEmpty && !isSemanticSearching && searchStatusIntents.isEmpty {
                             ContentUnavailableCompatView(
                                 title: "No Matches",
                                 message: reviewFilterActive ? "Nothing needs review." : "No receipts match \"\(searchText)\"."

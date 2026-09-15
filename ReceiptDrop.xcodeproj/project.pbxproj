@@ -8,6 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		00B6687EE07E1D652C3B3F18 /* ReceiptDateDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */; };
+		C3579660ADF9EAB7EFE9BFDB /* SearchAmountParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C0B8A0DB85C552FF375763 /* SearchAmountParser.swift */; };
+		B93533DE863EC73293F86DD4 /* SearchAmountParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C0B8A0DB85C552FF375763 /* SearchAmountParser.swift */; };
+		1D8D685083BD2EA018F6CB3D /* SearchVendorTypeKeywords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43FA2E26B9A2907B180A7DDD /* SearchVendorTypeKeywords.swift */; };
+		3B6C2E00DEFBAC950E73FB6D /* SearchVendorTypeKeywords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43FA2E26B9A2907B180A7DDD /* SearchVendorTypeKeywords.swift */; };
 		0357085443A9651EF4E77F6E /* ShareSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D65E49DF78FE2F53DF54D1FB /* ShareSheetView.swift */; };
 		0369C28D357DC89548A9CF71 /* QuickSendContactStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C55D1066ECBE9ED09826A40 /* QuickSendContactStore.swift */; };
 		0A932F628E1DA811D4270E99 /* AzureDocumentIntelligenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */; };
@@ -23,6 +27,7 @@
 		181B009689A250CEE3CD091E /* ReceiptFileHash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 879797906F52CA13057D5601 /* ReceiptFileHash.swift */; };
 		1BEBCD8888AB65FF0B4D5827 /* APIKeyTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */; };
 		1E94254423D4555F1AFB3C0A /* ManualEntrySaveWithReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789972440BA93C2739F33479 /* ManualEntrySaveWithReviewTests.swift */; };
+		1EE331075FD12993B18B16E3 /* ReceiptStatusQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DC3B3B3CEBAE06684EBA233 /* ReceiptStatusQuery.swift */; };
 		200A6E6FF6C4C149BF1C55FC /* OvernightProcessingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6841F4B5E700B2A57279FBCF /* OvernightProcessingService.swift */; };
 		209B3D7E78931388864C1CC5 /* ReceiptDropApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399D1B3777B6FF27E193E2F1 /* ReceiptDropApp.swift */; };
 		22031BFF337270977E620A55 /* CategoryDeleteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF380D2280F12372F67471C0 /* CategoryDeleteService.swift */; };
@@ -188,6 +193,8 @@
 		1A93982D67223B82A377969E /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		1E9F98C3A8C057A179F0CBE1 /* ManualEntryOCRPrefillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualEntryOCRPrefillTests.swift; sourceTree = "<group>"; };
 		2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptDateDetector.swift; sourceTree = "<group>"; };
+		98C0B8A0DB85C552FF375763 /* SearchAmountParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchAmountParser.swift; sourceTree = "<group>"; };
+		43FA2E26B9A2907B180A7DDD /* SearchVendorTypeKeywords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchVendorTypeKeywords.swift; sourceTree = "<group>"; };
 		21D87B0E04C004C048B153C0 /* NewReceiptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewReceiptView.swift; sourceTree = "<group>"; };
 		2487A2052B551FC00FDF8D17 /* EditReceiptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditReceiptView.swift; sourceTree = "<group>"; };
 		24F99E4477C2AFEDD8DC698B /* ShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -225,6 +232,7 @@
 		6B9C7F659B17F23A554F8347 /* SpendingInsightsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingInsightsService.swift; sourceTree = "<group>"; };
 		6CEFB96E5673FBC20796DFAE /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		6D5D15E75C57846F860C9D3B /* AttachmentThumbnailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentThumbnailTests.swift; sourceTree = "<group>"; };
+		6DC3B3B3CEBAE06684EBA233 /* ReceiptStatusQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptStatusQuery.swift; sourceTree = "<group>"; };
 		6EE145F3A4C712818F908A82 /* ReceiptCropService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCropService.swift; sourceTree = "<group>"; };
 		737BBE946A35D758DC20C445 /* ReceiptFileHashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptFileHashTests.swift; sourceTree = "<group>"; };
 		7388B59DE9B18D379CB272D2 /* DuplicateDetectionIdenticalFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateDetectionIdenticalFileTests.swift; sourceTree = "<group>"; };
@@ -376,6 +384,8 @@
 				6EE145F3A4C712818F908A82 /* ReceiptCropService.swift */,
 				2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */,
 				879797906F52CA13057D5601 /* ReceiptFileHash.swift */,
+				98C0B8A0DB85C552FF375763 /* SearchAmountParser.swift */,
+				43FA2E26B9A2907B180A7DDD /* SearchVendorTypeKeywords.swift */,
 				0C3764C1A5A44BD4C06230FE /* ReceiptHashBackfillService.swift */,
 				2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */,
 				FE161956181801F91BB79B5F /* ReceiptPhotoClassifier.swift */,
@@ -414,6 +424,7 @@
 				D82B6FF53C985F3570C022F3 /* ReceiptDrop.entitlements */,
 				399D1B3777B6FF27E193E2F1 /* ReceiptDropApp.swift */,
 				A9E51159281ABA1A7AF432D8 /* ReceiptPreviewView.swift */,
+				6DC3B3B3CEBAE06684EBA233 /* ReceiptStatusQuery.swift */,
 				54DEA5E5F2DDE4AC17C77C9D /* ReceiptsView.swift */,
 				887F6B8ED6007F890A46F18C /* SampleReceiptDemoView.swift */,
 				7B3295A349899BF8290F0B97 /* ScannedTextSubmitView.swift */,
@@ -615,6 +626,8 @@
 				144D08E0FF0AFFC096A58B8E /* ReceiptAmountDetector.swift in Sources */,
 				674FAF45C59E0A1ECCE520AA /* ReceiptCropService.swift in Sources */,
 				A24E47ED8C486ABC29BFD3D7 /* ReceiptDateDetector.swift in Sources */,
+				C3579660ADF9EAB7EFE9BFDB /* SearchAmountParser.swift in Sources */,
+				1D8D685083BD2EA018F6CB3D /* SearchVendorTypeKeywords.swift in Sources */,
 				2BD92C8F060343A02A106B45 /* ReceiptDetectionEvalView.swift in Sources */,
 				209B3D7E78931388864C1CC5 /* ReceiptDropApp.swift in Sources */,
 				BFD11D25BD77EC0588B955BD /* ReceiptFileHash.swift in Sources */,
@@ -622,6 +635,7 @@
 				77684F15B8C98AF84E326C8A /* ReceiptModels.swift in Sources */,
 				5FB6F699D55E1DA466DABF53 /* ReceiptPhotoClassifier.swift in Sources */,
 				7DA993E96E2763FBAB9BB3A0 /* ReceiptPreviewView.swift in Sources */,
+				1EE331075FD12993B18B16E3 /* ReceiptStatusQuery.swift in Sources */,
 				849150F0B742BED665DFDD9E /* ReceiptSubmitView.swift in Sources */,
 				B1D1A4149D421F8F2BB69B12 /* ReceiptsView.swift in Sources */,
 				1350E530E08906B2187F50D8 /* SampleReceiptDemoView.swift in Sources */,
@@ -673,6 +687,8 @@
 				8D9FC56A37C5FD5F392B6BCA /* ReceiptAmountDetector.swift in Sources */,
 				DC2AEFBDB10450622ED9569E /* ReceiptCropService.swift in Sources */,
 				00B6687EE07E1D652C3B3F18 /* ReceiptDateDetector.swift in Sources */,
+				B93533DE863EC73293F86DD4 /* SearchAmountParser.swift in Sources */,
+				3B6C2E00DEFBAC950E73FB6D /* SearchVendorTypeKeywords.swift in Sources */,
 				181B009689A250CEE3CD091E /* ReceiptFileHash.swift in Sources */,
 				3874F005EA2F726ACCA219AD /* ReceiptHashBackfillService.swift in Sources */,
 				ADDC7BC434839EA099ADC4D5 /* ReceiptModels.swift in Sources */,

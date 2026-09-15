@@ -1568,23 +1568,172 @@ final class SearchQueryGuardTests: XCTestCase {
         XCTAssertNil(parse("receipts between 5-10 dollars", now: date(2026, 8, 28)))
     }
 
-    // MARK: - Negative cases: coarse date phrases stay with the model
+    // MARK: - Bare month names (the reported bug)
+    //
+    // "Receipts from July" used to come back "No Matches": there is no day
+    // number in it, so the old day-only pass found nothing and the query
+    // fell through to the AI parser, which failed to emit `named_month` for
+    // it. These pin the deterministic fix — `namedMonthRange` — directly,
+    // using the same `SearchDateResolver` arithmetic already proven by
+    // `SearchDateResolverTests`, never a second copy of it.
 
-    func testBareMonthNameIsLeftToTheModel() {
-        // Must NOT become the single day July 1 — "in July" is a whole month,
-        // which `named_month` already handles correctly.
-        XCTAssertNil(parse("receipts in July", now: date(2026, 8, 28)))
+    func testTheReportedQueryResolvesToTheWholeMonth() {
+        let range = parse("Receipts from July", now: date(2026, 9, 13))
+        XCTAssertEqual(range?.from, "2026-07-01")
+        XCTAssertEqual(range?.to, "2026-07-31")
     }
 
-    func testMonthAndYearIsLeftToTheModel() {
-        XCTAssertNil(parse("anything from July 2025", now: date(2026, 8, 28)))
+    func testInJulyResolvesTheSameAsTheReportedQuery() {
+        let range = parse("in July", now: date(2026, 9, 13))
+        XCTAssertEqual(range?.from, "2026-07-01")
+        XCTAssertEqual(range?.to, "2026-07-31")
     }
 
-    func testRelativePhrasesAreLeftToTheModel() {
-        XCTAssertNil(parse("anything from 2 weeks ago", now: date(2026, 8, 28)))
-        XCTAssertNil(parse("in the last 30 days", now: date(2026, 8, 28)))
-        XCTAssertNil(parse("from last month", now: date(2026, 8, 28)))
-        XCTAssertNil(parse("so far this month", now: date(2026, 8, 28)))
+    func testBareJulyWithNoOtherWordsResolvesTheSameWay() {
+        let range = parse("July", now: date(2026, 9, 13))
+        XCTAssertEqual(range?.from, "2026-07-01")
+        XCTAssertEqual(range?.to, "2026-07-31")
+    }
+
+    func testAMonthThatHasNotHappenedYetThisYearMeansLastYear() {
+        // Asked in September, "December" cannot mean the December that
+        // hasn't arrived yet — the same rule `SearchDateResolver` already
+        // applies to the model's `named_month` descriptor.
+        let range = parse("December", now: date(2026, 9, 13))
+        XCTAssertEqual(range?.from, "2025-12-01")
+        XCTAssertEqual(range?.to, "2025-12-31")
+    }
+
+    func testMonthAndYearHonorsTheStatedYear() {
+        // Overrides the "hasn't happened yet" rule — the year was stated
+        // outright, so there is nothing left to infer.
+        let range = parse("anything from July 2025", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2025-07-01")
+        XCTAssertEqual(range?.to, "2025-07-31")
+    }
+
+    func testASpecificDayStillWinsOverTheMonthItFallsIn() {
+        // "August 4th" names both a day and a month; the day is what the
+        // user means, not the whole month around it. Must return the single
+        // day, not July 1 - July 31 or August 1 - August 31.
+        let range = parse("anything on August 4th", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2026-08-04")
+        XCTAssertEqual(range?.to, "2026-08-04")
+    }
+
+    func testANumericDayStillWinsOverTheMonthItFallsIn() {
+        let range = parse("anything on 8/4", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2026-08-04")
+        XCTAssertEqual(range?.to, "2026-08-04")
+    }
+
+    func testMayIsNotConfusedWithTheOrdinaryEnglishWord() {
+        // "May" doubles as a modal verb. An unrelated query that happens to
+        // contain it must not silently turn into a date filter.
+        XCTAssertNil(parse("receipts I may have missed", now: date(2026, 8, 28)))
+    }
+
+    func testInMayIsUnambiguousAndResolves() {
+        let range = parse("in May", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2026-05-01")
+        XCTAssertEqual(range?.to, "2026-05-31")
+    }
+
+    func testMayWithAYearIsUnambiguousAndResolves() {
+        let range = parse("May 2025", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2025-05-01")
+        XCTAssertEqual(range?.to, "2025-05-31")
+    }
+
+    func testVendorNameContainingAMonthWordIsNotMisreadAsADate() {
+        // The important regression guard: "Marchetti's" must not resolve to
+        // March. `\bmarch\b` cannot match inside "marchetti's" because there
+        // is no word boundary between "march" and "etti's" — but this test
+        // exists so a future edit that loosens the match (e.g. to
+        // `contains`) fails loudly instead of shipping a search that quietly
+        // stops finding this vendor's receipts.
+        XCTAssertNil(parse("Marchetti's", now: date(2026, 8, 28)))
+        XCTAssertNil(parse("receipts from Marchetti's", now: date(2026, 8, 28)))
+    }
+
+    // MARK: - Relative periods and bare years (the amounts/vendor-type widening)
+    //
+    // These phrases used to fall all the way through to the model's
+    // `date_range_kind` field — see `testRelativePhrasesAreLeftToTheModel`'s
+    // old name and the file-level comment on `explicitRange`'s widened scope.
+    // Every arithmetic answer below is `SearchDateResolver`'s, not a new copy
+    // of it; these tests exist to pin that `SearchQueryDateParser` finds the
+    // right phrase and hands it to the resolver correctly, the same
+    // division of labor `namedMonthRange` already has above.
+
+    func testRelativePhrasesNowResolveDeterministically() {
+        let twoWeeksAgo = parse("anything from 2 weeks ago", now: date(2026, 8, 28))
+        XCTAssertEqual(twoWeeksAgo?.from, "2026-08-15")
+        XCTAssertEqual(twoWeeksAgo?.to, "2026-08-28")
+
+        let last30Days = parse("in the last 30 days", now: date(2026, 8, 28))
+        XCTAssertEqual(last30Days?.from, "2026-07-30")
+        XCTAssertEqual(last30Days?.to, "2026-08-28")
+
+        let lastMonth = parse("from last month", now: date(2026, 8, 28))
+        XCTAssertEqual(lastMonth?.from, "2026-07-01")
+        XCTAssertEqual(lastMonth?.to, "2026-07-31")
+
+        let thisMonth = parse("so far this month", now: date(2026, 8, 28))
+        XCTAssertEqual(thisMonth?.from, "2026-08-01")
+        XCTAssertEqual(thisMonth?.to, "2026-08-28")
+    }
+
+    func testLastWeekAndThisWeekResolve() {
+        XCTAssertNotNil(parse("receipts from last week", now: date(2026, 9, 13)))
+        let thisWeek = parse("anything from this week", now: date(2026, 9, 13))
+        XCTAssertEqual(thisWeek?.to, "2026-09-13")
+    }
+
+    func testLastYearAndThisYearResolve() {
+        let lastYear = parse("receipts from last year", now: date(2026, 9, 13))
+        XCTAssertEqual(lastYear?.from, "2025-01-01")
+        XCTAssertEqual(lastYear?.to, "2025-12-31")
+
+        let thisYear = parse("grocery receipts under $100 this year", now: date(2026, 9, 13))
+        XCTAssertEqual(thisYear?.from, "2026-01-01")
+        XCTAssertEqual(thisYear?.to, "2026-09-13")
+    }
+
+    func testSpelledOutWeeksAgoMultiplyIntoADayCount() {
+        // "three weeks ago" -> 21 days, the same "whole recent window, not
+        // one single day" reading `SearchDateResolver` already documents for
+        // "2 weeks ago".
+        let range = parse("three weeks ago", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2026-08-08")
+        XCTAssertEqual(range?.to, "2026-08-28")
+    }
+
+    func testPastNWeeksMultipliesIntoADayCount() {
+        let range = parse("past 2 weeks", now: date(2026, 8, 28))
+        XCTAssertEqual(range?.from, "2026-08-15")
+        XCTAssertEqual(range?.to, "2026-08-28")
+    }
+
+    func testBareYearResolvesToTheWholeCalendarYear() {
+        let range = parse("receipts from 2026", now: date(2026, 9, 13))
+        XCTAssertEqual(range?.from, "2026-01-01")
+        XCTAssertEqual(range?.to, "2026-12-31")
+    }
+
+    func testDollarAmountShapedLikeAYearIsNotReadAsAYear() {
+        // 1500 sits outside the plausible 2000-2100 window, so it can never
+        // be misread as a year no matter how it's phrased.
+        XCTAssertNil(parse("receipts over 1500", now: date(2026, 9, 13)))
+    }
+
+    func testTheReportedJulyQueryStillResolvesWithTheNewNow() {
+        // Pinned again at the fixed `now` this task's whole test list uses,
+        // so the older month-name pass and the new relative/year passes are
+        // proven to coexist correctly at the same point in time.
+        let range = parse("receipts from July", now: date(2026, 9, 13))
+        XCTAssertEqual(range?.from, "2026-07-01")
+        XCTAssertEqual(range?.to, "2026-07-31")
     }
 
     func testQueryWithNoDateAtAllProducesNothing() {
@@ -1682,6 +1831,166 @@ final class SearchQueryGuardTests: XCTestCase {
         XCTAssertEqual(out?.vendorType, "restaurant")
         XCTAssertEqual(out?.amountMin, 20)
         XCTAssertNotNil(out?.dateFrom)
+    }
+
+    // MARK: - SearchAmountParser: bound phrases
+
+    func testOverPlusSpelledOutHundred() {
+        let bounds = SearchAmountParser.bounds(in: "restaurants over hundred dollars")
+        XCTAssertEqual(bounds.min, 100)
+        XCTAssertNil(bounds.max)
+    }
+
+    func testOverPlusDollarSign() {
+        let bounds = SearchAmountParser.bounds(in: "receipts over $100")
+        XCTAssertEqual(bounds.min, 100)
+    }
+
+    func testUnderPlusSpelledOutFifty() {
+        let bounds = SearchAmountParser.bounds(in: "gas station receipts under fifty dollars")
+        XCTAssertEqual(bounds.max, 50)
+        XCTAssertNil(bounds.min)
+    }
+
+    func testBelowPlusDollarSign() {
+        let bounds = SearchAmountParser.bounds(in: "anything below $20")
+        XCTAssertEqual(bounds.max, 20)
+    }
+
+    func testBetweenRangeOrdersLowToHigh() {
+        let bounds = SearchAmountParser.bounds(in: "receipts between 20 and 40 dollars")
+        XCTAssertEqual(bounds.min, 20)
+        XCTAssertEqual(bounds.max, 40)
+    }
+
+    func testMoreThanPlusSpelledOutCompound() {
+        let bounds = SearchAmountParser.bounds(in: "restaurants more than two hundred dollars")
+        XCTAssertEqual(bounds.min, 200)
+    }
+
+    func testAtLeastIgnoresTrailingVendorName() {
+        // Vendor-name search is out of scope for this task — only the amount
+        // bound is asserted, per the task's own constraint.
+        let bounds = SearchAmountParser.bounds(in: "at least $75 at Home Depot")
+        XCTAssertEqual(bounds.min, 75)
+    }
+
+    func testNoMoreThanIsAnUpperBoundNotALowerOne() {
+        // The one real collision between the two phrase lists: "no more
+        // than" contains the complete lower-bound phrase "more than" as a
+        // substring. Pins that the upper-bound reading wins.
+        let bounds = SearchAmountParser.bounds(in: "no more than $50")
+        XCTAssertEqual(bounds.max, 50)
+        XCTAssertNil(bounds.min)
+    }
+
+    func testHyphenatedRangeWithNoBetweenKeyword() {
+        let bounds = SearchAmountParser.bounds(in: "receipts 100-150")
+        XCTAssertEqual(bounds.min, 100)
+        XCTAssertEqual(bounds.max, 150)
+    }
+
+    // MARK: - SearchAmountParser: must produce no bounds at all
+
+    func testVagueWordsProduceNoBounds() {
+        for query in ["cheap restaurant visits", "expensive receipts", "receipts around $50"] {
+            let bounds = SearchAmountParser.bounds(in: query)
+            XCTAssertNil(bounds.min, query)
+            XCTAssertNil(bounds.max, query)
+        }
+    }
+
+    // MARK: - SearchAmountParser: regression guards
+
+    func testFromJulyIsNeverReadAsAnAmountLowerBound() {
+        let bounds = SearchAmountParser.bounds(in: "from July")
+        XCTAssertNil(bounds.min)
+        XCTAssertNil(bounds.max)
+    }
+
+    func testFromABareYearIsNeverReadAsAnAmountEither() {
+        // The same guard, aimed at the number rather than the word: "from
+        // 2026" must stay a date, not a $2026 minimum.
+        let bounds = SearchAmountParser.bounds(in: "receipts from 2026")
+        XCTAssertNil(bounds.min)
+        XCTAssertNil(bounds.max)
+    }
+
+    func testVendorNameWithAMonthFragmentProducesNoAmountBound() {
+        // Mirrors `testVendorNameContainingAMonthWordIsNotMisreadAsADate` on
+        // the money side: "Marchetti's" contains no number at all, so there
+        // is nothing here to misread either.
+        let bounds = SearchAmountParser.bounds(in: "Marchetti's")
+        XCTAssertNil(bounds.min)
+        XCTAssertNil(bounds.max)
+    }
+
+    func testVendorNameQueryProducesNoAmountAndNoDate() {
+        XCTAssertNil(parse("anything from Starbucks", now: date(2026, 9, 13)))
+        let bounds = SearchAmountParser.bounds(in: "anything from Starbucks")
+        XCTAssertNil(bounds.min)
+        XCTAssertNil(bounds.max)
+    }
+
+    // MARK: - SearchVendorTypeKeywords
+
+    func testGroceryKeywordFillsInAnUnclassifiedQuery() {
+        XCTAssertEqual(SearchVendorTypeKeywords.match(in: "show me all grocery receipts"), "grocery")
+    }
+
+    func testHardwareStorePhraseResolves() {
+        XCTAssertEqual(SearchVendorTypeKeywords.match(in: "hardware store purchases"), "hardware_home_improvement")
+    }
+
+    func testMedicalExpensesPhraseResolves() {
+        XCTAssertEqual(SearchVendorTypeKeywords.match(in: "medical expenses"), "medical")
+    }
+
+    func testKeywordFallbackFindsNothingInAnUnrelatedQuery() {
+        XCTAssertNil(SearchVendorTypeKeywords.match(in: "receipts over 50"))
+    }
+
+    // MARK: - finalize: amounts and vendor-type keywords combined
+
+    func testFinalizeCombinesRestaurantKeywordWithAnUpperBound() {
+        let out = try? SemanticSearchService.finalize(
+            result(), query: "restaurant receipts under $30", explicit: nil)
+        XCTAssertEqual(out?.vendorType, "restaurant")
+        XCTAssertEqual(out?.amountMax, 30)
+        XCTAssertNil(out?.amountMin)
+    }
+
+    func testFinalizeCombinesGasStationKeywordWithALowerBound() {
+        let out = try? SemanticSearchService.finalize(
+            result(), query: "gas station over 40", explicit: nil)
+        XCTAssertEqual(out?.vendorType, "gas_station")
+        XCTAssertEqual(out?.amountMin, 40)
+    }
+
+    func testFinalizeDropsAModelInventedAmountWhenTheQueryHasNoNumber() {
+        // The core of the "stop the model inventing amounts" fix: the model
+        // returned a bound for a query that names no number anywhere, so it
+        // must be discarded rather than shown as a filter the user asked for.
+        let out = try? SemanticSearchService.finalize(
+            result(amountMin: 40), query: "expensive receipts", explicit: nil)
+        XCTAssertNil(out?.amountMin)
+        XCTAssertNil(out?.amountMax)
+    }
+
+    func testFinalizeKeepsAModelAmountWhenTheQueryHasANumberTheParserDidNotRecognize() {
+        // "Around $50" contains a number but no phrase this parser's fixed
+        // list recognizes as a bound. Unlike the no-number case above, the
+        // model's answer survives here — it may have understood a nuance the
+        // deterministic list doesn't yet.
+        let out = try? SemanticSearchService.finalize(
+            result(amountMax: 55), query: "receipts around $50", explicit: nil)
+        XCTAssertEqual(out?.amountMax, 55)
+    }
+
+    func testFinalizeAmountParserOverridesTheModelWhenBothAnswer() {
+        let out = try? SemanticSearchService.finalize(
+            result(amountMin: 999), query: "receipts over $100", explicit: nil)
+        XCTAssertEqual(out?.amountMin, 100)
     }
 
     // MARK: - Chip label for a single day
@@ -2103,5 +2412,113 @@ final class BackupExportLocationTests: XCTestCase {
         // Nothing usable to name: better a generic "Files" than an empty
         // string rendered into "Last copy saved: , Sep 9".
         XCTAssertEqual(ArchiveBackupView.exportLocationLabel(for: URL(fileURLWithPath: "/backup.zip")), "Files")
+    }
+}
+
+// MARK: - Status search intents (the "duplicates" / "needs review" / "queued" bug)
+//
+// The Receipts search field used to have no way to express these three fixed
+// app concepts at all — `QueryParseResult` only has vendor/amount/date
+// fields, so a query like "duplicates" or "queued receipts" parsed to
+// nothing and fell through to plain vendor-name matching, which of course
+// found nothing. `ReceiptStatusQuery` recognises them deterministically
+// instead, so ReceiptsView can answer with the same banner the main list
+// already shows for that status. These tests pin the matcher itself, not
+// the view — the important regression guard is the last one: an ordinary
+// vendor search must never be mistaken for a status request.
+
+final class ReceiptStatusQueryTests: XCTestCase {
+
+    func testNeedsReviewMatchesItsPrimaryPhrasingAndASynonym() {
+        XCTAssertEqual(ReceiptStatusQuery.intents(in: "needs review"), [.needsReview])
+        XCTAssertEqual(ReceiptStatusQuery.intents(in: "flagged"), [.needsReview])
+    }
+
+    func testDuplicatesMatchesItsPrimaryPhrasingAndASynonym() {
+        XCTAssertEqual(ReceiptStatusQuery.intents(in: "duplicates"), [.duplicates])
+        XCTAssertEqual(ReceiptStatusQuery.intents(in: "dupes"), [.duplicates])
+    }
+
+    func testQueuedMatchesItsPrimaryPhrasingAndASynonym() {
+        XCTAssertEqual(ReceiptStatusQuery.intents(in: "queued"), [.queued])
+        XCTAssertEqual(ReceiptStatusQuery.intents(in: "pending"), [.queued])
+    }
+
+    // The user's own reported queries — the actual bug, not a paraphrase of it.
+
+    func testShowMeDuplicateReceiptsIsRecognized() {
+        XCTAssertEqual(ReceiptStatusQuery.intents(in: "Show me duplicate receipts"), [.duplicates])
+    }
+
+    func testQueuedReceiptsIsRecognized() {
+        XCTAssertEqual(ReceiptStatusQuery.intents(in: "queued receipts"), [.queued])
+    }
+
+    func testNeedReviewsIsRecognized() {
+        XCTAssertEqual(ReceiptStatusQuery.intents(in: "need reviews"), [.needsReview])
+    }
+
+    func testAQueryNamingTwoIntentsReturnsBoth() {
+        XCTAssertEqual(ReceiptStatusQuery.intents(in: "duplicates that need review"), [.duplicates, .needsReview])
+    }
+
+    // The important regression guard: an ordinary vendor search must never
+    // be read as a status request, or every receipt from a vendor whose name
+    // happens to contain one of these words would trigger a banner instead
+    // of (or alongside) an otherwise unrelated search.
+    func testOrdinaryVendorSearchesMatchNoIntent() {
+        XCTAssertTrue(ReceiptStatusQuery.intents(in: "Eureka Restaurant").isEmpty)
+        XCTAssertTrue(ReceiptStatusQuery.intents(in: "in-n-out").isEmpty)
+    }
+
+    func testStrippingIntentsLeavesNothingForAPureStatusQuery() {
+        XCTAssertEqual(ReceiptStatusQuery.strippingIntents(from: "needs review"), "")
+        XCTAssertEqual(ReceiptStatusQuery.strippingIntents(from: "queued receipts"), "receipts")
+    }
+
+    func testStrippingIntentsLeavesTheRemainderForAMixedQuery() {
+        XCTAssertEqual(ReceiptStatusQuery.strippingIntents(from: "restaurants needing review"), "restaurants")
+    }
+}
+
+// MARK: - Coarser date passes must not rescue a rejected specific date
+//
+// Adding the named-month, relative-period and bare-year passes created a
+// route around the oldest guarantee in `SearchQueryDateParser`: a date the
+// user typed and the calendar rejected must produce no filter at all. The
+// year fragment of "02/30/2026" is still sitting in the text, so a bare-year
+// pass reading it would answer an impossible date with the whole of 2026 —
+// a fabricated range, arrived at by a longer route. These pin the boundary.
+
+final class SearchDateFallbackBoundaryTests: XCTestCase {
+
+    private func range(_ query: String, now: Date) -> (from: Date, to: Date)? {
+        SearchQueryDateParser.explicitRange(in: query, now: now)
+    }
+
+    private func date(_ year: Int, _ month: Int, _ day: Int) -> Date {
+        Calendar.current.date(from: DateComponents(year: year, month: month, day: day))!
+    }
+
+    func testImpossibleNumericDateIsNotRescuedByTheBareYearPass() {
+        XCTAssertNil(range("receipts on 02/30/2026", now: date(2026, 8, 28)))
+    }
+
+    func testImpossibleNumericDateIsNotRescuedByARelativePhraseElsewhere() {
+        // Two competing readings in one query. The typed date still wins by
+        // refusing: the user named a day, and it wasn't a real one.
+        XCTAssertNil(range("receipts on 02/30/2026 last month", now: date(2026, 8, 28)))
+    }
+
+    func testAValidNumericDateStillResolvesToThatDay() {
+        // The guard must reject only what the calendar rejected, never a
+        // date that parses cleanly.
+        let resolved = range("receipts on 07/04/2026", now: date(2026, 8, 28))
+        XCTAssertEqual(resolved?.from, date(2026, 7, 4))
+    }
+
+    func testABareYearStillResolvesWhenNoNumericDateWasTyped() {
+        let resolved = range("receipts from 2026", now: date(2026, 8, 28))
+        XCTAssertEqual(resolved?.from, date(2026, 1, 1))
     }
 }

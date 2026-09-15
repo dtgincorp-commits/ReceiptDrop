@@ -414,16 +414,33 @@ enum ReceiptDateDetector {
 ///
 /// ## Why the scope is narrow on purpose
 ///
-/// This only claims a query that names a **specific day**. Month-level and
-/// coarser phrases ("in July", "July 2025", "last month", "2 weeks ago") are
-/// left to the model plus `SearchDateResolver`, which already represent them
-/// correctly as whole periods. A regex that turned "in July" into the single
-/// day July 1 would be a far worse bug than the gap it closes, so a
-/// candidate is rejected unless a day-of-month number is actually present.
+/// This claims a query that names a **specific day**, a **bare month name**
+/// once no day is present (`namedMonthRange`), a **relative period** like
+/// "last month" or "past 30 days" once no day or month name is present
+/// (`relativePeriodRange`), or a **bare four-digit year** once none of those
+/// match (`bareYearRange`). The month-name carve-out exists because a
+/// reported query, "Receipts from July", came back "No Matches": there is no
+/// day number in it for the old day-only pass to find, so it fell through to
+/// the AI parser, and the on-device model failed to emit `named_month` for
+/// it. Relative periods and bare years were added for the same reason,
+/// widening the net rather than changing it: "last month", "this week", "2
+/// weeks ago" and "receipts from 2026" are exactly as common in real search
+/// queries as a bare month name, and depend on the same unreliable model
+/// field to be recognized at all.
+///
+/// Precedence, most specific first: a named day beats a named month, which
+/// beats a relative period, which beats a bare year. Each pass is tried only
+/// once every more specific one has already found nothing, so "August 4th,
+/// 2026" keeps its exact day and never loosens to the whole month or the
+/// whole year, and "in July" keeps meaning the month of July rather than
+/// being reinterpreted as some relative window. This is a widening of what
+/// the deterministic pass recognizes, not a change to what it already did —
+/// every case the old day-only and month-name passes handled resolves
+/// exactly as before.
 enum SearchQueryDateParser {
 
-    /// Inclusive day bounds for the explicit date(s) named in `query`, or nil
-    /// when the query names no specific day. Same contract as
+    /// Inclusive day bounds for the explicit date(s) or bare month named in
+    /// `query`, or nil when neither is present. Same contract as
     /// `SearchDateResolver.resolve` — `from` is the start of the first day,
     /// `to` the last instant of the last — so callers can use either
     /// interchangeably.
@@ -438,7 +455,35 @@ enum SearchQueryDateParser {
         var days = numericDays(in: query, now: now, calendar: calendar)
         days.append(contentsOf: detectorDays(in: query, now: now, calendar: calendar))
 
-        guard let earliest = days.min(), let latest = days.max() else { return nil }
+        guard let earliest = days.min(), let latest = days.max() else {
+            // A query that spells out a numeric date the calendar rejected —
+            // "receipts on 02/30/2026" — stops here rather than falling
+            // through to the coarser passes below. `numericDays` returns
+            // nothing for an impossible date on purpose, refusing to let
+            // Calendar roll 02/30 forward into March 2nd; answering the same
+            // query with the whole of 2026, because the year fragment is
+            // still sitting there in the text, would fabricate a range the
+            // user never asked for by a longer route. A date that was typed
+            // and rejected means no answer, not a vaguer one.
+            if containsNumericDatePattern(query) { return nil }
+            // No specific day found. Only now consider a bare month name —
+            // never before, and never in addition: "August 4th" names both a
+            // day and a month, and when a query names a day the day is what
+            // the user means, not the whole month around it.
+            if let monthRange = namedMonthRange(in: query, now: now, calendar: calendar) {
+                return monthRange
+            }
+            // Still nothing: try a relative period ("last month", "past 30
+            // days") before falling all the way back to a bare year, for the
+            // same reason a day always wins over the month it falls in —
+            // "this year" must resolve to the current year-to-date, not be
+            // reread as some literal 4-digit number that happens to appear
+            // in it.
+            if let relative = relativePeriodRange(in: query, now: now, calendar: calendar) {
+                return relative
+            }
+            return bareYearRange(in: query, now: now, calendar: calendar)
+        }
         let start = calendar.startOfDay(for: earliest)
         guard let dayAfter = calendar.date(byAdding: .day, value: 1,
                                            to: calendar.startOfDay(for: latest)) else { return nil }
@@ -453,6 +498,14 @@ enum SearchQueryDateParser {
     /// boundaries so the match can't land inside a longer number).
     private static let fullDatePattern =
         #"(?<!\d)(\d{1,2})([/.\-])(\d{1,2})\2(\d{4}|\d{2})(?!\d)"#
+
+    /// True when the query contains anything shaped like a numeric date at
+    /// all, valid or not — the signal that the user named a specific day and
+    /// should not be answered with a whole month or year instead.
+    private static func containsNumericDatePattern(_ query: String) -> Bool {
+        guard let regex = try? NSRegularExpression(pattern: fullDatePattern) else { return false }
+        return regex.firstMatch(in: query, range: NSRange(query.startIndex..., in: query)) != nil
+    }
 
     /// A yearless `M/D` — "anything on 8/4". Restricted to `/` alone, unlike
     /// the full pattern above: a query is full of amounts, and "between 5-10"
@@ -550,6 +603,78 @@ enum SearchQueryDateParser {
         return candidate
     }
 
+    // MARK: - Pass 3: bare month name
+
+    /// The month names this pass will recognize. Deliberately **full names
+    /// only** — no "jan", "mar", "aug", "dec" abbreviations. Those three- and
+    /// four-letter fragments collide with real vendor names ("Mar Vista
+    /// Nursery", "Dec's Diner", "Jan's Cafe"), and in a tax app the cost of a
+    /// search that silently comes back filtered to the wrong month (or
+    /// empty) is worse than the cost of asking a user to type "March" instead
+    /// of "Mar". This is a deliberate, permanent limitation, not a TODO.
+    private static let namedMonths: [(name: String, month: Int)] = [
+        ("january", 1), ("february", 2), ("march", 3), ("april", 4), ("may", 5),
+        ("june", 6), ("july", 7), ("august", 8), ("september", 9),
+        ("october", 10), ("november", 11), ("december", 12)
+    ]
+
+    /// A bare month name with no day attached — "Receipts from July", "in
+    /// July", "July 2025" — resolved the same way the model's `named_month`
+    /// descriptor already is, via `SearchDateResolver`. This function only
+    /// finds the month (and an optional adjacent year) and hands them
+    /// straight to that resolver; it deliberately does not reimplement any
+    /// of the "which year did they mean" arithmetic, which already exists,
+    /// is already tested, and would only drift if copied here.
+    ///
+    /// Callers must only reach this once a day-level match has already come
+    /// up empty — see the comment on `explicitRange`.
+    static func namedMonthRange(in query: String,
+                                now: Date = Date(),
+                                calendar: Calendar = .current) -> (from: Date, to: Date)? {
+        let lowered = query.lowercased()
+        let fullRange = NSRange(lowered.startIndex..., in: lowered)
+
+        for (name, month) in namedMonths {
+            // A whole-word match, not `contains`: `contains("march")` would
+            // fire on a vendor named "Marchetti's". The optional year groups
+            // catch "July 2025" (group 2) and "2025 July" (group 1) so a
+            // stated year is honored instead of guessed at.
+            guard let regex = try? NSRegularExpression(pattern: #"(?:(\d{4})\s+)?\b\#(name)\b(?:\s+(\d{4}))?"#),
+                  let match = regex.firstMatch(in: lowered, range: fullRange) else { continue }
+
+            if name == "may", !mayNamesADate(lowered: lowered, match: match) {
+                continue
+            }
+
+            let year = capturedYear(match, group: 1, in: lowered) ?? capturedYear(match, group: 2, in: lowered)
+            let descriptor = QueryDateDescriptor(kind: .namedMonth, month: month, year: year)
+            return SearchDateResolver.resolve(descriptor, now: now, calendar: calendar)
+        }
+        return nil
+    }
+
+    /// "May" is the one month name that doubles as an ordinary English modal
+    /// verb — "receipts I may have missed" — so treating every occurrence as
+    /// a date would silently turn an unrelated query into a filter for the
+    /// month of May. Every other month name has no such double life and is
+    /// safe to match standalone. "May" is accepted only when it's
+    /// unmistakably a date: the entire query is just "may", a date cue word
+    /// sits immediately before it ("in May", "from May", "during May", "for
+    /// May", "of May"), or a year sits immediately after it ("May 2025").
+    private static func mayNamesADate(lowered: String, match: NSTextCheckingResult) -> Bool {
+        if lowered.trimmingCharacters(in: .whitespacesAndNewlines) == "may" { return true }
+        if capturedYear(match, group: 2, in: lowered) != nil { return true }
+        guard let cueRegex = try? NSRegularExpression(pattern: #"\b(in|from|during|for|of)\s+may\b"#) else {
+            return false
+        }
+        return cueRegex.firstMatch(in: lowered, range: NSRange(lowered.startIndex..., in: lowered)) != nil
+    }
+
+    private static func capturedYear(_ match: NSTextCheckingResult, group: Int, in text: String) -> Int? {
+        guard group < match.numberOfRanges, let range = Range(match.range(at: group), in: text) else { return nil }
+        return Int(text[range])
+    }
+
     private static func intGroup(_ match: NSTextCheckingResult, _ index: Int, in text: String) -> Int? {
         textGroup(match, index, in: text).flatMap { Int($0) }
     }
@@ -557,6 +682,130 @@ enum SearchQueryDateParser {
     private static func textGroup(_ match: NSTextCheckingResult, _ index: Int, in text: String) -> String? {
         guard index < match.numberOfRanges, let range = Range(match.range(at: index), in: text) else { return nil }
         return String(text[range])
+    }
+
+    // MARK: - Pass 4: relative periods
+
+    /// Phrases naming a whole recent period by name or count, rather than a
+    /// specific day or month — "last month", "this week", "past 30 days", "2
+    /// weeks ago". Until now these were left entirely to the model's
+    /// `date_range_kind` schema field, which the on-device model does not
+    /// reliably emit — the same failure `namedMonthRange` above was added to
+    /// route around for bare month names. Every arithmetic decision here is
+    /// delegated straight to `SearchDateResolver`, the same resolver the
+    /// model-driven path uses, so "last month" means exactly the same thing
+    /// whether Swift or the model recognized the phrase — deliberately not
+    /// reimplemented here, for the same reason `namedMonthRange` doesn't
+    /// reimplement its own year-inference arithmetic.
+    static func relativePeriodRange(in query: String,
+                                    now: Date = Date(),
+                                    calendar: Calendar = .current) -> (from: Date, to: Date)? {
+        let lowered = query.lowercased()
+
+        if let descriptor = namedPeriodDescriptor(in: lowered) {
+            return SearchDateResolver.resolve(descriptor, now: now, calendar: calendar)
+        }
+        if let count = dayCount(in: lowered) {
+            return SearchDateResolver.resolve(QueryDateDescriptor(kind: .lastNDays, count: count),
+                                              now: now, calendar: calendar)
+        }
+        return nil
+    }
+
+    /// "Last/this month/week/year" — the six fixed-name periods
+    /// `QueryDateRangeKind` already has a case for. Deliberately excludes
+    /// "last N months": the resolver has no `.lastNMonths` case, and
+    /// approximating one month as a flat 30-day window would silently make
+    /// "last 3 months" mean something different from the whole-calendar-month
+    /// reading `.lastMonth` gives "last month" one line above it — a
+    /// discrepancy worth avoiding rather than papering over. "last N days" /
+    /// "last N weeks" (below, in `dayCount`) don't have this problem because
+    /// `.lastNDays` already *is* a flat day count, so approximating weeks as
+    /// 7-day multiples of it changes nothing about what the kind means.
+    private static func namedPeriodDescriptor(in lowered: String) -> QueryDateDescriptor? {
+        let mapping: [(pattern: String, kind: QueryDateRangeKind)] = [
+            (#"\blast\s+month\b"#, .lastMonth),
+            (#"\bthis\s+month\b"#, .thisMonth),
+            (#"\blast\s+week\b"#, .lastWeek),
+            (#"\bthis\s+week\b"#, .thisWeek),
+            (#"\blast\s+year\b"#, .lastYear),
+            (#"\bthis\s+year\b"#, .thisYear),
+        ]
+        for (pattern, kind) in mapping where lowered.range(of: pattern, options: .regularExpression) != nil {
+            return QueryDateDescriptor(kind: kind)
+        }
+        return nil
+    }
+
+    /// The day count behind "last N days", "past N days", "last N weeks",
+    /// "N weeks ago" — every phrasing collapses to a single day count because
+    /// `.lastNDays` is the only vocabulary entry for a counted window, and
+    /// `SearchDateResolver`'s own comment on that case explains why "2 weeks
+    /// ago" means the last 14 days rather than the single day 14 days back:
+    /// a literal single-day reading is an almost-always-empty search, and
+    /// over-inclusive beats silently-empty in a tax app.
+    private static func dayCount(in lowered: String) -> Int? {
+        let patterns: [(pattern: String, multiplier: Int)] = [
+            (#"\b(?:last|past)\s+([a-z0-9]+)\s+days?\b"#, 1),
+            (#"\b(?:last|past)\s+([a-z0-9]+)\s+weeks?\b"#, 7),
+            (#"\b([a-z0-9]+)\s+weeks?\s+ago\b"#, 7),
+        ]
+        for (pattern, multiplier) in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.firstMatch(in: lowered, range: NSRange(lowered.startIndex..., in: lowered)),
+                  let range = Range(match.range(at: 1), in: lowered),
+                  let n = smallNumber(String(lowered[range])) else { continue }
+            return n * multiplier
+        }
+        return nil
+    }
+
+    /// A tiny word-number reducer covering the counts anyone would plausibly
+    /// type before "days" / "weeks ago" — digits, or a spelled-out number up
+    /// to ninety-nine. Deliberately not the full compound reducer
+    /// `SearchAmountParser` needs for dollar figures (hundreds, thousands,
+    /// "and"-joined compounds): nobody searches their receipts for "two
+    /// hundred weeks ago", and duplicating that machinery here for a case
+    /// that never occurs would just be a second copy of it to keep in sync.
+    private static func smallNumber(_ word: String) -> Int? {
+        if let value = Int(word) { return value }
+        let ones = ["zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+                    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+                    "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+                    "nineteen": 19]
+        let tens = ["twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+                   "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90]
+        return ones[word] ?? tens[word]
+    }
+
+    // MARK: - Pass 5: bare year
+
+    /// "Receipts from 2026" with no month attached. Restricted to a
+    /// plausible calendar-year range (2000-2100) so an amount that happens to
+    /// be four digits — "receipts over 1500" — can never be misread as a
+    /// year: 1500 falls outside the window entirely. A literal "$2026" typed
+    /// with its own dollar sign is excluded by the negative lookbehind on
+    /// "$", since that is a stated amount, not a stated year. Only reached
+    /// once every more specific pass — a named day, a named month, a
+    /// relative period — has already come up empty, so "August 4th, 2026"
+    /// is never at risk of losing its day-level precision to this coarser
+    /// reading.
+    static func bareYearRange(in query: String,
+                              now: Date = Date(),
+                              calendar: Calendar = .current) -> (from: Date, to: Date)? {
+        // Also excludes a year sitting directly after a date separator, so
+        // the "2026" in "02/30/2026" can never be harvested as a bare year
+        // once the day-level pass has rejected it. `explicitRange` already
+        // stops that case earlier; this keeps the guarantee local to this
+        // function for any future caller that reaches it directly.
+        let pattern = #"(?<!\$)(?<![\d/.\-])(20\d{2}|21\d{2})(?!\d)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: query, range: NSRange(query.startIndex..., in: query)),
+              let range = Range(match.range(at: 1), in: query),
+              let year = Int(query[range]) else { return nil }
+        return SearchDateResolver.resolve(QueryDateDescriptor(kind: .specificYear, year: year),
+                                          now: now, calendar: calendar)
     }
 
     // MARK: - Pass 2: NSDataDetector

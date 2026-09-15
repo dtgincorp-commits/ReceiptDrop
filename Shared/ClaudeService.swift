@@ -1342,25 +1342,73 @@ enum SemanticSearchService {
     /// without a model or a key in the loop — which is the point of moving
     /// them out of the prompt in the first place.
     ///
-    /// Three jobs, in order:
+    /// Four jobs, in order:
     ///
     /// 1. Drop a `vendorType` of "other" that the query text can't support
     ///    (see `SearchVendorTypeGuard`).
-    /// 2. Let a date the Swift pre-pass read literally out of the query
+    /// 1a. If the model left `vendorType` nil, fill in an obvious keyword the
+    ///    query text contains (see `SearchVendorTypeKeywords`). This never
+    ///    overrides a type the model *did* return, and never fires when the
+    ///    guard above just rejected one, since it only runs on a still-nil
+    ///    value.
+    /// 2. Let an amount bound the Swift pre-pass read literally out of the
+    ///    query override whatever the model returned, and drop a bound the
+    ///    model invented out of thin air when the query names no number at
+    ///    all (see `SearchAmountParser` and the three-way branch below).
+    /// 3. Let a date the Swift pre-pass read literally out of the query
     ///    override whatever the model returned. If the pre-pass fired, the
     ///    model's date opinion — including an unrecognized descriptor — is
     ///    irrelevant, because we already have the answer.
-    /// 3. Otherwise, refuse the search outright if the model named a time
+    /// 4. Otherwise, refuse the search outright if the model named a time
     ///    period it had no legal token for. Showing an error is worse UX than
     ///    showing results and much better than showing the *wrong* results
     ///    with a filter chip implying they were narrowed.
     static func finalize(_ parsed: QueryParseResult, query: String,
                          explicit: (from: Date, to: Date)?) throws -> QueryParseResult {
-        let vendorType = SearchVendorTypeGuard.sanitized(parsed.vendorType, query: query)
+        var vendorType = SearchVendorTypeGuard.sanitized(parsed.vendorType, query: query)
+        if vendorType == nil {
+            vendorType = SearchVendorTypeKeywords.match(in: query)
+        }
+
+        // Amount bounds, deterministic beats inference — the same rule
+        // `explicit` already applies one section down for dates. Three
+        // outcomes, not two, because "no bound found" is ambiguous on its
+        // own and the two readings of it call for opposite actions:
+        //
+        // 1. The query states a bound in words this parser recognizes
+        //    ("over $100", "between 20 and 40") — that reading wins outright,
+        //    replacing whatever the model returned, same as an explicit date
+        //    replaces the model's date guess.
+        // 2. The query states no such bound AND contains no number at all —
+        //    "expensive receipts", "cheap restaurant visits". Whatever
+        //    amountMin/amountMax the model returned here was invented from
+        //    nothing in the text, so it is dropped rather than shown as a
+        //    filter the user never asked for. A fabricated dollar threshold
+        //    in a tax app is exactly the silent-wrong-result failure mode
+        //    this file's other guards already exist to prevent.
+        // 3. The query contains a number, but not in a phrasing this parser's
+        //    fixed list recognizes yet ("around $50", or some wording not
+        //    covered above). Here the model's answer is kept: it may have
+        //    understood a nuance the deterministic list doesn't, and unlike
+        //    case 2 there is at least a number in the query to justify a
+        //    bound existing at all.
+        let amountBounds = SearchAmountParser.bounds(in: query)
+        let amountMin: Double?
+        let amountMax: Double?
+        if amountBounds.min != nil || amountBounds.max != nil {
+            amountMin = amountBounds.min
+            amountMax = amountBounds.max
+        } else if !SearchAmountParser.containsAnyNumber(in: query) {
+            amountMin = nil
+            amountMax = nil
+        } else {
+            amountMin = parsed.amountMin
+            amountMax = parsed.amountMax
+        }
 
         if let explicit {
             return QueryParseResult(vendorType: vendorType,
-                                    amountMin: parsed.amountMin, amountMax: parsed.amountMax,
+                                    amountMin: amountMin, amountMax: amountMax,
                                     dateFrom: explicit.from, dateTo: explicit.to)
         }
         if let token = parsed.unrecognizedDateToken {
@@ -1368,7 +1416,7 @@ enum SemanticSearchService {
                 "the date part (\"\(token)\"). Try a phrase like \"in July\", \"last month\", \"August 4th\", or \"in the last 30 days\".")
         }
         return QueryParseResult(vendorType: vendorType,
-                                amountMin: parsed.amountMin, amountMax: parsed.amountMax,
+                                amountMin: amountMin, amountMax: amountMax,
                                 dateFrom: parsed.dateFrom, dateTo: parsed.dateTo)
     }
 
