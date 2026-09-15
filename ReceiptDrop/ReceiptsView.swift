@@ -1708,7 +1708,9 @@ private struct ReceiptRow: View {
                 }
                 Text(entry.vendor.isEmpty ? "Unknown vendor" : entry.vendor)
                     .font(.subheadline.weight(.semibold))
-                Spacer()
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
                 if entry.verificationStatus == .needsReview {
                     // Static, not pulsing — the aggregate "N receipts need
                     // review" banner above the list is now the primary,
@@ -1741,8 +1743,17 @@ private struct ReceiptRow: View {
                 // scales text, not a whole extra line.
                 sourceIndicator
                 if !entry.amount.isEmpty {
+                    // A tax record is read by its amounts, and a vertical run
+                    // of them only scans as a column when every digit lines
+                    // up — monospacedDigit() is what keeps a "1" from being
+                    // narrower than an "8" from row to row. layoutPriority
+                    // and fixedSize make sure it's the vendor name (variable,
+                    // less critical) that truncates under width pressure,
+                    // never the figure itself.
                     Text("$\(entry.amount)")
-                        .font(.subheadline.weight(.bold))
+                        .font(.subheadline.weight(.bold).monospacedDigit())
+                        .layoutPriority(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
             if entry.verificationStatus == .needsReview, !entry.reviewReason.isEmpty {
