@@ -837,6 +837,174 @@ final class ExtractionLogicTests: XCTestCase {
         XCTAssertFalse(r.needsReview)
     }
 
+    // MARK: - ExtractedReceipt.build: a printed gratuity table beats the
+    // larger/smaller asymmetry (Masala Bae, real total $47.39)
+
+    /// The printed tip-guideline table shared by both Masala Bae fixtures
+    /// below — four rows, each pairing a percentage with the resulting
+    /// total, and every one of them printing a LARGER figure than the real
+    /// $47.39 total by construction. That shape is what breaks the ordinary
+    /// "substitute only when the candidate is larger" rule: the model
+    /// reported the 30% row's $61.61, and 47.39 is not larger than 61.61.
+    private let masalaBaeTipTable = """
+    15%  $7.11   $54.50
+    18%  $8.53   $55.92
+    20%  $9.48   $56.87
+    30%  $14.22  $61.61
+    """
+
+    func testAPrintedGratuityTableRowIsCorrectedToTheSameLineTotal() {
+        // Real case: Masala Bae's printed "Total $47.39" survives OCR on the
+        // same line as its number here, so `BillTotalsParser` finds it
+        // directly — but the ordinary third-amount-branch rule ("substitute
+        // only when the printed candidate is larger than the model's
+        // figure") would keep $61.61 anyway, since 47.39 is smaller, not
+        // larger. `isGratuitySuggestionLine` is what breaks that asymmetry
+        // for a genuine tip table: the model's $61.61 appears ONLY on a
+        // percent-and-amount row, never anywhere else on the receipt, which
+        // is proof enough to substitute regardless of size.
+        let text = "Total $47.39\n" + masalaBaeTipTable
+        let r = ExtractedReceipt.build(
+            vendor: "Masala Bae", rawWorkDate: recentDate, amount: "61.61",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: text)
+        XCTAssertEqual(r.amount, "47.39")
+        XCTAssertTrue(r.needsReview, "substitution still improves the figure, it does not verify it")
+        XCTAssertTrue(r.reviewReason.contains("47.39"), "the better candidate should be named: \(r.reviewReason)")
+    }
+
+    func testAPrintedGratuityTableIsExcludedFromTheSplitColumnFallback() {
+        // The other half of the Masala Bae bug: when OCR splits the "Total"
+        // label from its own number onto the next line, `BillTotalsParser`
+        // finds nothing labeled at all, so `likelyGrandTotal` falls back to
+        // "largest amount on the receipt" — and without excluding gratuity
+        // rows, that fallback returns the tip table's own 30%-row figure,
+        // so nothing even disagrees with the model's $61.61.
+        let text = "Total\n$47.39\n" + masalaBaeTipTable
+        XCTAssertNotEqual(ManualEntryOCRPrefill.likelyGrandTotal(in: text), "61.61")
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyGrandTotal(in: text), "47.39")
+
+        let r = ExtractedReceipt.build(
+            vendor: "Masala Bae", rawWorkDate: recentDate, amount: "61.61",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: text)
+        XCTAssertEqual(r.amount, "47.39")
+        XCTAssertTrue(r.needsReview)
+    }
+
+    // MARK: - ExtractedReceipt.build: a COLUMN-WISE printed gratuity table
+    // (photo OCR) beats the larger/smaller asymmetry too (Masala Bae again)
+
+    /// The same tip-guideline table as `masalaBaeTipTable` above, but shaped
+    /// the way Vision commonly reads it off an actual PHOTO of the receipt
+    /// rather than a flat OCR dump: the percent column, the tip column and
+    /// the total column each come out as their own run of lines, so no
+    /// single line ever carries both a percentage and a dollar amount.
+    /// `isGratuitySuggestionLine` — which requires both on the same line —
+    /// never matches a single line of this, which is exactly why
+    /// `hasGratuitySuggestionTable` exists: it looks at the whole text
+    /// instead of line by line.
+    private let masalaBaeColumnarTipTable = """
+    Tip
+    15%
+    18%
+    20%
+    30%
+    Amount
+    $7.11
+    $8.53
+    $9.48
+    $14.22
+    Total
+    $54.50
+    $55.92
+    $56.87
+    $61.61
+    """
+
+    func testAColumnWiseGratuityTableRowIsCorrectedToThePrintedTotal() {
+        // The failing case this task exists to fix: a photographed Masala
+        // Bae receipt whose printed "Total $47.39" is on its own line
+        // (found directly by `BillTotalsParser`, same as the row-wise
+        // fixture above), but whose tip table was read column-wise, so
+        // `isGratuitySuggestionLine` never fires for any of it and the old
+        // line-shape-only rule would leave the model's $61.61 in place.
+        // `hasGratuitySuggestionTable` plus "the model's figure is larger
+        // than the printed total on a receipt that has a tip table at all"
+        // is what catches it instead.
+        // The vendor name has to actually appear near the top of the text
+        // here, unlike the shorter row-wise fixture above: that one stays
+        // under `topLinesForVendor` and so short-circuits the "near the
+        // top" check entirely, but this longer, column-wise text does not,
+        // and this test isn't about the vendor cross-check at all.
+        let text = "MASALA BAE\nTotal $47.39\n" + masalaBaeColumnarTipTable
+        let r = ExtractedReceipt.build(
+            vendor: "Masala Bae", rawWorkDate: recentDate, amount: "61.61",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: text)
+        XCTAssertEqual(r.amount, "47.39")
+        XCTAssertTrue(r.needsReview, "substitution still improves the figure, it does not verify it")
+        XCTAssertTrue(r.reviewReason.contains("47.39"), "the better candidate should be named: \(r.reviewReason)")
+    }
+
+    func testHasGratuitySuggestionTableDetectsTheColumnarCaseByWholeTextPercentageCount() {
+        // Two or more DISTINCT percentages is the bar — a suggestion table
+        // prints several tiers (15/18/20/30 here).
+        XCTAssertTrue(ManualEntryOCRPrefill.hasGratuitySuggestionTable(
+            in: "Total $47.39\n" + masalaBaeColumnarTipTable))
+
+        // A single percentage must not qualify — that's the NAAN AND KABOB
+        // shape ("Gratuity Guidelines 15% = $13.48"), which the existing
+        // line-shape rule already resolves correctly on its own. Widening
+        // this to one percentage would start overriding cases that
+        // currently resolve right.
+        XCTAssertFalse(ManualEntryOCRPrefill.hasGratuitySuggestionTable(
+            in: "Sub-total  82.11\nTax  7.82\nGratuity Guidelines 15% = $13.48\nTOTAL  89.93"))
+
+        // No percentage tokens at all — the handwritten-tip card slip case —
+        // can never trip this, which is what keeps
+        // `testAHandwrittenTipAboveThePrintedTotalIsKept` passing untouched.
+        XCTAssertFalse(ManualEntryOCRPrefill.hasGratuitySuggestionTable(
+            in: "TOTAL  89.93\nTIP  15.00\n104.93"))
+    }
+
+    func testLikelyGrandTotalReturnsNilForAColumnarTipTableWithNoLabeledTotal() {
+        // Without a labeled "Total" line anywhere, `BillTotalsParser` finds
+        // nothing, and the column-wise table means the per-line gratuity
+        // filter that normally protects the "largest number" fallback
+        // catches nothing either — every suggested figure, including the
+        // 30% row's $61.61, survives into the candidate list looking like
+        // an ordinary printed number. On a receipt with a tip table, the
+        // fallback's core assumption ("the total is usually the biggest
+        // number") is inverted, so it must return nil instead of
+        // confidently handing back a suggestion — see `likelyGrandTotal`.
+        XCTAssertNil(ManualEntryOCRPrefill.likelyGrandTotal(in: masalaBaeColumnarTipTable))
+    }
+
+    func testTheRowWiseMasalaBaeCaseStillResolvesCorrectly() {
+        // Guard against the columnar fix above accidentally regressing the
+        // row-wise case the previous task already fixed: when OCR keeps
+        // percent and dollar on the same line, the per-line filter already
+        // excludes every gratuity row on its own, `likelyGrandTotal` still
+        // resolves to the real total via the ordinary fallback, and
+        // `hasGratuitySuggestionTable` being true besides must not change
+        // that answer.
+        let text = "Total\n$47.39\n" + masalaBaeTipTable
+        XCTAssertTrue(ManualEntryOCRPrefill.hasGratuitySuggestionTable(in: text))
+        XCTAssertEqual(ManualEntryOCRPrefill.likelyGrandTotal(in: text), "47.39")
+
+        let r = ExtractedReceipt.build(
+            vendor: "Masala Bae", rawWorkDate: recentDate, amount: "61.61",
+            comments: "", rawVendorType: "restaurant",
+            modelReportedLowConfidence: false, modelReason: "",
+            sourceText: text)
+        XCTAssertEqual(r.amount, "47.39")
+        XCTAssertTrue(r.needsReview)
+    }
+
     // MARK: - Duplicate detection: tip-shaped amounts widen the date window
 
     private func entry(_ vendor: String, _ date: String, _ amount: String,
@@ -1861,6 +2029,38 @@ final class AmountWithNoPrintedAmountsTests: XCTestCase {
             modelReason: "", sourceText: nil)
 
         XCTAssertFalse(receipt.needsReview, receipt.reviewReason)
+    }
+
+    /// Real case: a LIFECAFE order-confirmation web page — order number,
+    /// pickup time, "Receipt sent" — with no price printed anywhere. The
+    /// model still returned $14.95, and it was saved with nothing more than
+    /// a quiet flag: `ReceiptSubmitView` only raised its blocking
+    /// `.needsAmount` prompt for the "isn't printed" reason variant, not
+    /// this "no amount could be found at all" one, so a fabricated number
+    /// went straight into a tax record.
+    private let lifecafeOrderConfirmationText = """
+    LIFECAFE
+    Order #48213
+    Pickup time: 5:45 PM
+    Receipt sent to your email
+    """
+
+    func testLifecafeOrderConfirmationWithNoPricesFlagsTheInventedAmount() {
+        XCTAssertTrue(ReceiptAmountDetector.amounts(in: lifecafeOrderConfirmationText).isEmpty,
+                       "the page prints no currency-shaped text at all")
+
+        let receipt = ExtractedReceipt.build(
+            vendor: "LIFECAFE", rawWorkDate: "2026-03-20", amount: "14.95",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: lifecafeOrderConfirmationText)
+
+        XCTAssertTrue(receipt.needsReview)
+        // Matches the substring `ReceiptSubmitView.noAmountFoundMarker`
+        // looks for — see that constant's comment in ReceiptSubmitView.swift
+        // for why this is now the STRONGER of the two amount guardrails,
+        // not a lesser one.
+        XCTAssertTrue(receipt.reviewReason.contains("No amount could be found"),
+                      "must carry the no-amount-found marker: \(receipt.reviewReason)")
     }
 }
 

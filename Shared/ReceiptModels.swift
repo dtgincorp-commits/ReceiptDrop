@@ -529,6 +529,15 @@ struct ExtractedReceipt {
                 >= minimumSourceTextLengthForNoDateRejection {
                 needsReview = true
                 if reason.isEmpty {
+                    // The leading "No amount could be found" is matched by
+                    // `ReceiptSubmitView.noAmountFoundMarker` to raise the
+                    // blocking `.needsAmount` prompt with the field left
+                    // empty rather than seeded — this is the strongest of
+                    // the amount guardrails (see that constant's comment):
+                    // an image with zero currency-shaped text on it at all
+                    // cannot have produced this figure by misreading a real
+                    // line, only by inventing one. Keep the wording's lead
+                    // in sync with that marker if either changes.
                     reason = "No amount could be found on this image — please check $\(amount)."
                 }
             } else if !printed.isEmpty, !printed.contains(normalizedAmount) {
@@ -591,7 +600,69 @@ struct ExtractedReceipt {
                 // asymmetry is deliberate, not an oversight — do not
                 // collapse the two branches back into one.
                 needsReview = true
-                if candidateValue > amountValue {
+
+                // A printed gratuity-guideline table breaks the
+                // larger/smaller asymmetry above outright: every row in it —
+                // 15%, 18%, 20%, 30% — is by construction LARGER than the
+                // real total, so "substitute only when the candidate is
+                // larger" never fires for the very case it needs to.
+                // Confirmed real case: a Masala Bae receipt printed
+                // "Total $47.39" alongside a 15/18/20/30% tip table, the
+                // model reported the 30% row's $61.61, and because 47.39 is
+                // smaller than 61.61 the ordinary rule below kept the
+                // suggestion and only flagged it.
+                //
+                // Only qualifies when the model's own figure appears
+                // EXCLUSIVELY on gratuity-suggestion lines — never on any
+                // other line of the receipt — so a figure that happens to
+                // also be a genuine, smaller-than-usual total (or that
+                // coincides with a tip-table number by chance) doesn't get
+                // silently overridden by this narrower rule; it falls
+                // through to the ordinary larger/smaller handling instead.
+                var onGratuityLines = Set<String>()
+                var onOtherLines = Set<String>()
+                for line in sourceText.components(separatedBy: .newlines) {
+                    let lineAmounts = ReceiptAmountDetector.amounts(in: line)
+                    if ManualEntryOCRPrefill.isGratuitySuggestionLine(line) {
+                        onGratuityLines.formUnion(lineAmounts)
+                    } else {
+                        onOtherLines.formUnion(lineAmounts)
+                    }
+                }
+                let modelFigureIsOnlyAGratuitySuggestion = onGratuityLines.contains(normalizedAmount)
+                    && !onOtherLines.contains(normalizedAmount)
+
+                // Second, layout-independent way to reach the same
+                // conclusion when the line-shape check above can't: a
+                // photographed receipt's tip table is often read by Vision
+                // column-wise ("Tip / 15% / 18% / 20% / 30% / Amount /
+                // $7.11 / ... / Total / $54.50 / ... / $61.61"), so no line
+                // ever carries both a percent and a dollar figure and
+                // `modelFigureIsOnlyAGratuitySuggestion` above stays false
+                // even though the receipt plainly has a suggestion table.
+                // Real case: a Masala Bae photo OCR'd exactly that way, with
+                // "Total $47.39" printed earlier and the model reporting the
+                // table's $61.61. On a receipt that prints a tip table at
+                // all, every suggested total is by construction larger than
+                // what was actually charged — so a model figure ABOVE the
+                // labeled total on such a receipt is a suggestion even when
+                // the row pairing that would prove it directly has been
+                // destroyed by column-wise OCR. The direction is the tell.
+                // Deliberately one-sided: this says nothing about a model
+                // figure BELOW the total, which still falls through to the
+                // ordinary larger/smaller handling further down.
+                let modelFigureLooksLikeATableSuggestion = modelFigureIsOnlyAGratuitySuggestion
+                    || (ManualEntryOCRPrefill.hasGratuitySuggestionTable(in: sourceText) && amountValue > candidateValue)
+
+                if modelFigureLooksLikeATableSuggestion {
+                    // Substitute regardless of which is larger — unlike the
+                    // branch below, a tip suggestion is never a truer number
+                    // than the printed total, no matter its size.
+                    resolvedAmount = candidate
+                    if reason.isEmpty {
+                        reason = "Amount read as $\(candidate) from the receipt's Total line — $\(amount) is a tip suggestion, not what was charged. Please confirm."
+                    }
+                } else if candidateValue > amountValue {
                     resolvedAmount = candidate
                     if reason.isEmpty {
                         reason = "Amount read as $\(candidate) from the receipt's Total line — $\(amount) looks like a line item. Please confirm."

@@ -189,6 +189,29 @@ struct ReceiptSubmitView: View {
     /// above, so this stays correct if the exact wording ever changes.
     private static let amountNotPrintedMarker = "isn't printed on this receipt"
 
+    /// Marker substring of the review reason `ExtractedReceipt.build` writes
+    /// when `ReceiptAmountDetector` found NO currency-shaped amount anywhere
+    /// on the receipt at all — "No amount could be found on this image —
+    /// please check $14.95." (Shared/ReceiptModels.swift, the branch right
+    /// above the not-printed one this mirrors). Deliberately a second,
+    /// separately-named marker rather than folding this into
+    /// `amountNotPrintedMarker` above: the two reasons say different things
+    /// and reworking the wording just to share one substring match would be
+    /// a wording game, not a fix. Kept in sync with `ReceiptModels.swift` by
+    /// this comment and the one on that reason string, not by a shared
+    /// constant — see that file for why (`sourceText` may be nil there, this
+    /// file has no reachable shared type both sides already import for a
+    /// single string).
+    ///
+    /// This is the STRONGER of the two amount guardrails, not a lesser one:
+    /// an amount the model reported for an image with zero prices printed on
+    /// it — a LIFECAFE order-confirmation page (order number, pickup time,
+    /// "Receipt sent," no dollar figure anywhere) that still came back with
+    /// $14.95 saved — cannot be a misread line item or a stale total. It was
+    /// invented outright, so this must raise the same blocking `.needsAmount`
+    /// prompt as the not-printed case, not stay a silent flag.
+    private static let noAmountFoundMarker = "No amount could be found"
+
     /// Drives the Submit section's UI while the pipeline runs.
     ///
     /// Not `Equatable` — one case below (`.duplicate`) would need
@@ -1038,18 +1061,34 @@ struct ReceiptSubmitView: View {
             pickedDate = Date()
             submitState = .needsDate
         } else if entry.verificationStatus == .needsReview,
-                  entry.reviewReason.contains(Self.amountNotPrintedMarker) {
+                  entry.reviewReason.contains(Self.amountNotPrintedMarker)
+                      || entry.reviewReason.contains(Self.noAmountFoundMarker) {
             pendingAmountEntry = entry
-            // Seeded with the model's number only as a last resort. The app
-            // has just established this figure is NOT printed on the
-            // receipt, so offering it as the prefilled answer invites the
-            // user to confirm the very thing the guardrail rejected — which
-            // is what happened on a NAAN AND KABOB slip: $187.91 on one run
-            // and $46.94 on the next, neither anywhere on the paper, each
-            // sitting under a Save button.
-            pickedAmount = entry.amount
+            let noAmountWasPrintedAtAll = entry.reviewReason.contains(Self.noAmountFoundMarker)
+            // Seeded with the model's number only as a last resort, and not
+            // even then when NO amount was printed on the receipt at all.
+            // The app has just established this figure isn't what's on the
+            // paper, so offering it as the prefilled answer invites the user
+            // to confirm the very thing the guardrail rejected — which is
+            // what happened on a NAAN AND KABOB slip: $187.91 on one run and
+            // $46.94 on the next, neither anywhere on the paper, each
+            // sitting under a Save button. That reasoning is strongest of
+            // all when the receipt has zero currency-shaped text on it (a
+            // LIFECAFE order-confirmation page that saved an invented
+            // $14.95) — there, unlike the "printed something else" case, the
+            // model's number can't even be a misread of a real line, so
+            // leave the field empty instead of seeding it with anything.
+            pickedAmount = noAmountWasPrintedAtAll ? "" : entry.amount
             amountCameFromReceipt = false
             submitState = .needsAmount
+            // Safe to call unconditionally even in the no-amount-found case:
+            // `offerThePrintedAmount`'s own "don't stomp on what's already
+            // there" guard compares `pickedAmount` against
+            // `pendingAmountEntry.amount` (the model's rejected figure), and
+            // those two are no longer equal once `pickedAmount` is left
+            // empty above — so it no-ops here even before it gets as far as
+            // asking whether anything is printed, exactly as it should for a
+            // receipt that has nothing printed to offer.
             Task { await offerThePrintedAmount() }
         } else {
             // The one unambiguous "it worked" in the app. Fired here rather

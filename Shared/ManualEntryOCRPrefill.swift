@@ -47,10 +47,50 @@ enum ManualEntryOCRPrefill {
         // statement context before taking the max, so a genuinely
         // labeled-but-differently-worded total ("Balance Due") isn't lost
         // in the process — see `isStatementContextLine` below.
+        //
+        // Printed gratuity-guideline tables are the same shape of problem
+        // and, on a receipt whose "Total" label lands on a different OCR
+        // line than its own number (so `BillTotalsParser` above finds
+        // nothing labeled at all), a worse one: a 15/18/20/30% tip table
+        // prints a column of amounts that are each *larger* than the real
+        // total by design, and the largest of them — the 30% row — is the
+        // one this fallback would otherwise pick. Real case: a Masala Bae
+        // receipt whose real total was $47.39 lost to the table's $61.61
+        // (the 30% row) this way. See `isGratuitySuggestionLine` below,
+        // which is why dropping gratuity-*labeled* lines below already
+        // fixes that row-wise case: each row still carries both its percent
+        // and its dollar amount, so the per-line filter catches and drops
+        // every one of them before `candidates` is ever built.
         var candidates: [Double] = []
+        var aLineWasExcludedAsAGratuitySuggestion = false
         for line in text.components(separatedBy: .newlines) where !isStatementContextLine(line) {
+            if isGratuitySuggestionLine(line) {
+                aLineWasExcludedAsAGratuitySuggestion = true
+                continue
+            }
             candidates.append(contentsOf: ReceiptAmountDetector.amounts(in: line).compactMap(Double.init))
         }
+
+        // A photographed receipt often has Vision read the same table
+        // column-wise instead of row-wise — "Tip / 15% / 18% / 20% / 30% /
+        // Amount / $7.11 / ... / Total / $54.50 / ... / $61.61" — and then
+        // no single line ever carries both a percent and a dollar figure,
+        // so the per-line filter above catches nothing at all and every
+        // suggested amount survives into `candidates` looking exactly like
+        // an ordinary printed number. `hasGratuitySuggestionTable` sees the
+        // table anyway, from the whole text's repeated percentages, so use
+        // it as a second check here — but ONLY when the per-line filter
+        // above genuinely found nothing to drop. When it dropped at least
+        // one line, the row-wise case above already worked and `candidates`
+        // is already clean, so trust the largest survivor as usual; don't
+        // discard a fallback that already got the right answer. When it
+        // dropped nothing despite the table being real, "largest number on
+        // the receipt" is virtually guaranteed to be one of the table's own
+        // suggestions — bail to nil rather than confidently return it.
+        if !aLineWasExcludedAsAGratuitySuggestion && hasGratuitySuggestionTable(in: text) {
+            return nil
+        }
+
         guard let largest = candidates.max() else { return nil }
         return String(format: "%.2f", largest)
     }
@@ -69,6 +109,61 @@ enum ManualEntryOCRPrefill {
         guard statementTriggers.contains(where: { lower.contains($0) }) else { return false }
         let notActuallyStatement = ["balance due", "year to date", "ytd"]
         return !notActuallyStatement.contains(where: { lower.contains($0) })
+    }
+
+    /// True when a line prints a percentage figure alongside a currency-shaped
+    /// amount — the shape of a tip-guideline table row ("20%  $9.48  $56.87"),
+    /// never a total. A real total line never carries a "%" — it's the one
+    /// piece of vocabulary a printed gratuity suggestion can't avoid, since
+    /// the whole point of the table is "here's what N% comes to."
+    ///
+    /// Internal rather than private so `ExtractedReceipt.build`
+    /// (Shared/ReceiptModels.swift) can reuse it: the Masala Bae case needed
+    /// this same classification twice — once here to keep a gratuity row out
+    /// of the "largest number on the receipt" fallback, and again there to
+    /// recognize when the *model's* reported figure is one of these
+    /// suggestions rather than a genuine, if smaller-than-usual, total.
+    static func isGratuitySuggestionLine(_ line: String) -> Bool {
+        guard line.range(of: #"\b\d{1,3}\s*%"#, options: .regularExpression) != nil else { return false }
+        return !ReceiptAmountDetector.amounts(in: line).isEmpty
+    }
+
+    /// True when the receipt as a whole shows a tip-suggestion TABLE, even
+    /// when nothing about the OCR text's line shape proves it.
+    ///
+    /// `isGratuitySuggestionLine` above only recognizes a suggestion when a
+    /// single OCR *line* carries both the percentage and its dollar amount —
+    /// true of a receipt OCR'd with its rows intact, false on a photographed
+    /// receipt where Vision commonly reads the table column-wise instead:
+    /// "Tip / 15% / 18% / 20% / 30% / Amount / $7.11 / $8.53 / $9.48 /
+    /// $14.22 / Total / $54.50 / ...". No line there carries both a percent
+    /// and a dollar figure, so the line-shape rule never fires and a
+    /// suggestion like $61.61 sails through as if it were the total. This
+    /// is a second, layout-independent net for exactly that photo case:
+    /// it looks at the whole text, not line by line, so column-wise OCR
+    /// can't hide the table from it the way it hides the table from
+    /// `isGratuitySuggestionLine`.
+    ///
+    /// Counts DISTINCT percentage tokens across the whole text and requires
+    /// two or more. TWO is the threshold, not one, because a suggestion
+    /// table prints several tiers (15/18/20/30) — that's the pattern this
+    /// function exists to catch. A single percentage is common and
+    /// legitimate on its own: a tax line, or the NAAN AND KABOB case
+    /// ("Gratuity Guidelines 15% = $13.48"), which the existing rules
+    /// already resolve correctly without this function's help. Widening the
+    /// threshold to one would start overriding those already-correct cases
+    /// instead of only catching the ones that are currently broken.
+    ///
+    /// A card slip with a handwritten tip and no printed table has no
+    /// percentage tokens at all, so this can never fire on it —
+    /// `testAHandwrittenTipAboveThePrintedTotalIsKept` depends on that and
+    /// must keep passing untouched.
+    static func hasGratuitySuggestionTable(in text: String) -> Bool {
+        guard let regex = try? NSRegularExpression(pattern: #"\b\d{1,3}\s*%"#) else { return false }
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+        let distinctPercentages = Set(matches.map { nsText.substring(with: $0.range) })
+        return distinctPercentages.count >= 2
     }
 
     /// Best guess at the receipt date — printed dates go through two cheap,
