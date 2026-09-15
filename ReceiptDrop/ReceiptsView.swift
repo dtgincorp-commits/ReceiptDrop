@@ -527,6 +527,111 @@ struct ReceiptsView: View {
         .listRowSeparator(.hidden)
     }
 
+    /// Main-list-only replacement for stacking `needsReviewBanner`,
+    /// `duplicatesBanner` and `waitingBanner` vertically. With all three
+    /// showing — the normal case for an active user — the three full-width
+    /// cards used to push the first actual receipt roughly two-thirds down
+    /// the screen, spending most of the display on the app talking about
+    /// receipts instead of showing them. A single row of compact chips
+    /// carries the same three counts, the same icons, the same colors and
+    /// the same taps, in a fraction of the height.
+    ///
+    /// Horizontally scrolling rather than truncating: at large Dynamic Type
+    /// sizes three chips plus their counts may not fit the width, and a
+    /// truncated count ("1…" for "12 review") is actively misleading in a
+    /// way a sideways scroll never is. The search-result rendering of these
+    /// same three statuses (below) is left as full banners — that is an
+    /// answer to a query, not chrome competing with the list for space.
+    @ViewBuilder
+    private var statusChipsRow: some View {
+        if !needsReviewEntries.isEmpty || !duplicateGroups.isEmpty || waitingLater + waitingSoon > 0 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if !needsReviewEntries.isEmpty {
+                        needsReviewChip
+                    }
+                    if !duplicateGroups.isEmpty {
+                        duplicatesChip
+                    }
+                    if waitingLater + waitingSoon > 0 {
+                        waitingChip
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+            .listRowSeparator(.hidden)
+        }
+    }
+
+    /// Same icon, color and tap action as `needsReviewBanner`, just laid out
+    /// as a chip instead of a full-width card. The 44pt minimum height keeps
+    /// the tap target compliant even though the chip itself is visually
+    /// short.
+    private var needsReviewChip: some View {
+        Button {
+            reviewFilterActive = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("\(needsReviewEntries.count) review")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background(Color.orange.opacity(0.12))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(needsReviewEntries.count) receipt\(needsReviewEntries.count == 1 ? "" : "s") need\(needsReviewEntries.count == 1 ? "s" : "") review")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    /// Same icon, color and destination as `duplicatesBanner` — still a
+    /// NavigationLink, not a Button with programmatic navigation, so it
+    /// keeps the platform's native push transition and swipe-back gesture.
+    private var duplicatesChip: some View {
+        NavigationLink {
+            DuplicateReviewView(groups: $duplicateGroups)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.on.doc.fill")
+                    .foregroundStyle(.indigo)
+                Text("\(duplicateGroups.count) duplicate\(duplicateGroups.count == 1 ? "" : "s")")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background(Color.indigo.opacity(0.12))
+            .clipShape(Capsule())
+        }
+        .accessibilityLabel("\(duplicateGroups.count) possible duplicate\(duplicateGroups.count == 1 ? "" : "s") found")
+    }
+
+    /// Same icons, color and destination as `waitingBanner`.
+    private var waitingChip: some View {
+        Button {
+            receiptsNavigator.showPending()
+        } label: {
+            HStack(spacing: 6) {
+                waitingIcons
+                Text("\(waitingSoon + waitingLater) queued")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background((waitingSoon == 0 ? Color.indigo : Theme.actionBlue).opacity(0.12))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(waitingLabel)
+        .accessibilityAddTraits(.isButton)
+    }
+
     /// What a status search shows in place of its banner when that status is
     /// currently empty — "Nothing needs review" rather than the generic "No
     /// Matches", since the query was understood, it's just that there's
@@ -833,13 +938,7 @@ struct ReceiptsView: View {
                 } else {
                     List {
                         summaryHeader
-                        if !needsReviewEntries.isEmpty {
-                            needsReviewBanner
-                        }
-                        if !duplicateGroups.isEmpty {
-                            duplicatesBanner
-                        }
-                        waitingBanner
+                        statusChipsRow
                         categoryPillRow
                         ForEach(flatRows(from: YearGroup.build(from: filteredEntries, groupByWorkDate: groupByWorkDate))) { row in
                             rowView(for: row)
