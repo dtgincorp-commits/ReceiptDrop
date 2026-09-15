@@ -1575,9 +1575,14 @@ private struct HeaderRow: View {
     let level: Int
     @Binding var isExpanded: Bool
 
-    /// Year stays the colored anchor of the hierarchy; Month/Day go quieter
-    /// and uppercase-tracked (Oura-style micro-labels) so they read as
-    /// structure rather than competing with the year for attention.
+    /// Year stays the colored anchor of the hierarchy; Month goes quieter
+    /// and uppercase-tracked (Oura-style micro-label) so it reads as
+    /// structure rather than competing with the year for attention. Day
+    /// deliberately sits in normal case with no tracking — with the month
+    /// name dropped from its label (it's already said one tier up), giving
+    /// day the same uppercase-tracked treatment as month made every level
+    /// of the tree shout the same way; normal case is what makes the three
+    /// tiers read as a hierarchy rather than three repeats of one style.
     private var color: Color { level <= 1 ? Theme.skyBlue : .secondary }
 
     var body: some View {
@@ -1585,8 +1590,8 @@ private struct HeaderRow: View {
             Text(label)
                 .font(font)
                 .foregroundStyle(color)
-                .textCase(level == 0 ? nil : .uppercase)
-                .tracking(level == 0 ? 0 : 0.6)
+                .textCase(level == 1 ? .uppercase : nil)
+                .tracking(level == 1 ? 0.6 : 0)
                 .padding(.leading, CGFloat(level) * 14)
             Spacer()
             Image(systemName: "chevron.down")
@@ -1639,7 +1644,8 @@ private struct YearGroup: Identifiable {
     let months: [MonthGroup]
 
     /// Groups entries by calendar day, then month, then year, each sorted
-    /// newest-first, with day labels like "July 14th, Tuesday". When
+    /// newest-first, with day labels like "14th, Tuesday" — the month is
+    /// left off since the month tier directly above already names it. When
     /// `groupByWorkDate` is true, entries group by the date printed on the
     /// receipt instead of when it was scanned; entries with a missing or
     /// unparseable work date fall back to their scan date so nothing goes
@@ -1665,7 +1671,12 @@ private struct YearGroup: Identifiable {
         let byDay = Dictionary(grouping: entries, by: groupingDate)
         let days: [(date: Date, group: DayGroup)] = byDay.map { date, items in
             let dayNumber = calendar.component(.day, from: date)
-            let label = "\(monthFormatter.string(from: date)) \(dayNumber)\(ordinalSuffix(dayNumber)), \(weekdayFormatter.string(from: date))"
+            // The month is already the tier directly above this one in the
+            // tree ("SEPTEMBER" → "2nd, Wednesday"), so repeating it here
+            // was pure noise — "September" said twice in three rows. Day
+            // and weekday are what's actually new information at this
+            // level.
+            let label = "\(dayNumber)\(ordinalSuffix(dayNumber)), \(weekdayFormatter.string(from: date))"
             let sorted = items.sorted { $0.timestamp > $1.timestamp }
             return (date, DayGroup(id: date, label: label, entries: sorted))
         }
