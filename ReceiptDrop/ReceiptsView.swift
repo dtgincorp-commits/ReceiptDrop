@@ -1720,13 +1720,13 @@ private struct FilterChipView: View {
         HStack(spacing: 4) {
             Text(label).font(.caption.weight(.semibold))
             Button(action: onRemove) {
+                // Deliberately back to the glyph's own size, not a 44pt hit
+                // target: the enlarged frame forced this HStack — and the
+                // whole capsule — taller and wider on screen, which is what
+                // the user asked to have reverted. The pulse and the orange
+                // fill above are what actually solve "I can't find the way
+                // out" here; don't re-enlarge this to try to solve it again.
                 Image(systemName: "xmark.circle.fill").font(.caption2)
-                    // The glyph itself stays small; the tappable area around
-                    // it doesn't. This chip exists because people couldn't
-                    // find or hit the way out — a 12pt hit target was part
-                    // of that problem, not just the low-contrast fill.
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Remove \(label) filter")
