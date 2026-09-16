@@ -869,7 +869,8 @@ struct ReceiptsView: View {
                                 ReceiptRow(entry: entry, onReview: { editingEntry = entry },
                                            onConfirm: { confirmReviewed(entry) },
                                            onEdit: { editingEntry = entry },
-                                           isDuplicate: duplicateEntryIDs.contains(entry.id))
+                                           isDuplicate: duplicateEntryIDs.contains(entry.id),
+                                           currencyCode: appCurrency.currencyCode)
                                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                         Button(role: .destructive) {
@@ -1514,7 +1515,8 @@ struct ReceiptsView: View {
             ReceiptRow(entry: entry, onReview: { editingEntry = entry },
                        onConfirm: { confirmReviewed(entry) },
                        onEdit: { editingEntry = entry },
-                       isDuplicate: duplicateEntryIDs.contains(entry.id))
+                       isDuplicate: duplicateEntryIDs.contains(entry.id),
+                       currencyCode: appCurrency.currencyCode)
         }
     }
 
@@ -1762,6 +1764,35 @@ private struct ReceiptRow: View {
     /// on `ReceiptsView`. Same callback-up pattern as `onReview`/`onConfirm`.
     let onEdit: () -> Void
     var isDuplicate: Bool = false
+    /// `appCurrency.currencyCode` from `ReceiptsView`, threaded down rather
+    /// than read from a global — `ReceiptRow` is a plain file-private struct
+    /// with no access to `ReceiptsView`'s `@AppStorage`. `nil` means `.auto`,
+    /// same convention as `ReceiptsView.currencyString`.
+    var currencyCode: String? = nil
+
+    /// Sibling to `ReceiptsView.currencyString`, not a reuse of it — that one
+    /// rounds to whole dollars for the big header total ("$36,454"); a row
+    /// figure needs the cents a receipt actually has, so this fixes both
+    /// `minimumFractionDigits` and `maximumFractionDigits` at 2. Both still
+    /// go through `NumberFormatter` so grouping separators and the currency
+    /// symbol come from the same place the header's do, instead of the
+    /// hardcoded "$" this replaces.
+    ///
+    /// Falls back to the raw stored string, never to "0.00" or a blank cell,
+    /// when the string doesn't parse as a number — `entry.amount` is a
+    /// free-form `String`, and in a tax app silently showing a wrong figure
+    /// is worse than showing an unformatted one.
+    private static func rowAmountString(_ raw: String, currencyCode: String?) -> String {
+        guard let value = Double(raw) else { return raw }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        if let currencyCode {
+            formatter.currencyCode = currencyCode
+        }
+        return formatter.string(from: NSNumber(value: value)) ?? raw
+    }
 
     @State private var showPreview = false
     /// Set when the user taps the preview's summary bar, and acted on only
@@ -1906,7 +1937,7 @@ private struct ReceiptRow: View {
                     // and fixedSize make sure it's the vendor name (variable,
                     // less critical) that truncates under width pressure,
                     // never the figure itself.
-                    Text("$\(entry.amount)")
+                    Text(Self.rowAmountString(entry.amount, currencyCode: currencyCode))
                         .font(.subheadline.weight(.bold).monospacedDigit())
                         .layoutPriority(1)
                         .fixedSize(horizontal: true, vertical: false)
@@ -1992,7 +2023,10 @@ private struct ReceiptRow: View {
     /// instead of five disconnected swipes through unrelated-sounding text.
     private var accessibilitySummary: String {
         var parts = [entry.category, entry.vendor.isEmpty ? "Unknown vendor" : entry.vendor]
-        if !entry.amount.isEmpty { parts.append("$\(entry.amount)") }
+        // Same formatter as the visual amount, so VoiceOver reads the row
+        // consistently with what's on screen instead of the old raw-"$"
+        // string ("$1001.00" spoken while the row shows "$1,001.00").
+        if !entry.amount.isEmpty { parts.append(Self.rowAmountString(entry.amount, currencyCode: currencyCode)) }
         if isDuplicate { parts.append("possible duplicate") }
         switch entry.verificationStatus {
         case .needsReview:
