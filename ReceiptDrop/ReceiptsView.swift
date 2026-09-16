@@ -351,20 +351,12 @@ struct ReceiptsView: View {
         .listRowSeparator(.hidden)
     }
 
-    private func filterChip(label: String, onRemove: @escaping () -> Void) -> some View {
-        HStack(spacing: 4) {
-            Text(label).font(.caption.weight(.semibold))
-            Button(action: onRemove) {
-                Image(systemName: "xmark.circle.fill").font(.caption2)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(label) filter")
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Theme.skyBlueBright.opacity(0.15))
-        .foregroundStyle(Theme.skyBlue)
-        .clipShape(Capsule())
+    /// `attention` is for chips whose whole job is to announce "you are in a
+    /// subset, here's the way out" — currently just the Needs Review filter.
+    /// Every other call site leaves it at the default and gets the original
+    /// low-contrast capsule unchanged.
+    private func filterChip(label: String, attention: Bool = false, onRemove: @escaping () -> Void) -> some View {
+        FilterChipView(label: label, attention: attention, onRemove: onRemove)
     }
 
     private static func formatAmount(_ value: Double) -> String {
@@ -812,7 +804,7 @@ struct ReceiptsView: View {
                     List {
                         categoryPillRow
                         if reviewFilterActive {
-                            filterChip(label: "Needs Review") { reviewFilterActive = false }
+                            filterChip(label: "Needs Review", attention: true) { reviewFilterActive = false }
                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                                 .listRowSeparator(.hidden)
                         }
@@ -1701,6 +1693,60 @@ private struct YearGroup: Identifiable {
         case (2, let hundreds) where hundreds != 12: return "nd"
         case (3, let hundreds) where hundreds != 13: return "rd"
         default: return "th"
+        }
+    }
+}
+
+// MARK: - Filter chip
+
+/// The plain chip and the Needs Review "you're in a subset, here's the way
+/// out" chip used to be one function, styled the same low-contrast capsule.
+/// A new or busy user tapping into the Needs Review filter had no cue they'd
+/// left the main list, and the only exit was a 12pt glyph inside that same
+/// quiet capsule — easy to miss, harder to hit. `attention` gets its own
+/// struct (not just an `if` inside the old function) because the pulse needs
+/// `@State` to drive the animation and `@Environment` to know when not to.
+private struct FilterChipView: View {
+    let label: String
+    var attention: Bool = false
+    let onRemove: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isPulsing = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(label).font(.caption.weight(.semibold))
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill").font(.caption2)
+                    // The glyph itself stays small; the tappable area around
+                    // it doesn't. This chip exists because people couldn't
+                    // find or hit the way out — a 12pt hit target was part
+                    // of that problem, not just the low-contrast fill.
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(label) filter")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(attention ? Color.orange : Theme.skyBlueBright.opacity(0.15))
+        .foregroundStyle(attention ? Color.white : Theme.skyBlue)
+        .clipShape(Capsule())
+        .opacity(attention && isPulsing ? 0.6 : 1.0)
+        .scaleEffect(attention && isPulsing ? 1.05 : 1.0)
+        .onAppear {
+            // Reduce Motion gets the same filled-orange prominence — that's
+            // what actually solves "I don't realize I'm in a filtered
+            // list" — just without the movement driving it. Shipping a
+            // pulse that ignores this setting isn't an option; the
+            // animation is an accelerator on top of the styling, not a
+            // substitute for it.
+            guard attention, !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                isPulsing = true
+            }
         }
     }
 }
