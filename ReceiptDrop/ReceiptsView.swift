@@ -315,23 +315,23 @@ struct ReceiptsView: View {
     private func semanticChipsRow(for filter: QueryParseResult) -> some View {
         HStack(spacing: 8) {
             if let vendorType = filter.vendorType, !vendorType.isEmpty {
-                filterChip(label: VendorTypeToken.displayName(for: vendorType)) {
+                filterChip(label: VendorTypeToken.displayName(for: vendorType), pulses: true) {
                     semanticFilter = QueryParseResult(vendorType: nil, amountMin: filter.amountMin, amountMax: filter.amountMax,
                                                       dateFrom: filter.dateFrom, dateTo: filter.dateTo)
                 }
             }
             if let min = filter.amountMin, let max = filter.amountMax {
-                filterChip(label: "$\(Self.formatAmount(min)) – $\(Self.formatAmount(max))") {
+                filterChip(label: "$\(Self.formatAmount(min)) – $\(Self.formatAmount(max))", pulses: true) {
                     semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: nil, amountMax: nil,
                                                       dateFrom: filter.dateFrom, dateTo: filter.dateTo)
                 }
             } else if let min = filter.amountMin {
-                filterChip(label: "over $\(Self.formatAmount(min))") {
+                filterChip(label: "over $\(Self.formatAmount(min))", pulses: true) {
                     semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: nil, amountMax: filter.amountMax,
                                                       dateFrom: filter.dateFrom, dateTo: filter.dateTo)
                 }
             } else if let max = filter.amountMax {
-                filterChip(label: "under $\(Self.formatAmount(max))") {
+                filterChip(label: "under $\(Self.formatAmount(max))", pulses: true) {
                     semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: filter.amountMin, amountMax: nil,
                                                       dateFrom: filter.dateFrom, dateTo: filter.dateTo)
                 }
@@ -340,7 +340,7 @@ struct ReceiptsView: View {
             // Removable exactly like the others: clearing it drops only the
             // date half of the filter, no new AI call.
             if let from = filter.dateFrom, let to = filter.dateTo {
-                filterChip(label: SearchDateResolver.label(from: from, to: to)) {
+                filterChip(label: SearchDateResolver.label(from: from, to: to), pulses: true) {
                     semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: filter.amountMin,
                                                       amountMax: filter.amountMax, dateFrom: nil, dateTo: nil)
                 }
@@ -352,11 +352,13 @@ struct ReceiptsView: View {
     }
 
     /// `attention` is for chips whose whole job is to announce "you are in a
-    /// subset, here's the way out" — currently just the Needs Review filter.
-    /// Every other call site leaves it at the default and gets the original
-    /// low-contrast capsule unchanged.
-    private func filterChip(label: String, attention: Bool = false, onRemove: @escaping () -> Void) -> some View {
-        FilterChipView(label: label, attention: attention, onRemove: onRemove)
+    /// subset, here's the way out" via the filled-orange treatment —
+    /// currently just the Needs Review filter, since orange means
+    /// needs-review elsewhere in this app. `pulses` is the same "you're
+    /// filtered" signal without the colour claim, so search's own chips
+    /// (vendor type, amount, date) can use it on their existing blue capsule.
+    private func filterChip(label: String, attention: Bool = false, pulses: Bool = false, onRemove: @escaping () -> Void) -> some View {
+        FilterChipView(label: label, attention: attention, pulses: pulses, onRemove: onRemove)
     }
 
     private static func formatAmount(_ value: Double) -> String {
@@ -804,7 +806,7 @@ struct ReceiptsView: View {
                     List {
                         categoryPillRow
                         if reviewFilterActive {
-                            filterChip(label: "Needs Review", attention: true) { reviewFilterActive = false }
+                            filterChip(label: "Needs Review", attention: true, pulses: true) { reviewFilterActive = false }
                                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                                 .listRowSeparator(.hidden)
                         }
@@ -1710,7 +1712,18 @@ private struct YearGroup: Identifiable {
 /// `@State` to drive the animation and `@Environment` to know when not to.
 private struct FilterChipView: View {
     let label: String
+    /// Filled orange background + white text. Orange is a semantic colour
+    /// elsewhere in this app — the needs-review row status icons and banner
+    /// — meaning "needs review". Only the Needs Review chip is allowed to
+    /// claim it; a date or amount filter chip is not a review state, and
+    /// painting it orange would tell the user something false. Kept
+    /// separate from `pulses` for exactly that reason.
     var attention: Bool = false
+    /// The neutral "this list is filtered, here's the way out" pulse
+    /// (`.opacity`/`.scaleEffect`, guarded by Reduce Motion). Safe to reuse
+    /// on any chip regardless of its fill colour — unlike `attention`, it
+    /// carries no meaning about *why* the list is filtered.
+    var pulses: Bool = false
     let onRemove: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1736,16 +1749,17 @@ private struct FilterChipView: View {
         .background(attention ? Color.orange : Theme.skyBlueBright.opacity(0.15))
         .foregroundStyle(attention ? Color.white : Theme.skyBlue)
         .clipShape(Capsule())
-        .opacity(attention && isPulsing ? 0.6 : 1.0)
-        .scaleEffect(attention && isPulsing ? 1.05 : 1.0)
+        .opacity(pulses && isPulsing ? 0.6 : 1.0)
+        .scaleEffect(pulses && isPulsing ? 1.05 : 1.0)
         .onAppear {
-            // Reduce Motion gets the same filled-orange prominence — that's
-            // what actually solves "I don't realize I'm in a filtered
-            // list" — just without the movement driving it. Shipping a
-            // pulse that ignores this setting isn't an option; the
-            // animation is an accelerator on top of the styling, not a
+            // Reduce Motion gets the same filled-orange prominence (when
+            // `attention` is set) or the same flat capsule (when it isn't)
+            // — that's what actually solves "I don't realize I'm in a
+            // filtered list" — just without the movement driving it.
+            // Shipping a pulse that ignores this setting isn't an option;
+            // the animation is an accelerator on top of the styling, not a
             // substitute for it.
-            guard attention, !reduceMotion else { return }
+            guard pulses, !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                 isPulsing = true
             }
