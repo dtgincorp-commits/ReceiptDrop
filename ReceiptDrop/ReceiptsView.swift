@@ -311,27 +311,65 @@ struct ReceiptsView: View {
     /// Removable filter chips shown above semantic search results — tapping
     /// a chip's X clears just that part of the filter locally (no new AI
     /// call needed, since the remaining filter is applied the same way).
+    /// Fixed stagger between chips in a row's pulse wave — see the comment
+    /// on `FilterChipView.pulseDelay` for why this is an offset, not a
+    /// different duration.
+    private static let chipPulseStagger: Double = 0.25
+
+    /// Index (not delay yet — see `chipPulseStagger`) of each of the three
+    /// possible chips by its actual rendered position, not its position in
+    /// `semanticChipsRow`'s source. Only one of the three amount branches
+    /// there ever renders, so a running count can't be tracked with a plain
+    /// `var` inside that function's body — the whole thing is a
+    /// `@ViewBuilder`, which transforms every top-level `if`, including
+    /// ones with no view in them, so `index += 1` alone doesn't type-check
+    /// there. Kept as an ordinary (non-view-building) function instead.
+    private func semanticChipIndices(for filter: QueryParseResult) -> (vendorType: Int, amount: Int, date: Int) {
+        let hasVendorType = filter.vendorType.map { !$0.isEmpty } ?? false
+        let hasAmount = filter.amountMin != nil || filter.amountMax != nil
+        var index = 0
+        let vendorTypeIndex = index
+        if hasVendorType { index += 1 }
+        let amountIndex = index
+        if hasAmount { index += 1 }
+        let dateIndex = index
+        return (vendorTypeIndex, amountIndex, dateIndex)
+    }
+
     @ViewBuilder
     private func semanticChipsRow(for filter: QueryParseResult) -> some View {
+        // Delay is assigned by rendered position, not source position: the
+        // amount chip is one of three mutually-exclusive `if`/`else if`
+        // branches below, so only one ever actually appears. Tracking a
+        // running index across the branches (rather than hardcoding
+        // 0/0.25/0.5 per branch) keeps the wave starting at whichever chip
+        // is actually first on screen, e.g. delay 0 on the amount chip and
+        // 0.25 on the date chip when the vendor-type chip is absent.
+        let (vendorTypeIndex, amountIndex, dateIndex) = semanticChipIndices(for: filter)
+
         HStack(spacing: 8) {
             if let vendorType = filter.vendorType, !vendorType.isEmpty {
-                filterChip(label: VendorTypeToken.displayName(for: vendorType), pulses: true) {
+                filterChip(label: VendorTypeToken.displayName(for: vendorType), pulses: true,
+                           pulseDelay: Double(vendorTypeIndex) * Self.chipPulseStagger) {
                     semanticFilter = QueryParseResult(vendorType: nil, amountMin: filter.amountMin, amountMax: filter.amountMax,
                                                       dateFrom: filter.dateFrom, dateTo: filter.dateTo)
                 }
             }
             if let min = filter.amountMin, let max = filter.amountMax {
-                filterChip(label: "$\(Self.formatAmount(min)) – $\(Self.formatAmount(max))", pulses: true) {
+                filterChip(label: "$\(Self.formatAmount(min)) – $\(Self.formatAmount(max))", pulses: true,
+                           pulseDelay: Double(amountIndex) * Self.chipPulseStagger) {
                     semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: nil, amountMax: nil,
                                                       dateFrom: filter.dateFrom, dateTo: filter.dateTo)
                 }
             } else if let min = filter.amountMin {
-                filterChip(label: "over $\(Self.formatAmount(min))", pulses: true) {
+                filterChip(label: "over $\(Self.formatAmount(min))", pulses: true,
+                           pulseDelay: Double(amountIndex) * Self.chipPulseStagger) {
                     semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: nil, amountMax: filter.amountMax,
                                                       dateFrom: filter.dateFrom, dateTo: filter.dateTo)
                 }
             } else if let max = filter.amountMax {
-                filterChip(label: "under $\(Self.formatAmount(max))", pulses: true) {
+                filterChip(label: "under $\(Self.formatAmount(max))", pulses: true,
+                           pulseDelay: Double(amountIndex) * Self.chipPulseStagger) {
                     semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: filter.amountMin, amountMax: nil,
                                                       dateFrom: filter.dateFrom, dateTo: filter.dateTo)
                 }
@@ -340,7 +378,8 @@ struct ReceiptsView: View {
             // Removable exactly like the others: clearing it drops only the
             // date half of the filter, no new AI call.
             if let from = filter.dateFrom, let to = filter.dateTo {
-                filterChip(label: SearchDateResolver.label(from: from, to: to), pulses: true) {
+                filterChip(label: SearchDateResolver.label(from: from, to: to), pulses: true,
+                           pulseDelay: Double(dateIndex) * Self.chipPulseStagger) {
                     semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: filter.amountMin,
                                                       amountMax: filter.amountMax, dateFrom: nil, dateTo: nil)
                 }
@@ -357,8 +396,8 @@ struct ReceiptsView: View {
     /// needs-review elsewhere in this app. `pulses` is the same "you're
     /// filtered" signal without the colour claim, so search's own chips
     /// (vendor type, amount, date) can use it on their existing blue capsule.
-    private func filterChip(label: String, attention: Bool = false, pulses: Bool = false, onRemove: @escaping () -> Void) -> some View {
-        FilterChipView(label: label, attention: attention, pulses: pulses, onRemove: onRemove)
+    private func filterChip(label: String, attention: Bool = false, pulses: Bool = false, pulseDelay: Double = 0, onRemove: @escaping () -> Void) -> some View {
+        FilterChipView(label: label, attention: attention, pulses: pulses, pulseDelay: pulseDelay, onRemove: onRemove)
     }
 
     private static func formatAmount(_ value: Double) -> String {
@@ -1724,6 +1763,14 @@ private struct FilterChipView: View {
     /// on any chip regardless of its fill colour — unlike `attention`, it
     /// carries no meaning about *why* the list is filtered.
     var pulses: Bool = false
+    /// Start offset for the pulse, so chips sharing a row don't breathe in
+    /// lockstep. Only the delay varies — the duration below stays 0.9 for
+    /// every chip. A fixed duration plus a fixed offset is a permanent
+    /// relationship (a wave that always ripples the same way, left to
+    /// right); different durations would drift in and out of phase over
+    /// time and read as unrelated chips blinking rather than one
+    /// filtered-list signal. Don't "fix" this by varying the duration.
+    var pulseDelay: Double = 0
     let onRemove: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1760,7 +1807,7 @@ private struct FilterChipView: View {
             // the animation is an accelerator on top of the styling, not a
             // substitute for it.
             guard pulses, !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true).delay(pulseDelay)) {
                 isPulsing = true
             }
         }
