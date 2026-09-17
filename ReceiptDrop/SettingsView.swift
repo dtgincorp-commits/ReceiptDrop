@@ -18,6 +18,10 @@ struct SettingsView: View {
     // updates live across both without any extra plumbing.
     @AppStorage(AppConstants.DefaultsKeys.appTextSize, store: UserDefaults(suiteName: AppConstants.appGroupID))
     private var appTextSize: AppTextSize = .system
+    // Same App Group store + key ContentView reads, so this picker and the
+    // app-wide override it controls always agree — see appTextSize above.
+    @AppStorage(AppConstants.DefaultsKeys.appAppearance, store: UserDefaults(suiteName: AppConstants.appGroupID))
+    private var appAppearance: AppAppearance = .system
     @AppStorage(AppConstants.DefaultsKeys.appCurrency, store: UserDefaults(suiteName: AppConstants.appGroupID))
     private var appCurrency: AppCurrency = .auto
 
@@ -231,23 +235,36 @@ struct SettingsView: View {
                 #endif
 
                 Section {
+                    // `.segmented` throws the Picker's own title away, so
+                    // each control gets an explicit label row above it —
+                    // without one, this section would show two rows of bare
+                    // options with nothing saying what either changes.
+                    // Currency directly below keeps the default picker style
+                    // and therefore renders its own label, which is why only
+                    // this section needs the workaround.
+                    Text("Text Size")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                     Picker("Text Size", selection: $appTextSize) {
                         ForEach(AppTextSize.allCases) { size in
                             Text(size.displayName).tag(size)
                         }
                     }
                     .pickerStyle(.segmented)
+
+                    Text("Appearance")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Picker("Appearance", selection: $appAppearance) {
+                        ForEach(AppAppearance.allCases) { appearance in
+                            Text(appearance.displayName).tag(appearance)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 } header: {
-                    // `.segmented` throws the Picker's own "Text Size" title
-                    // away, so without this the screen shows four bare
-                    // options — System / Small / Medium / Large — with
-                    // nothing saying what they change. Currency directly
-                    // below keeps the default picker style and therefore
-                    // renders its label, which made the omission read as
-                    // arbitrary rather than deliberate.
-                    Text("Text Size")
+                    Text("Display")
                 } footer: {
-                    Text("Applies to this app only. \"System\" follows your iPhone's Text Size setting.")
+                    Text("Applies to this app only. \"System\" follows your iPhone's Text Size / Dark Mode setting.")
                 }
 
                 Section {

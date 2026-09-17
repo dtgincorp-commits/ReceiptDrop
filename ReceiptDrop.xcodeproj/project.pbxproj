@@ -58,6 +58,8 @@
 		53A231EDE5EC0E17EDAF8BC0 /* BillModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE72A7EE2EB472CB550F4F88 /* BillModels.swift */; };
 		53A9225368B7CC928FED8994 /* ReviewLaterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46196EA8DF0D8618C9C92212 /* ReviewLaterTests.swift */; };
 		54EBDEACA67CDD0340D4C3E1 /* SubmissionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57FF61EB58699460FE16D612 /* SubmissionStore.swift */; };
+		0BEA07676781E17F3F1FD975 /* AppAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2A22A3304FE5B4F2CF736B /* AppAppearance.swift */; };
+		41A8A291FC5C9286B222C178 /* AppAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2A22A3304FE5B4F2CF736B /* AppAppearance.swift */; };
 		54ED10E6932E78F13E41BA9E /* AppCurrency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */; };
 		565E406ADD2728D9A3D43D98 /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2941693C5D3EECC412C2593 /* AppConstants.swift */; };
 		57322A0ECBF721484D205906 /* ReceiptFileHashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737BBE946A35D758DC20C445 /* ReceiptFileHashTests.swift */; };
@@ -224,6 +226,7 @@
 		6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReceiptStore.swift; sourceTree = "<group>"; };
 		6473D93F4CFFA6B607325DD8 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		65429EAA84DE433AE5FE8369 /* AppTextSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTextSize.swift; sourceTree = "<group>"; };
+		FE2A22A3304FE5B4F2CF736B /* AppAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearance.swift; sourceTree = "<group>"; };
 		67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptSubmitView.swift; sourceTree = "<group>"; };
 		6841F4B5E700B2A57279FBCF /* OvernightProcessingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OvernightProcessingService.swift; sourceTree = "<group>"; };
 		692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReceiptStoreTests.swift; sourceTree = "<group>"; };
@@ -354,6 +357,7 @@
 				07BDF38B71C73D066236EEB8 /* AdaptiveCategoryPickerStyle.swift */,
 				BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */,
 				E2941693C5D3EECC412C2593 /* AppConstants.swift */,
+				FE2A22A3304FE5B4F2CF736B /* AppAppearance.swift */,
 				75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */,
 				65429EAA84DE433AE5FE8369 /* AppTextSize.swift */,
 				CDBA80332CC2662CA3FB1FD8 /* AttachmentThumbnail.swift */,
@@ -580,6 +584,7 @@
 				1BEBCD8888AB65FF0B4D5827 /* APIKeyTester.swift in Sources */,
 				96C6718D9DF2BB43D9402C98 /* AdaptiveCategoryPickerStyle.swift in Sources */,
 				7BEB3A1247963FEF61B950FE /* AppConstants.swift in Sources */,
+				0BEA07676781E17F3F1FD975 /* AppAppearance.swift in Sources */,
 				71CCDF38BD3109B77E790035 /* AppCurrency.swift in Sources */,
 				A933026D14369CB556BD7573 /* AppTextSize.swift in Sources */,
 				F3DF8803716A82E76ED021D5 /* AttachmentThumbnail.swift in Sources */,
@@ -658,6 +663,7 @@
 				438C22CA72F62D6792A44725 /* APIKeyTester.swift in Sources */,
 				5FCEF3B0A481F744472916B3 /* AdaptiveCategoryPickerStyle.swift in Sources */,
 				565E406ADD2728D9A3D43D98 /* AppConstants.swift in Sources */,
+				41A8A291FC5C9286B222C178 /* AppAppearance.swift in Sources */,
 				54ED10E6932E78F13E41BA9E /* AppCurrency.swift in Sources */,
 				7DC9169DF1AABEE1E48F39A9 /* AppTextSize.swift in Sources */,
 				4AECB132A2B48C728708FA5F /* AttachmentThumbnail.swift in Sources */,

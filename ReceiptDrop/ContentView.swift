@@ -56,6 +56,11 @@ struct ContentView: View {
     // redraws here immediately, no relaunch needed.
     @AppStorage(AppConstants.DefaultsKeys.appTextSize, store: UserDefaults(suiteName: AppConstants.appGroupID))
     private var appTextSize: AppTextSize = .system
+    // Same App Group store + key SettingsView's picker writes, so the two
+    // always agree with no extra plumbing — see the appTextSize property
+    // just above for the reasoning.
+    @AppStorage(AppConstants.DefaultsKeys.appAppearance, store: UserDefaults(suiteName: AppConstants.appGroupID))
+    private var appAppearance: AppAppearance = .system
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -89,6 +94,17 @@ struct ContentView: View {
         // `.system` applies no modifier at all, so iOS's own Text Size /
         // accessibility setting flows through completely untouched.
         .modifier(OptionalDynamicTypeSize(size: appTextSize.dynamicTypeSize))
+        // Same root, same reasoning as the text-size modifier above: applied
+        // once here so every sheet and full-screen cover presented anywhere
+        // in this tree inherits it. `BillPhotoViewerView` still forces
+        // `.preferredColorScheme(.dark)` on the full-screen photo viewer it
+        // presents — a receipt photo is meant to be viewed on black
+        // regardless of this setting — and a `.preferredColorScheme` applied
+        // deeper in the view hierarchy (as that one is, inside the presented
+        // sheet) wins over one applied here at the root, so the two don't
+        // fight: `.system` here still lets that viewer force dark, and
+        // choosing Light here doesn't leak into it either.
+        .preferredColorScheme(appAppearance.colorScheme)
         // Receipts saved by the share extension land in the App Group spool;
         // drain them into Documents (visible in Files) whenever we foreground.
         .onAppear {

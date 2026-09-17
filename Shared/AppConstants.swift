@@ -75,6 +75,7 @@ enum AppConstants {
         static let backupReminderFrequency = "backupReminderFrequency"
         static let hasCompletedAISetup = "hasCompletedAISetup"  // guided Connect-AI wizard shown/skipped
         static let appTextSize = "appTextSize"                  // per-app text size override; see AppTextSize
+        static let appAppearance = "appAppearance"              // per-app light/dark override; see AppAppearance
         static let appCurrency = "appCurrency"                  // display currency; see AppCurrency
         static let lastUsedCategory = "lastUsedCategory"        // share extension's default; see LastUsedCategoryStore
         static let hasSeenPhotoPickerTip = "hasSeenPhotoPickerTip"  // one-time multi-select tip; see PhotoPickerTip
