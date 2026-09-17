@@ -713,7 +713,7 @@ struct ReceiptsView: View {
             // since SwiftUI menu rows render as native UIMenu items and
             // ignore font and colour modifiers entirely — wording and symbol
             // are the only emphasis available here.
-            Label("Choose Photos — Pick Several", systemImage: "photo.stack")
+            Label("Photo Library (Pick Several)", systemImage: "photo.stack")
         }
         Button {
             newReceiptSource = .file

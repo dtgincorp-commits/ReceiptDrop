@@ -65,7 +65,7 @@ struct PhotoPickerTipView: View {
             Spacer()
 
             Button(action: onContinue) {
-                Text("Choose Photos")
+                Text("Photo Library")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
