@@ -128,6 +128,43 @@ enum ManualEntryOCRPrefill {
         return !ReceiptAmountDetector.amounts(in: line).isEmpty
     }
 
+    /// True when a line reads as a purchased item with its price — "1 Cashew
+    /// Chicken  $16.20" — rather than a total, tip, tax or payment line.
+    ///
+    /// Used by `ExtractedReceipt.build` to tell a line item apart from a
+    /// tip-included charge when the model's figure is ABOVE the printed
+    /// Total. Both are larger than the Total, but only the charge can be the
+    /// truer number; a total is never smaller than one of its own items.
+    ///
+    /// Errs towards "not an item": a false "no" only falls back to the older
+    /// flag-without-substituting behaviour, while a false "yes" would replace
+    /// a real tip-included figure with the pre-tip Total. So any money word
+    /// disqualifies the line, and a line with no name at all — a bare price
+    /// split off by column-wise OCR — never counts.
+    ///
+    /// Whole words, not substrings: "Cashew Chicken" contains "cash", and
+    /// substring matching turned the very line this exists for into a
+    /// payment line. Only the stems that genuinely need it match as prefixes
+    /// ("gratuity", "approved", "authorization").
+    static func isLineItemLine(_ line: String) -> Bool {
+        guard !ReceiptAmountDetector.amounts(in: line).isEmpty else { return false }
+        guard !line.contains("%") else { return false }
+        let words = line.lowercased()
+            .split(whereSeparator: { !$0.isLetter })
+            .map(String.init)
+        guard words.joined().count >= 2 else { return false }
+        let nonItemWords: Set<String> = [
+            "total", "subtotal", "tip", "tips", "service", "tax", "taxes",
+            "amount", "due", "balance", "paid", "payment", "charge", "change",
+            "cash", "tender", "tendered", "visa", "mastercard", "amex",
+            "discover", "card", "credit", "debit", "sale",
+        ]
+        let nonItemPrefixes = ["grat", "approv", "auth"]
+        return !words.contains(where: { word in
+            nonItemWords.contains(word) || nonItemPrefixes.contains(where: word.hasPrefix)
+        })
+    }
+
     /// True when the receipt as a whole shows a tip-suggestion TABLE, even
     /// when nothing about the OCR text's line shape proves it.
     ///

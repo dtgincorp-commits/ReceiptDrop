@@ -654,6 +654,35 @@ struct ExtractedReceipt {
                 let modelFigureLooksLikeATableSuggestion = modelFigureIsOnlyAGratuitySuggestion
                     || (ManualEntryOCRPrefill.hasGratuitySuggestionTable(in: sourceText) && amountValue > candidateValue)
 
+                // The one case the smaller-Total direction below must not
+                // protect: the model's figure printed only on item lines. A
+                // total is never smaller than one of its own items, so the
+                // Total line wins. Real case: a Thai Cafe check where OCR
+                // read "$16.20" as "516.20" on the Cashew Chicken line, and
+                // the model reported it, over a printed "Total $33.57".
+                // Same "exclusively" test as the gratuity rows above, so a
+                // figure that also appears on a VISA or tip line — the
+                // handwritten-tip charge this direction exists for — is
+                // never overridden.
+                var linesCarryingTheModelFigure: [String] = []
+                for line in sourceText.components(separatedBy: .newlines)
+                    where ReceiptAmountDetector.amounts(in: line).contains(normalizedAmount) {
+                    linesCarryingTheModelFigure.append(line)
+                }
+                let modelFigureIsOnlyALineItem = !linesCarryingTheModelFigure.isEmpty
+                    && linesCarryingTheModelFigure.allSatisfy(ManualEntryOCRPrefill.isLineItemLine)
+
+                // `likelyGrandTotal` answers from a labeled Total line when it
+                // finds one, and otherwise falls back to the largest number
+                // on the receipt. That fallback is only a guess — good enough
+                // to replace a tip suggestion (it already excludes the
+                // suggestion lines), but not to overwrite any other figure
+                // that is itself printed: on a column-wise-OCR'd Thai Cafe
+                // check it was a misread "$16.20" → "516.20", and it replaced
+                // the model's correct $19.91. So the larger-figure and
+                // line-item rules need a labeled Total; without one, flag.
+                let candidateIsALabeledTotal = !BillTotalsParser.extractTotals(from: sourceText).total.isEmpty
+
                 if modelFigureLooksLikeATableSuggestion {
                     // Substitute regardless of which is larger — unlike the
                     // branch below, a tip suggestion is never a truer number
@@ -662,13 +691,40 @@ struct ExtractedReceipt {
                     if reason.isEmpty {
                         reason = "Amount read as $\(candidate) from the receipt's Total line — $\(amount) is a tip suggestion, not what was charged. Please confirm."
                     }
-                } else if candidateValue > amountValue {
+                } else if !candidateIsALabeledTotal {
+                    if reason.isEmpty {
+                        reason = "Amount $\(amount) is printed here, but no Total line could be read to confirm it — please check it."
+                    }
+                } else if candidateValue > amountValue || modelFigureIsOnlyALineItem {
                     resolvedAmount = candidate
                     if reason.isEmpty {
                         reason = "Amount read as $\(candidate) from the receipt's Total line — $\(amount) looks like a line item. Please confirm."
                     }
                 } else if reason.isEmpty {
                     reason = "Amount $\(amount) is printed here, but $\(candidate) looks like the total — please check which is right."
+                }
+            }
+
+            // Arithmetic check on whatever amount survived the above. When
+            // the misread lands on the Total line itself, the model and the
+            // Total line agree and nothing above objects — only the sum shows
+            // it. Real case: a "$" read as "5" turns "$33.57" into "533.57".
+            //
+            // Upward only, and generous: a second tax line, a service charge
+            // or a tip written into the Total all legitimately push the total
+            // past subtotal + tax, so only a figure half as large again gets
+            // flagged. Skipped unless both a subtotal and a tax line were
+            // read. Flag only — the sum can't say which of the lines is wrong.
+            let totals = BillTotalsParser.extractTotals(from: sourceText)
+            if let resolvedValue = Double(resolvedAmount),
+               let subtotal = Double(totals.subtotal),
+               let tax = Double(totals.tax) {
+                let expected = subtotal + tax + (Double(totals.serviceCharge) ?? 0)
+                if expected > 0, resolvedValue > expected * 1.5 {
+                    needsReview = true
+                    if reason.isEmpty {
+                        reason = "Amount $\(resolvedAmount) is far more than this receipt's subtotal plus tax ($\(String(format: "%.2f", expected))) — please check it."
+                    }
                 }
             }
         }

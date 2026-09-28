@@ -349,6 +349,283 @@ final class DeterministicFallbackTests: XCTestCase {
         XCTAssertFalse(receipt.needsReview, receipt.reviewReason)
     }
 
+    // MARK: - Amount: line item vs total
+
+    /// Thai Cafe split check, as Vision read it on a real scan: the "$" on
+    /// the Cashew Chicken line came back as a "5", so "$16.20" became
+    /// "516.20" — a figure genuinely present in the text, and larger than
+    /// every real number on the check. The model reported it as the total.
+    private func thaiCafeText(cashewChickenPrice: String) -> String {
+        """
+        THAI CAFE
+        Thai Cafe
+        14715 Jeffrey Rd
+        Irvine, CA 92618
+        Server: Server 0
+        Check #31   Table 8
+        Guest Count: 2
+        Ordered: 9/25/26 12:47 PM
+        1 Cashew Chicken   \(cashewChickenPrice)
+        1 Phad Kee Mao   $14.95
+        Subtotal   $31.15
+        Tax   $2.42
+        Total   $33.57
+        Input Type   C (EMV Chip Read)
+        VISA CREDIT   xxxxxxxx4956
+        Time   1:19 PM
+        Previous Payment Total:   $16.78
+        Tips Previously Paid:   $2.34
+        Amount   $16.79
+        + Tip:   $3.12
+        = Total:   $19.91
+        VISA CARDHOLDER
+        """
+    }
+
+    func testAMisreadLineItemPriceIsReplacedByTheSmallerPrintedTotal() {
+        // The case the smaller-total rule was never meant to protect. That
+        // rule keeps a figure ABOVE the printed Total because on a card slip
+        // it is usually the handwritten tip total. 516.20 is not that: it
+        // sits on a line naming a dish, and a total can never be smaller
+        // than one of its own line items.
+        let receipt = ExtractedReceipt.build(
+            vendor: "Thai Cafe", rawWorkDate: "2026-09-25", amount: "516.20",
+            comments: "", rawVendorType: "restaurant", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: thaiCafeText(cashewChickenPrice: "516.20"))
+
+        XCTAssertEqual(receipt.amount, "33.57")
+        XCTAssertTrue(receipt.needsReview, "Substituting improves the figure; it does not verify it.")
+        XCTAssertTrue(receipt.reviewReason.contains("516.20"),
+                      "the rejected figure must still be named: \(receipt.reviewReason)")
+    }
+
+    func testAModelMisreadOfACorrectlyReadLineItemIsStillReplaced() {
+        // Same receipt, but Vision read "$16.20" correctly and only the
+        // model got it wrong. Already handled by the not-printed branch;
+        // here so the new rule can't disturb it.
+        let receipt = ExtractedReceipt.build(
+            vendor: "Thai Cafe", rawWorkDate: "2026-09-25", amount: "516.20",
+            comments: "", rawVendorType: "restaurant", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: thaiCafeText(cashewChickenPrice: "$16.20"))
+
+        XCTAssertEqual(receipt.amount, "33.57")
+        XCTAssertTrue(receipt.needsReview)
+    }
+
+    func testALineItemAboveADiscountedTotalIsReplaced() {
+        // The same rule without any OCR error: a discount after the item
+        // makes the real total smaller than the item it contains.
+        let text = """
+        BEST ELECTRONICS
+        200 Main St
+        09/03/2026  14:02
+        Laptop   1000.00
+        Discount   -200.00
+        Subtotal   800.00
+        Tax   72.00
+        Total   872.00
+        """
+        let receipt = ExtractedReceipt.build(
+            vendor: "Best Electronics", rawWorkDate: "2026-09-03", amount: "1000.00",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: text)
+
+        XCTAssertEqual(receipt.amount, "872.00")
+        XCTAssertTrue(receipt.needsReview)
+    }
+
+    func testACardChargeAboveThePrintedTotalIsKept() {
+        // The line-item rule must not reach payment lines. A VISA line
+        // larger than the printed Total is the tip-included charge — the
+        // truer number, exactly as `testAHandwrittenTipAboveThePrintedTotalIsKept`
+        // protects for a bare figure.
+        let text = """
+        NAAN AND KABOB LLC
+        416 E 1ST ST
+        TUSTIN, CA 92780
+        09/03/2026  18:26:34
+        Sub-total  82.11
+        Tax  7.82
+        TOTAL  89.93
+        VISA  104.93
+        """
+        let receipt = ExtractedReceipt.build(
+            vendor: "Naan and Kabob", rawWorkDate: "2026-09-03", amount: "104.93",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: text)
+
+        XCTAssertEqual(receipt.amount, "104.93")
+        XCTAssertTrue(receipt.needsReview, "the disagreement is still flagged")
+    }
+
+    func testASingleItemReceiptWhoseItemEqualsItsTotalIsLeftAlone() {
+        let text = """
+        TACO SHOP
+        12 Harbor Blvd
+        09/03/2026  12:15
+        1 Burrito   12.50
+        Total   12.50
+        """
+        let receipt = ExtractedReceipt.build(
+            vendor: "Taco Shop", rawWorkDate: "2026-09-03", amount: "12.50",
+            comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: text)
+
+        XCTAssertEqual(receipt.amount, "12.50")
+        XCTAssertFalse(receipt.needsReview, receipt.reviewReason)
+    }
+
+    func testAMisreadLineItemSplitFromItsNameIsAtLeastFlagged() {
+        // Vision often reads a photographed receipt column-wise, putting the
+        // price on its own line with no dish name beside it. Nothing then
+        // shows 516.20 is a line item, so the rule can't safely substitute
+        // — but the disagreement with the Total must still be flagged.
+        let text = """
+        THAI CAFE
+        14715 Jeffrey Rd
+        Ordered: 9/25/26 12:47 PM
+        1 Cashew Chicken
+        1 Phad Kee Mao
+        516.20
+        $14.95
+        Subtotal   $31.15
+        Tax   $2.42
+        Total   $33.57
+        """
+        let receipt = ExtractedReceipt.build(
+            vendor: "Thai Cafe", rawWorkDate: "2026-09-25", amount: "516.20",
+            comments: "", rawVendorType: "restaurant", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: text)
+
+        XCTAssertTrue(receipt.needsReview)
+    }
+
+    func testTheLargestNumberFallbackNeverOverwritesTheModelsAmount() {
+        // The real failure, from the phone's own saved record: the model
+        // read $19.91 — this card's charge, a correct answer — and the
+        // guardrail replaced it with $516.20, claiming "from the receipt's
+        // Total line". There was no Total line to read: Vision read this
+        // receipt column-wise (verbatim below, apart from the misread), so
+        // no label shares a line with its number and `BillTotalsParser`
+        // found nothing. `likelyGrandTotal` then fell back to the largest
+        // number on the receipt, which was the misread "516.20". A guess is
+        // not evidence enough to overwrite an answer that is printed there.
+        let text = """
+        THAI CAFE
+        Thai Cafe
+        14715 Jeffrey
+        Rd
+        Irvine. CA
+        92618
+        Server: Server 0
+        Check #31
+        Guest Count: 2
+        Ordered:
+        Table 8
+        9/25/26 12:47 PM
+        1 Casheu Chicken
+        1 Phad Kee Mao
+        516.20
+        $14.95
+        Subtotal
+        Tax
+        Total
+        $31.15
+        $2.42
+        $33.57
+        Input Type
+        VISA
+        CREDIT
+        Time
+        Transaction Type
+        Authorization
+        Approval Code
+        C (EMU Chip Read)
+        xxxxxxxx4956
+        1:19 PM
+        Sale
+        Approved
+        07970G
+        Previous Payment Total:
+        Tips Previously Paid:
+        Anount
+        + Tip:
+        = Total:
+        VISA CARDHOLDER
+        $16.78
+        $2.34
+        $16.79
+        $3.12
+        $19.91
+        """
+        let receipt = ExtractedReceipt.build(
+            vendor: "Thai Cafe", rawWorkDate: "2026-09-25", amount: "19.91",
+            comments: "", rawVendorType: "restaurant", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: text)
+
+        XCTAssertEqual(receipt.amount, "19.91")
+    }
+
+    // MARK: - Amount: arithmetic check
+
+    func testATotalFarAboveSubtotalPlusTaxIsFlagged() {
+        // The misread lands on the Total line itself, so the model and the
+        // Total line agree on 533.57 and nothing else objects. Only the
+        // arithmetic shows it: 31.15 + 2.42 is 33.57. Flag only — which of
+        // the three lines is wrong can't be told from the sum alone.
+        let text = """
+        THAI CAFE
+        14715 Jeffrey Rd
+        Ordered: 9/25/26 12:47 PM
+        1 Cashew Chicken   $16.20
+        1 Phad Kee Mao   $14.95
+        Subtotal   $31.15
+        Tax   $2.42
+        Total   533.57
+        """
+        let receipt = ExtractedReceipt.build(
+            vendor: "Thai Cafe", rawWorkDate: "2026-09-25", amount: "533.57",
+            comments: "", rawVendorType: "restaurant", modelReportedLowConfidence: false,
+            modelReason: "", sourceText: text)
+
+        XCTAssertEqual(receipt.amount, "533.57", "flag only, never substitute")
+        XCTAssertTrue(receipt.needsReview)
+        XCTAssertTrue(receipt.reviewReason.contains("33.57"),
+                      "the expected sum should be named: \(receipt.reviewReason)")
+    }
+
+    func testTipsAndExtraTaxLinesDoNotTripTheArithmeticCheck() {
+        // Receipts routinely total more than subtotal + the first tax line:
+        // a second tax, a service charge, a tip written into the Total. The
+        // check must stay quiet for all of them.
+        let secondTax = """
+        CAFE ROUGE
+        09/03/2026  19:40
+        Subtotal  82.11
+        Tax  7.82
+        City Tax  1.50
+        Total  91.43
+        """
+        let tipInTotal = """
+        CAFE ROUGE
+        09/03/2026  19:40
+        Subtotal  82.11
+        Tax  7.82
+        Tip  25.00
+        Total  114.93
+        """
+        for text in [secondTax, tipInTotal] {
+            let amount = BillTotalsParser.extractTotals(from: text).total
+            let receipt = ExtractedReceipt.build(
+                vendor: "Cafe Rouge", rawWorkDate: "2026-09-03", amount: amount,
+                comments: "", rawVendorType: "", modelReportedLowConfidence: false,
+                modelReason: "", sourceText: text)
+
+            XCTAssertEqual(receipt.amount, amount)
+            XCTAssertFalse(receipt.needsReview, "\(amount): \(receipt.reviewReason)")
+        }
+    }
+
     // MARK: - Provider capability
 
     func testOnlyAppleOnDeviceIsTextOnly() {
