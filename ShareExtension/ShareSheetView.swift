@@ -28,9 +28,9 @@ struct ShareSheetView: View {
     /// sandbox-safe way back. See ShareViewController for the actual call.
     let onOpenMainApp: () -> Void
     /// Plain dismissal — completes the extension request with nothing more.
-    /// Used by the Done button on the "couldn't open the app" confirmation
-    /// card below, once the user has actually seen where their receipt went
-    /// and is ready to close the sheet themselves.
+    /// Used by the "couldn't open the app" confirmation card below, which
+    /// closes itself once the user has had time to see where their receipt
+    /// went (or sooner, on a tap).
     let onComplete: () -> Void
     /// The post-save exit, for every path where a receipt was actually
     /// written: tries to open the app at the given deep-link host (see
@@ -60,8 +60,10 @@ struct ShareSheetView: View {
     /// Set when `extensionContext.open` came back false — the receipt is
     /// already saved, but the app never came forward to say so. Takes
     /// priority over everything else in `body`: there is nothing left to do
-    /// but tell the user and wait for them to dismiss it themselves.
+    /// but tell the user, then close.
     @State private var couldNotOpenApp = false
+    /// Set once `couldNotOpenCard` has closed the sheet — see `closeConfirmation`.
+    @State private var confirmationClosed = false
 
     private enum ParkResult: Equatable {
         case now(Int)
@@ -329,26 +331,23 @@ struct ShareSheetView: View {
     /// `extensionContext.open` has come back refused. The receipt is
     /// already durably saved by this point — every `onFinish` call site
     /// only fires after a write completes — so this view's only job left is
-    /// to say so and hold still until the user taps Done themselves, since
-    /// nothing is going to auto-dismiss it into the app the way the happy
-    /// path does.
+    /// to say so, then close.
+    ///
+    /// It used to wait for a Done button, but there is no decision left to
+    /// make here, so the button was a tap owed for nothing. What it guarded
+    /// against is real, though: an 800ms flash was easy to miss entirely, and
+    /// a missed confirmation reads as "nothing happened". So the card stays
+    /// up long enough to read (`autoCloseDelay`) and confirms with a success
+    /// haptic, which lands even when the user isn't looking. A tap anywhere
+    /// closes it early.
     private var couldNotOpenCard: some View {
         VStack {
             Spacer(minLength: 0)
             VStack(spacing: 18) {
                 savedConfirmationBody
-                Button(action: onComplete) {
-                    Text("Done")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color(red: 0.30, green: 0.72, blue: 1.0),
-                                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
             }
             .padding(20)
+            .frame(maxWidth: .infinity)
             .background(cardBackground)
             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
             .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
@@ -358,6 +357,30 @@ struct ShareSheetView: View {
         // Same as `card`: transparent so this reads as an overlay on
         // whatever the user was doing, not a screen that replaced it.
         .background(Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: closeConfirmation)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Closes")
+        .task {
+            // Only for a parked receipt: the read-now path already buzzed
+            // when ReceiptSubmitView saved it, and a second buzz would read
+            // as a second event.
+            if parked != nil { Haptics.success() }
+            try? await Task.sleep(nanoseconds: Self.autoCloseDelay)
+            closeConfirmation()
+        }
+    }
+
+    /// Long enough to read the headline and the line naming where the
+    /// receipt went; short enough that nobody reaches for a button first.
+    private static let autoCloseDelay: UInt64 = 1_500_000_000
+
+    /// Guarded because the tap and the timer can both fire, and completing
+    /// the extension request twice isn't worth leaving to chance.
+    private func closeConfirmation() {
+        guard !confirmationClosed else { return }
+        confirmationClosed = true
+        onComplete()
     }
 
     private var categoryPicker: some View {
