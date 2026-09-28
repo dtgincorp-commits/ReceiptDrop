@@ -8,10 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		00B6687EE07E1D652C3B3F18 /* ReceiptDateDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */; };
-		C3579660ADF9EAB7EFE9BFDB /* SearchAmountParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C0B8A0DB85C552FF375763 /* SearchAmountParser.swift */; };
-		B93533DE863EC73293F86DD4 /* SearchAmountParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C0B8A0DB85C552FF375763 /* SearchAmountParser.swift */; };
-		1D8D685083BD2EA018F6CB3D /* SearchVendorTypeKeywords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43FA2E26B9A2907B180A7DDD /* SearchVendorTypeKeywords.swift */; };
-		3B6C2E00DEFBAC950E73FB6D /* SearchVendorTypeKeywords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43FA2E26B9A2907B180A7DDD /* SearchVendorTypeKeywords.swift */; };
 		0357085443A9651EF4E77F6E /* ShareSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D65E49DF78FE2F53DF54D1FB /* ShareSheetView.swift */; };
 		0369C28D357DC89548A9CF71 /* QuickSendContactStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C55D1066ECBE9ED09826A40 /* QuickSendContactStore.swift */; };
 		0A932F628E1DA811D4270E99 /* AzureDocumentIntelligenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */; };
@@ -46,6 +42,7 @@
 		3874F005EA2F726ACCA219AD /* ReceiptHashBackfillService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C3764C1A5A44BD4C06230FE /* ReceiptHashBackfillService.swift */; };
 		38789BB5235E9A416422F54C /* CategoryMergeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B53F75D6339B27D330F62AF5 /* CategoryMergeService.swift */; };
 		390DB692A79E23CA647F6C80 /* AttachmentThumbnailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5D15E75C57846F860C9D3B /* AttachmentThumbnailTests.swift */; };
+		3CC2D8AE11548AA48D28E318 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 32644C0AB3DA556F6D0E5096 /* PrivacyInfo.xcprivacy */; };
 		40103CE18DB63CAEC200FC8E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2BA4083781DB6C6A6F55D792 /* Assets.xcassets */; };
 		401A2E4BB076015C80CB489B /* BatchSubmissionRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50557937A6FFA7EE5E0A83CD /* BatchSubmissionRunner.swift */; };
 		438C22CA72F62D6792A44725 /* APIKeyTester.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */; };
@@ -58,8 +55,6 @@
 		53A231EDE5EC0E17EDAF8BC0 /* BillModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE72A7EE2EB472CB550F4F88 /* BillModels.swift */; };
 		53A9225368B7CC928FED8994 /* ReviewLaterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46196EA8DF0D8618C9C92212 /* ReviewLaterTests.swift */; };
 		54EBDEACA67CDD0340D4C3E1 /* SubmissionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57FF61EB58699460FE16D612 /* SubmissionStore.swift */; };
-		0BEA07676781E17F3F1FD975 /* AppAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2A22A3304FE5B4F2CF736B /* AppAppearance.swift */; };
-		41A8A291FC5C9286B222C178 /* AppAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2A22A3304FE5B4F2CF736B /* AppAppearance.swift */; };
 		54ED10E6932E78F13E41BA9E /* AppCurrency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */; };
 		565E406ADD2728D9A3D43D98 /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2941693C5D3EECC412C2593 /* AppConstants.swift */; };
 		57322A0ECBF721484D205906 /* ReceiptFileHashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737BBE946A35D758DC20C445 /* ReceiptFileHashTests.swift */; };
@@ -70,17 +65,21 @@
 		5FC4A0CBC12F5A1CD30859BF /* QueuedIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AEE4164AE7CB6716E25415F /* QueuedIcons.swift */; };
 		5FCEF3B0A481F744472916B3 /* AdaptiveCategoryPickerStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07BDF38B71C73D066236EEB8 /* AdaptiveCategoryPickerStyle.swift */; };
 		674FAF45C59E0A1ECCE520AA /* ReceiptCropService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE145F3A4C712818F908A82 /* ReceiptCropService.swift */; };
+		71A3CE388D1D763F34FC09BA /* SearchAmountParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C347EE05BFF486C5DD693DE7 /* SearchAmountParser.swift */; };
 		71CCDF38BD3109B77E790035 /* AppCurrency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */; };
 		71FECF6BABB129683C7F946F /* QueuedIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AEE4164AE7CB6716E25415F /* QueuedIcons.swift */; };
 		75FD3BD413DA1F9BF96A2FC0 /* HeldSubmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A55D50C3536ADE478C6FBA4 /* HeldSubmissionTests.swift */; };
 		764467C6D052233E8A95AB29 /* PhotoPickerTip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1382CDDFE7302436FCD876C7 /* PhotoPickerTip.swift */; };
 		77684F15B8C98AF84E326C8A /* ReceiptModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */; };
 		77B47008DA30372897F64B0C /* SubmissionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */; };
+		798AD3EBCC21D9E0EF1724E0 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B26D7B1C3A0DFB2DBFED2C0E /* PrivacyInfo.xcprivacy */; };
 		7A5B93EE1382D214EF45A12F /* CategoryMergeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B53F75D6339B27D330F62AF5 /* CategoryMergeService.swift */; };
+		7BB84926429FDD8C48D41A02 /* SearchVendorTypeKeywords.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42793ACE74E0810517AFC80 /* SearchVendorTypeKeywords.swift */; };
 		7BEB3A1247963FEF61B950FE /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2941693C5D3EECC412C2593 /* AppConstants.swift */; };
 		7DA993E96E2763FBAB9BB3A0 /* ReceiptPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E51159281ABA1A7AF432D8 /* ReceiptPreviewView.swift */; };
 		7DC9169DF1AABEE1E48F39A9 /* AppTextSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65429EAA84DE433AE5FE8369 /* AppTextSize.swift */; };
 		8018E68514B739EE968470C1 /* LastUsedCategoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F41C4A0A606AF5A3F058DBF5 /* LastUsedCategoryStore.swift */; };
+		8389AC7906B262C06398A14F /* SearchVendorTypeKeywords.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42793ACE74E0810517AFC80 /* SearchVendorTypeKeywords.swift */; };
 		849150F0B742BED665DFDD9E /* ReceiptSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */; };
 		853568607F8EE2E18120D90A /* InsightsCaseGroupingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14E726F15AFD68EA4EDD567 /* InsightsCaseGroupingTests.swift */; };
 		8993C405D307C9986F22BE26 /* PendingSubmissionProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 963BBE1D80A49FFD5690A813 /* PendingSubmissionProcessor.swift */; };
@@ -115,6 +114,7 @@
 		B311E2C1168EE57DB4DE55D2 /* ReceiptSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */; };
 		B5C60B32F4136D0847F2AE4D /* ManualEntryOCRPrefill.swift in Sources */ = {isa = PBXBuildFile; fileRef = E63868D8B4CCD0380B19A205 /* ManualEntryOCRPrefill.swift */; };
 		BD6BCA0895B2421CA3ACE070 /* ExtractionEvalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AAF611BCD065DB646501E61 /* ExtractionEvalView.swift */; };
+		BE8C25F6EB253BE3E78A5558 /* AppAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A6948A63FFA9B34F336984 /* AppAppearance.swift */; };
 		BF5C1B36744BA74AB4605245 /* BillEvalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7CE5CF9262C43188D5295AB /* BillEvalView.swift */; };
 		BF823103E7489F33241DBF6A /* SubmissionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */; };
 		BFD11D25BD77EC0588B955BD /* ReceiptFileHash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 879797906F52CA13057D5601 /* ReceiptFileHash.swift */; };
@@ -136,6 +136,7 @@
 		DC2AEFBDB10450622ED9569E /* ReceiptCropService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE145F3A4C712818F908A82 /* ReceiptCropService.swift */; };
 		DEF3F7AFC83A15F5A809CF52 /* ScannedTextSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B3295A349899BF8290F0B97 /* ScannedTextSubmitView.swift */; };
 		E1B43E5E39B38CC08C3A7824 /* ExtractionLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35A1A78E48AAD20590B47E39 /* ExtractionLogicTests.swift */; };
+		E1CDFB1FFAB2CE59CF1E188C /* SearchAmountParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C347EE05BFF486C5DD693DE7 /* SearchAmountParser.swift */; };
 		E20C16E9ECEDB4D1F9D8706A /* CategoriesViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F2D0A26164BC1EB50AC9510 /* CategoriesViewTests.swift */; };
 		E23F74196CB32223A35D1C70 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 24F99E4477C2AFEDD8DC698B /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E520FAD5D609E53E000FD1CA /* SettingsInfoLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE989CFC7987A552BBCBBB3D /* SettingsInfoLink.swift */; };
@@ -146,6 +147,7 @@
 		F3DF8803716A82E76ED021D5 /* AttachmentThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDBA80332CC2662CA3FB1FD8 /* AttachmentThumbnail.swift */; };
 		F4D45048DA00D1430D6B75E3 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3363F7383B194313AE1C80FF /* Theme.swift */; };
 		F7E74A152AB019DB69E41291 /* ExtractionEvalHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD6EAB3BA43374F270739250 /* ExtractionEvalHarness.swift */; };
+		FACF3BEA3888BA3CF5DAEBA1 /* AppAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A6948A63FFA9B34F336984 /* AppAppearance.swift */; };
 		FE5FFC1FA2508767E5C0500A /* BillEvalHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 525C3226B85E765DA6EC3B6C /* BillEvalHarness.swift */; };
 		FEE021180D225DB68B1FCF3D /* QuickSendContactStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C55D1066ECBE9ED09826A40 /* QuickSendContactStore.swift */; };
 		FF020B55A8D3676354082B92 /* BillCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E03258CA24E3618F36E11AE7 /* BillCaptureView.swift */; };
@@ -195,8 +197,6 @@
 		1A93982D67223B82A377969E /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		1E9F98C3A8C057A179F0CBE1 /* ManualEntryOCRPrefillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualEntryOCRPrefillTests.swift; sourceTree = "<group>"; };
 		2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptDateDetector.swift; sourceTree = "<group>"; };
-		98C0B8A0DB85C552FF375763 /* SearchAmountParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchAmountParser.swift; sourceTree = "<group>"; };
-		43FA2E26B9A2907B180A7DDD /* SearchVendorTypeKeywords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchVendorTypeKeywords.swift; sourceTree = "<group>"; };
 		21D87B0E04C004C048B153C0 /* NewReceiptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewReceiptView.swift; sourceTree = "<group>"; };
 		2487A2052B551FC00FDF8D17 /* EditReceiptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditReceiptView.swift; sourceTree = "<group>"; };
 		24F99E4477C2AFEDD8DC698B /* ShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -204,6 +204,7 @@
 		2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptModels.swift; sourceTree = "<group>"; };
 		30A7F1706C37944B9CABAD00 /* CameraPermissionPriming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPermissionPriming.swift; sourceTree = "<group>"; };
 		3126EACE7989CA12C3083A98 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		32644C0AB3DA556F6D0E5096 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		3363F7383B194313AE1C80FF /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		35A1A78E48AAD20590B47E39 /* ExtractionLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionLogicTests.swift; sourceTree = "<group>"; };
 		399D1B3777B6FF27E193E2F1 /* ReceiptDropApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptDropApp.swift; sourceTree = "<group>"; };
@@ -217,6 +218,7 @@
 		50557937A6FFA7EE5E0A83CD /* BatchSubmissionRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchSubmissionRunner.swift; sourceTree = "<group>"; };
 		525C3226B85E765DA6EC3B6C /* BillEvalHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillEvalHarness.swift; sourceTree = "<group>"; };
 		54DEA5E5F2DDE4AC17C77C9D /* ReceiptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsView.swift; sourceTree = "<group>"; };
+		57A6948A63FFA9B34F336984 /* AppAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearance.swift; sourceTree = "<group>"; };
 		57FF61EB58699460FE16D612 /* SubmissionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubmissionStore.swift; sourceTree = "<group>"; };
 		588D4BE73A224F115F3AEA37 /* ReceiptDetectionEvalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptDetectionEvalView.swift; sourceTree = "<group>"; };
 		59F671CC05560D0329CB8D2F /* BillItemizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillItemizationService.swift; sourceTree = "<group>"; };
@@ -226,7 +228,6 @@
 		6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReceiptStore.swift; sourceTree = "<group>"; };
 		6473D93F4CFFA6B607325DD8 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		65429EAA84DE433AE5FE8369 /* AppTextSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTextSize.swift; sourceTree = "<group>"; };
-		FE2A22A3304FE5B4F2CF736B /* AppAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearance.swift; sourceTree = "<group>"; };
 		67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptSubmitView.swift; sourceTree = "<group>"; };
 		6841F4B5E700B2A57279FBCF /* OvernightProcessingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OvernightProcessingService.swift; sourceTree = "<group>"; };
 		692D7F4C89AC5761011D00F8 /* LocalReceiptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReceiptStoreTests.swift; sourceTree = "<group>"; };
@@ -258,15 +259,18 @@
 		974E714CBE6D526E00CE9477 /* ExtractionFailureClassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionFailureClassTests.swift; sourceTree = "<group>"; };
 		9E9676D03C5C8CD8922DCCCB /* ReceiptDrop.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ReceiptDrop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A390548284FDD4A341F7ABF5 /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
+		A42793ACE74E0810517AFC80 /* SearchVendorTypeKeywords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchVendorTypeKeywords.swift; sourceTree = "<group>"; };
 		A7730A1380B462CC48DB1C5E /* ClaudeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeService.swift; sourceTree = "<group>"; };
 		A9E51159281ABA1A7AF432D8 /* ReceiptPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptPreviewView.swift; sourceTree = "<group>"; };
 		ACF73882CBDC5F84C48D9030 /* ExtractionSettingsOverrideTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionSettingsOverrideTests.swift; sourceTree = "<group>"; };
 		B0387FAAA9AB9B4C7579FE9A /* LastUsedCategoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastUsedCategoryTests.swift; sourceTree = "<group>"; };
 		B105A03343BABE54825F3461 /* LiveTextScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTextScannerView.swift; sourceTree = "<group>"; };
+		B26D7B1C3A0DFB2DBFED2C0E /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B53F75D6339B27D330F62AF5 /* CategoryMergeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryMergeService.swift; sourceTree = "<group>"; };
 		BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyTester.swift; sourceTree = "<group>"; };
 		C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubmissionPipeline.swift; sourceTree = "<group>"; };
 		C20A43BBE13816C33913B4FA /* SyntheticReceiptGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntheticReceiptGeneratorTests.swift; sourceTree = "<group>"; };
+		C347EE05BFF486C5DD693DE7 /* SearchAmountParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchAmountParser.swift; sourceTree = "<group>"; };
 		CDBA80332CC2662CA3FB1FD8 /* AttachmentThumbnail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentThumbnail.swift; sourceTree = "<group>"; };
 		CEC8FCD6E9B669200EEEC134 /* BillReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillReviewView.swift; sourceTree = "<group>"; };
 		CF380D2280F12372F67471C0 /* CategoryDeleteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryDeleteService.swift; sourceTree = "<group>"; };
@@ -333,6 +337,7 @@
 			isa = PBXGroup;
 			children = (
 				096738F483C15B82B353EC44 /* Info.plist */,
+				B26D7B1C3A0DFB2DBFED2C0E /* PrivacyInfo.xcprivacy */,
 				A390548284FDD4A341F7ABF5 /* ShareExtension.entitlements */,
 				D65E49DF78FE2F53DF54D1FB /* ShareSheetView.swift */,
 				1A93982D67223B82A377969E /* ShareViewController.swift */,
@@ -356,8 +361,8 @@
 			children = (
 				07BDF38B71C73D066236EEB8 /* AdaptiveCategoryPickerStyle.swift */,
 				BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */,
+				57A6948A63FFA9B34F336984 /* AppAppearance.swift */,
 				E2941693C5D3EECC412C2593 /* AppConstants.swift */,
-				FE2A22A3304FE5B4F2CF736B /* AppAppearance.swift */,
 				75F1DCAB3A0B8F31D59D2036 /* AppCurrency.swift */,
 				65429EAA84DE433AE5FE8369 /* AppTextSize.swift */,
 				CDBA80332CC2662CA3FB1FD8 /* AttachmentThumbnail.swift */,
@@ -388,12 +393,12 @@
 				6EE145F3A4C712818F908A82 /* ReceiptCropService.swift */,
 				2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */,
 				879797906F52CA13057D5601 /* ReceiptFileHash.swift */,
-				98C0B8A0DB85C552FF375763 /* SearchAmountParser.swift */,
-				43FA2E26B9A2907B180A7DDD /* SearchVendorTypeKeywords.swift */,
 				0C3764C1A5A44BD4C06230FE /* ReceiptHashBackfillService.swift */,
 				2BEF39ED2BA4CEDA82883A16 /* ReceiptModels.swift */,
 				FE161956181801F91BB79B5F /* ReceiptPhotoClassifier.swift */,
 				67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */,
+				C347EE05BFF486C5DD693DE7 /* SearchAmountParser.swift */,
+				A42793ACE74E0810517AFC80 /* SearchVendorTypeKeywords.swift */,
 				FE989CFC7987A552BBCBBB3D /* SettingsInfoLink.swift */,
 				C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */,
 				57FF61EB58699460FE16D612 /* SubmissionStore.swift */,
@@ -424,6 +429,7 @@
 				21D87B0E04C004C048B153C0 /* NewReceiptView.swift */,
 				6841F4B5E700B2A57279FBCF /* OvernightProcessingService.swift */,
 				1382CDDFE7302436FCD876C7 /* PhotoPickerTip.swift */,
+				32644C0AB3DA556F6D0E5096 /* PrivacyInfo.xcprivacy */,
 				588D4BE73A224F115F3AEA37 /* ReceiptDetectionEvalView.swift */,
 				D82B6FF53C985F3570C022F3 /* ReceiptDrop.entitlements */,
 				399D1B3777B6FF27E193E2F1 /* ReceiptDropApp.swift */,
@@ -448,6 +454,7 @@
 			buildConfigurationList = B804EECD14840C53D6CC59DD /* Build configuration list for PBXNativeTarget "ShareExtension" */;
 			buildPhases = (
 				088531336455856D17EFF4F6 /* Sources */,
+				87DFDC15DB9486AC9C9EF589 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -549,6 +556,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				40103CE18DB63CAEC200FC8E /* Assets.xcassets in Resources */,
+				3CC2D8AE11548AA48D28E318 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87DFDC15DB9486AC9C9EF589 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				798AD3EBCC21D9E0EF1724E0 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -583,8 +599,8 @@
 			files = (
 				1BEBCD8888AB65FF0B4D5827 /* APIKeyTester.swift in Sources */,
 				96C6718D9DF2BB43D9402C98 /* AdaptiveCategoryPickerStyle.swift in Sources */,
+				FACF3BEA3888BA3CF5DAEBA1 /* AppAppearance.swift in Sources */,
 				7BEB3A1247963FEF61B950FE /* AppConstants.swift in Sources */,
-				0BEA07676781E17F3F1FD975 /* AppAppearance.swift in Sources */,
 				71CCDF38BD3109B77E790035 /* AppCurrency.swift in Sources */,
 				A933026D14369CB556BD7573 /* AppTextSize.swift in Sources */,
 				F3DF8803716A82E76ED021D5 /* AttachmentThumbnail.swift in Sources */,
@@ -631,8 +647,6 @@
 				144D08E0FF0AFFC096A58B8E /* ReceiptAmountDetector.swift in Sources */,
 				674FAF45C59E0A1ECCE520AA /* ReceiptCropService.swift in Sources */,
 				A24E47ED8C486ABC29BFD3D7 /* ReceiptDateDetector.swift in Sources */,
-				C3579660ADF9EAB7EFE9BFDB /* SearchAmountParser.swift in Sources */,
-				1D8D685083BD2EA018F6CB3D /* SearchVendorTypeKeywords.swift in Sources */,
 				2BD92C8F060343A02A106B45 /* ReceiptDetectionEvalView.swift in Sources */,
 				209B3D7E78931388864C1CC5 /* ReceiptDropApp.swift in Sources */,
 				BFD11D25BD77EC0588B955BD /* ReceiptFileHash.swift in Sources */,
@@ -645,6 +659,8 @@
 				B1D1A4149D421F8F2BB69B12 /* ReceiptsView.swift in Sources */,
 				1350E530E08906B2187F50D8 /* SampleReceiptDemoView.swift in Sources */,
 				DEF3F7AFC83A15F5A809CF52 /* ScannedTextSubmitView.swift in Sources */,
+				71A3CE388D1D763F34FC09BA /* SearchAmountParser.swift in Sources */,
+				8389AC7906B262C06398A14F /* SearchVendorTypeKeywords.swift in Sources */,
 				C4E78BEADE759B3127334076 /* SettingsInfoLink.swift in Sources */,
 				167A6DAFB1FCB380DC1D043D /* SettingsView.swift in Sources */,
 				A138BC54F5D082BCBFFCD53F /* SpendingInsightsService.swift in Sources */,
@@ -662,8 +678,8 @@
 			files = (
 				438C22CA72F62D6792A44725 /* APIKeyTester.swift in Sources */,
 				5FCEF3B0A481F744472916B3 /* AdaptiveCategoryPickerStyle.swift in Sources */,
+				BE8C25F6EB253BE3E78A5558 /* AppAppearance.swift in Sources */,
 				565E406ADD2728D9A3D43D98 /* AppConstants.swift in Sources */,
-				41A8A291FC5C9286B222C178 /* AppAppearance.swift in Sources */,
 				54ED10E6932E78F13E41BA9E /* AppCurrency.swift in Sources */,
 				7DC9169DF1AABEE1E48F39A9 /* AppTextSize.swift in Sources */,
 				4AECB132A2B48C728708FA5F /* AttachmentThumbnail.swift in Sources */,
@@ -693,13 +709,13 @@
 				8D9FC56A37C5FD5F392B6BCA /* ReceiptAmountDetector.swift in Sources */,
 				DC2AEFBDB10450622ED9569E /* ReceiptCropService.swift in Sources */,
 				00B6687EE07E1D652C3B3F18 /* ReceiptDateDetector.swift in Sources */,
-				B93533DE863EC73293F86DD4 /* SearchAmountParser.swift in Sources */,
-				3B6C2E00DEFBAC950E73FB6D /* SearchVendorTypeKeywords.swift in Sources */,
 				181B009689A250CEE3CD091E /* ReceiptFileHash.swift in Sources */,
 				3874F005EA2F726ACCA219AD /* ReceiptHashBackfillService.swift in Sources */,
 				ADDC7BC434839EA099ADC4D5 /* ReceiptModels.swift in Sources */,
 				91871ABF3C86D896510A1CE1 /* ReceiptPhotoClassifier.swift in Sources */,
 				B311E2C1168EE57DB4DE55D2 /* ReceiptSubmitView.swift in Sources */,
+				E1CDFB1FFAB2CE59CF1E188C /* SearchAmountParser.swift in Sources */,
+				7BB84926429FDD8C48D41A02 /* SearchVendorTypeKeywords.swift in Sources */,
 				E520FAD5D609E53E000FD1CA /* SettingsInfoLink.swift in Sources */,
 				0357085443A9651EF4E77F6E /* ShareSheetView.swift in Sources */,
 				D103EE8EA7FB89F874E54221 /* ShareViewController.swift in Sources */,
