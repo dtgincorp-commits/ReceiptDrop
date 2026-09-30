@@ -22,6 +22,10 @@ struct EditReceiptView: View {
     @State private var showManageCustomTypes = false
     @State private var message: String?
     @State private var isSaving = false
+    /// Raised whenever `message` is set. The inline message sits near the
+    /// bottom of the form, so a save started from the toolbar's Save — with
+    /// the user still up by the photo — would otherwise fail out of sight.
+    @State private var showSaveError = false
 
     // Same App Group store + key SettingsView writes, so the symbol shown
     // here always matches whatever the user picked.
@@ -187,12 +191,34 @@ struct EditReceiptView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel).disabled(isSaving)
                 }
+                // Mirrors "Save Changes" at the bottom of the form, which sits
+                // below the photo, attachments and every field — a long
+                // scroll for the common edit of fixing one amount. Same
+                // action and same enablement; both stay, so neither the
+                // top nor the bottom of the form is a dead end.
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSaving {
+                        ProgressView().accessibilityLabel("Saving receipt")
+                    } else {
+                        Button("Save", action: save)
+                            .bold()
+                            .disabled(!canSave)
+                    }
+                }
             }
         }
         .onAppear {
             comments = LocalReceiptStore.comments(
                 category: entry.category, vendor: entry.vendor, workDate: entry.workDate,
                 amount: entry.amount, receiptFilename: entry.receiptLink)
+        }
+        .onChange(of: message) { newValue in
+            showSaveError = newValue != nil
+        }
+        .alert("Couldn't Save", isPresented: $showSaveError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(message ?? "")
         }
         .photosPicker(isPresented: $showPhotoLibrary, selection: $photoPickerItem, matching: .images)
         .photosPicker(isPresented: $showExtraPhotoLibrary, selection: $extraPickerItems, matching: .images)
