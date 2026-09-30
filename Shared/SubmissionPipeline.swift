@@ -432,13 +432,36 @@ struct SubmissionPipeline {
     /// columns at all (see `AppConstants.sheetHeader`) — they only live in
     /// the App Group History store — so updating `SubmissionStore` is the
     /// only persistence this requires.
+    ///
+    /// A receipt with no amount can't be confirmed — it stays flagged until
+    /// an amount (even 0) is entered through Edit. Checked here rather than
+    /// only in the UI so every route to "confirmed" (row button, swipe) is
+    /// covered: a tax record marked checked with no amount is a gap nobody
+    /// goes back to fill.
     @discardableResult
     static func confirmReviewed(_ entry: HistoryEntry) -> HistoryEntry {
+        guard entry.hasAmount else { return entry }
         var updated = entry
         updated.verificationStatus = .verified
         updated.reviewReason = ""
         SubmissionStore.updateHistory(updated)
         return updated
+    }
+
+    static let missingAmountReviewReason = "No amount entered — add it, or enter 0 if nothing was paid."
+
+    /// Puts the flag back on receipts that were confirmed before
+    /// `confirmReviewed` refused to confirm one with no amount. Only
+    /// `.verified` entries with an empty amount are touched, so it's a no-op
+    /// on every run after the first and cheap enough to call on each reload.
+    static func reflagConfirmedEntriesMissingAmount() {
+        for entry in SubmissionStore.loadHistory()
+        where entry.verificationStatus == .verified && !entry.hasAmount {
+            var updated = entry
+            updated.verificationStatus = .needsReview
+            updated.reviewReason = missingAmountReviewReason
+            SubmissionStore.updateHistory(updated)
+        }
     }
 
     /// The inverse of `confirmReviewed`: sets the HITL flag because the *user*

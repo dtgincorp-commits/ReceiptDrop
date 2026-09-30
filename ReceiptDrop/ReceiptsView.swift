@@ -932,7 +932,17 @@ struct ReceiptsView: View {
                                         // dismiss — this is the "the extracted data was
                                         // fine all along" shortcut, not a general-purpose
                                         // action that belongs on every row.
-                                        if entry.verificationStatus == .needsReview {
+                                        if entry.verificationStatus == .needsReview, !entry.hasAmount {
+                                            // confirmReviewed refuses a receipt
+                                            // with no amount, so offer the fix
+                                            // instead of a Confirm that does nothing.
+                                            Button {
+                                                editingEntry = entry
+                                            } label: {
+                                                Label("Add Amount", systemImage: "dollarsign.circle")
+                                            }
+                                            .tint(.orange)
+                                        } else if entry.verificationStatus == .needsReview {
                                             Button {
                                                 confirmReviewed(entry)
                                             } label: {
@@ -1024,7 +1034,17 @@ struct ReceiptsView: View {
                                         // Same "flag was a false alarm" shortcut as the
                                         // search-results list above — only shown when
                                         // the entry is actually flagged.
-                                        if entry.verificationStatus == .needsReview {
+                                        if entry.verificationStatus == .needsReview, !entry.hasAmount {
+                                            // confirmReviewed refuses a receipt
+                                            // with no amount, so offer the fix
+                                            // instead of a Confirm that does nothing.
+                                            Button {
+                                                editingEntry = entry
+                                            } label: {
+                                                Label("Add Amount", systemImage: "dollarsign.circle")
+                                            }
+                                            .tint(.orange)
+                                        } else if entry.verificationStatus == .needsReview {
                                             Button {
                                                 confirmReviewed(entry)
                                             } label: {
@@ -1395,6 +1415,7 @@ struct ReceiptsView: View {
     }
 
     private func reload() {
+        SubmissionPipeline.reflagConfirmedEntriesMissingAmount()
         entries = SubmissionStore.loadHistory()
         // One CSV parse per category, not per row — see commentsByReceipt.
         commentsMap = LocalReceiptStore.commentsByReceipt(
@@ -1927,6 +1948,25 @@ private struct ReceiptRow: View {
         }
     }
 
+    /// The tappable pill under a review reason ("Looks Good" / "Add Amount").
+    /// See the comments at its call site for why it is drawn by hand on a
+    /// .plain button and uses an HStack rather than a Label.
+    private func reviewActionPill(_ title: String, systemImage: String, color: Color,
+                                  action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage)
+                Text(title)
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(color.opacity(0.18), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: rowSpacing) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1996,7 +2036,7 @@ private struct ReceiptRow: View {
                 // text-size setting alone couldn't, since Dynamic Type only
                 // scales text, not a whole extra line.
                 sourceIndicator
-                if !entry.amount.isEmpty {
+                if entry.hasAmount {
                     // A tax record is read by its amounts, and a vertical run
                     // of them only scans as a column when every digit lines
                     // up — monospacedDigit() is what keeps a "1" from being
@@ -2006,6 +2046,16 @@ private struct ReceiptRow: View {
                     // never the figure itself.
                     Text(Self.rowAmountString(entry.amount, currencyCode: currencyCode))
                         .font(.subheadline.weight(.bold).monospacedDigit())
+                        .layoutPriority(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                } else {
+                    // Said in words rather than left blank or shown as $0.00:
+                    // a blank looks like a layout glitch, and $0.00 reads as
+                    // a real, finished amount. The stored value stays empty
+                    // — see `HistoryEntry.hasAmount`.
+                    Text("No amount")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.orange)
                         .layoutPriority(1)
                         .fixedSize(horizontal: true, vertical: false)
                 }
@@ -2038,19 +2088,19 @@ private struct ReceiptRow: View {
                     // with any style but .plain/.borderless can take over the
                     // whole row's tap, and then tapping the row to open the
                     // photo would silently clear the review flag.
-                    Button(action: onConfirm) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark")
-                            Text("Looks Good")
-                        }
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.green)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.green.opacity(0.18), in: Capsule())
+                    //
+                    // With no amount there is nothing to call good —
+                    // confirmReviewed refuses it — so the same spot offers
+                    // the fix instead, in the review orange.
+                    if entry.hasAmount {
+                        reviewActionPill("Looks Good", systemImage: "checkmark",
+                                         color: .green, action: onConfirm)
+                            .accessibilityHint("Clears the review flag")
+                    } else {
+                        reviewActionPill("Add Amount", systemImage: "dollarsign",
+                                         color: .orange, action: onEdit)
+                            .accessibilityHint("Opens the receipt to enter its amount")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Clears the review flag")
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -2119,7 +2169,11 @@ private struct ReceiptRow: View {
         // Same formatter as the visual amount, so VoiceOver reads the row
         // consistently with what's on screen instead of the old raw-"$"
         // string ("$1001.00" spoken while the row shows "$1,001.00").
-        if !entry.amount.isEmpty { parts.append(Self.rowAmountString(entry.amount, currencyCode: currencyCode)) }
+        if entry.hasAmount {
+            parts.append(Self.rowAmountString(entry.amount, currencyCode: currencyCode))
+        } else {
+            parts.append("No amount")
+        }
         if isDuplicate { parts.append("possible duplicate") }
         switch entry.verificationStatus {
         case .needsReview:

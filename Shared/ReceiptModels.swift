@@ -1838,6 +1838,14 @@ struct HistoryEntry: Codable, Identifiable {
     /// `SubmissionPipeline`'s submit-time check can see it.
     var fileHash: String = ""
 
+    /// False when no amount was ever entered — distinct from an entered
+    /// "0", which is a real value (a free or fully refunded purchase). An
+    /// empty amount is deliberately never stored as 0: that would read as
+    /// a finished record and vanish from the accountant's export as $0.
+    /// Such a receipt can be saved (never block the save) but not confirmed
+    /// — see `SubmissionPipeline.confirmReviewed`.
+    var hasAmount: Bool { !amount.trimmingCharacters(in: .whitespaces).isEmpty }
+
     init(id: UUID = UUID(), category: String, vendor: String, workDate: String, amount: String,
          receiptLink: String, timestamp: Date,
          verificationStatus: VerificationStatus = .none, reviewReason: String = "",
