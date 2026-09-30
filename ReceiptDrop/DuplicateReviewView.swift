@@ -56,6 +56,23 @@ struct DuplicateReviewView: View {
                                 // bold says "even more than that" without
                                 // muddying what red itself means.
                                 .fontWeight(group.confidence == .identicalFile ? .bold : .regular)
+                        } footer: {
+                            // The only other way off this screen was deleting
+                            // a receipt — risky when the pair was a false
+                            // alarm (two Zelle payments to different people a
+                            // day apart). An identical-file group is literally
+                            // the same photo, so "Not a Duplicate" would be
+                            // untrue there; "Keep All" is the same action,
+                            // honestly named.
+                            HStack {
+                                Spacer()
+                                Button(group.confidence == .identicalFile ? "Keep All" : "Not a Duplicate") {
+                                    markNotDuplicate(group)
+                                }
+                                .font(.subheadline.weight(.semibold))
+                                .buttonStyle(.bordered)
+                                .accessibilityHint("Stops listing these receipts as possible duplicates")
+                            }
                         }
                     }
                 }
@@ -189,6 +206,15 @@ struct DuplicateReviewView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 48, height: 48)
         }
+    }
+
+    /// Remembers the decision (see `DuplicateDetectionService.markNotDuplicate`),
+    /// drops the card, and — like `delete(_:)` — tells the Receipts screen to
+    /// recount its duplicates chip.
+    private func markNotDuplicate(_ group: DuplicateDetectionService.Group) {
+        DuplicateDetectionService.markNotDuplicate(group)
+        groups.removeAll { $0.id == group.id }
+        NotificationCenter.default.post(name: .receiptDropDidUpdateHistory, object: nil)
     }
 
     /// Runs off the main thread — `LocalReceiptStore.deleteEntry` rewrites

@@ -197,6 +197,11 @@ enum DuplicateDetectionService {
             groups.append(Group(id: pair.id, entries: [pair.first, pair.second], confidence: pair.confidence))
         }
 
+        // Groups the user already said aren't duplicates stay hidden — see
+        // `markNotDuplicate`.
+        let dismissed = dismissedGroupKeys
+        groups.removeAll { dismissed.contains(dismissalKey(for: $0)) }
+
         // Same stable-sort ordering guarantee as `findPairs`: identicalFile
         // above likely above everything else.
         return groups.sorted { confidenceRank($0.confidence) > confidenceRank($1.confidence) }
@@ -375,7 +380,7 @@ enum DuplicateDetectionService {
                     && gap <= tipDateWindow
                     && tipPlausible(a, b)
                 guard datesClose || tipShaped else { continue }
-                guard BillEvalScorer.namesMatch(a.vendor, b.vendor) else { continue }
+                guard vendorsMatch(a.vendor, b.vendor) else { continue }
                 // Tip takes priority over the generic labels — it explains
                 // *why* the amounts differ, which is more actionable than
                 // just reporting that they do.
@@ -430,8 +435,68 @@ enum DuplicateDetectionService {
         // harness (normalize → prefix → 50% token overlap) — same problem
         // (comparing AI-extracted names that differ only in formatting),
         // no reason to duplicate the logic.
-        let confidence: Pair.Confidence = BillEvalScorer.namesMatch(a.vendor, b.vendor) ? .likely : .possibleDifferentVendor
+        let confidence: Pair.Confidence = vendorsMatch(a.vendor, b.vendor) ? .likely : .possibleDifferentVendor
         return Pair(id: "\(a.id)-\(b.id)", first: a, second: b, confidence: confidence)
+    }
+
+    /// `BillEvalScorer.namesMatch` on the payee alone — see `payeeName`.
+    static func vendorsMatch(_ a: String, _ b: String) -> Bool {
+        BillEvalScorer.namesMatch(payeeName(a), payeeName(b))
+    }
+
+    /// Words naming how a payment was made rather than who it went to.
+    /// Bank and card statements put them in front of the real payee
+    /// ("ZELLE TO MORALES", "SQ *BLUE BOTTLE", "PAYPAL *ACME"), and
+    /// namesMatch's 50% word overlap then counted the shared service word
+    /// as half a match: "Zelle to Morales" and "Zelle to Vatale" — two
+    /// different people paid a day apart — were flagged as duplicates.
+    /// Only unambiguous tokens: "square" and "toast" are left alone because
+    /// they're also real business names ("Square One Pizza").
+    private static let paymentChannelWords: Set<String> = [
+        "zelle", "venmo", "paypal", "cashapp", "sq", "tst",
+        "payment", "pmt", "transfer", "sent", "from",
+    ]
+
+    /// The vendor with payment-channel words removed ("ZELLE TO MORALES" →
+    /// "to morales"; "Cash App" is two words, so it's removed as a pair).
+    /// Falls back to the whole name when nothing else is left — a vendor
+    /// recorded as just "Zelle" still compares as "Zelle".
+    static func payeeName(_ vendor: String) -> String {
+        var words = vendor.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        for (first, second) in [("cash", "app"), ("apple", "cash")] {
+            if let i = words.indices.dropLast().first(where: { words[$0] == first && words[$0 + 1] == second }) {
+                words.removeSubrange(i...(i + 1))
+            }
+        }
+        let payee = words.filter { !paymentChannelWords.contains($0) }
+        let meaningful = payee.filter { $0 != "to" && $0 != "for" }
+        return meaningful.isEmpty ? vendor : payee.joined(separator: " ")
+    }
+
+    // MARK: - "Not a Duplicate"
+
+    /// A user's "these aren't duplicates" decision for one group, keyed by
+    /// its entries' ids in sorted order — so the decision survives reloads
+    /// and re-sorting, and a group that later gains a new member (a third
+    /// copy turns up) gets a new key and is shown again.
+    static func dismissalKey(for group: Group) -> String {
+        group.entries.map(\.id.uuidString).sorted().joined(separator: "|")
+    }
+
+    private static var defaults: UserDefaults { UserDefaults(suiteName: AppConstants.appGroupID)! }
+
+    static var dismissedGroupKeys: Set<String> {
+        Set(defaults.stringArray(forKey: AppConstants.DefaultsKeys.dismissedDuplicateGroups) ?? [])
+    }
+
+    /// Hides this group from every duplicates list from now on. Stored in
+    /// the App Group so the decision holds wherever duplicates are listed.
+    static func markNotDuplicate(_ group: Group) {
+        var keys = dismissedGroupKeys
+        keys.insert(dismissalKey(for: group))
+        defaults.set(Array(keys).sorted(), forKey: AppConstants.DefaultsKeys.dismissedDuplicateGroups)
     }
 
     /// Groups/compares amounts by numeric value, not raw text — "245.60"

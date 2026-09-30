@@ -79,6 +79,7 @@ enum AppConstants {
         static let appCurrency = "appCurrency"                  // display currency; see AppCurrency
         static let lastUsedCategory = "lastUsedCategory"        // share extension's default; see LastUsedCategoryStore
         static let hasSeenPhotoPickerTip = "hasSeenPhotoPickerTip"  // one-time multi-select tip; see PhotoPickerTip
+        static let dismissedDuplicateGroups = "dismissedDuplicateGroups"  // "Not a Duplicate" decisions; see DuplicateDetectionService
     }
 
     /// Date format written to the Work_Date column.
