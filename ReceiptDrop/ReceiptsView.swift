@@ -1916,8 +1916,14 @@ private struct ReceiptRow: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            // Secondary, like the pencil and text.viewfinder markers above.
+            // It used to be skyBlue, which made it read as a button of its
+            // own — testers tried to tap it separately from the row, and
+            // couldn't tell it apart from the Looks Good action below it.
+            // It is only a marker ("this receipt has a photo"); the whole row
+            // is what opens it.
             Image(systemName: "doc.text.magnifyingglass")
-                .foregroundStyle(Theme.skyBlue)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -2005,22 +2011,48 @@ private struct ReceiptRow: View {
                 }
             }
             if entry.verificationStatus == .needsReview, !entry.reviewReason.isEmpty {
-                HStack {
-                    Spacer()
+                VStack(alignment: .trailing, spacing: 6) {
                     Text("Needs review — \(entry.reviewReason)")
                         .font(.caption2)
                         .foregroundStyle(.orange)
+                        .multilineTextAlignment(.trailing)
                     // Right where the flag is actually read, not just on a
                     // swipe gesture someone might never discover — this is
                     // the moment they're already deciding whether the flag
                     // is worth acting on.
+                    //
+                    // Bordered, on its own line, with a plain checkmark. As
+                    // green text with a filled check circle beside the
+                    // reason, testers read it as the app's verdict ("looks
+                    // good") rather than a button — on a row that also says
+                    // "Needs review" — and the filled circle is the verified
+                    // badge's glyph. A tax record the user believes was
+                    // cleared, but wasn't, is the worst way this can fail.
+                    //
+                    // An HStack, not a Label: inside a List row, Label gets
+                    // the list's icon column — a wide gap before the text and
+                    // an accent-blue icon that ignores the button's tint.
+                    //
+                    // The pill is drawn by hand on a .plain button rather than
+                    // using .buttonStyle(.bordered): in a List row, a button
+                    // with any style but .plain/.borderless can take over the
+                    // whole row's tap, and then tapping the row to open the
+                    // photo would silently clear the review flag.
                     Button(action: onConfirm) {
-                        Label("Looks Good", systemImage: "checkmark.circle.fill")
-                            .font(.caption2.weight(.semibold))
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark")
+                            Text("Looks Good")
+                        }
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.green.opacity(0.18), in: Capsule())
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.green)
+                    .accessibilityHint("Clears the review flag")
                 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .padding(.vertical, verticalPadding)
