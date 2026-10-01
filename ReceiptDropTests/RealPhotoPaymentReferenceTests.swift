@@ -59,7 +59,10 @@ final class RealPhotoPaymentReferenceTests: XCTestCase {
     }
 
     func testTheSamePhotoSavedTwiceStaysADuplicate() async throws {
-        let first = try XCTUnwrap(try loadExpected().first)
+        // Not `XCTUnwrap(try loadExpected().first)`: a skip thrown inside
+        // XCTUnwrap's argument is reported as a failure, not a skip.
+        let expected = try loadExpected()
+        let first = try XCTUnwrap(expected.first)
         let category = "RealPhotoTest_\(UUID().uuidString.prefix(6))"
         let data = try Data(contentsOf: fixtures.appendingPathComponent(first.file))
         let entries = try (0..<2).map { _ in
