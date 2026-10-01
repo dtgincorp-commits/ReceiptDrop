@@ -39,6 +39,7 @@
 		308E182BEAEFEEB3A2BB9BD7 /* FoundationModelsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874DB9B5F6B131E4EF1B14AB /* FoundationModelsService.swift */; };
 		31E47729BD1490BD30CC4104 /* LiveTextScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B105A03343BABE54825F3461 /* LiveTextScannerView.swift */; };
 		33B67E5A8F3C95456C1D3091 /* BillPhotoViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86442B7A67FF10D3BC18F73F /* BillPhotoViewerView.swift */; };
+		34C0E386DA62A3829B5AF3BB /* PaymentReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDECA4396D99047206D614C1 /* PaymentReference.swift */; };
 		3659FC7CD1009687E35DEA51 /* DuplicatePayeeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12938C358BACF76CCD285DC /* DuplicatePayeeTests.swift */; };
 		379E0098262BB5CF0E978D5D /* LocalReceiptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */; };
 		3874F005EA2F726ACCA219AD /* ReceiptHashBackfillService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C3764C1A5A44BD4C06230FE /* ReceiptHashBackfillService.swift */; };
@@ -62,6 +63,7 @@
 		57322A0ECBF721484D205906 /* ReceiptFileHashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737BBE946A35D758DC20C445 /* ReceiptFileHashTests.swift */; };
 		58168498563928C083F7B003 /* ConnectAIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B5E0049BD90BDFDE54268AE /* ConnectAIView.swift */; };
 		59677EA2626A32EC12C4914F /* ReceiptPhotoClassifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5409A74548924EA980845A /* ReceiptPhotoClassifierTests.swift */; };
+		59AE4FD1B452C7DB4DAC6E89 /* PaymentReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDECA4396D99047206D614C1 /* PaymentReference.swift */; };
 		5CD451015BB3BE837103887C /* DuplicateCertaintyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD1860D0A3604F527E61291 /* DuplicateCertaintyTests.swift */; };
 		5FB6F699D55E1DA466DABF53 /* ReceiptPhotoClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE161956181801F91BB79B5F /* ReceiptPhotoClassifier.swift */; };
 		5FC4A0CBC12F5A1CD30859BF /* QueuedIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AEE4164AE7CB6716E25415F /* QueuedIcons.swift */; };
@@ -137,6 +139,7 @@
 		DA7E804D873629D7954E20B8 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6473D93F4CFFA6B607325DD8 /* Haptics.swift */; };
 		DC2AEFBDB10450622ED9569E /* ReceiptCropService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE145F3A4C712818F908A82 /* ReceiptCropService.swift */; };
 		DEF3F7AFC83A15F5A809CF52 /* ScannedTextSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B3295A349899BF8290F0B97 /* ScannedTextSubmitView.swift */; };
+		E1222132F0E5B12350F0458C /* PaymentReferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8035774AB81153A376A8A94A /* PaymentReferenceTests.swift */; };
 		E1B43E5E39B38CC08C3A7824 /* ExtractionLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35A1A78E48AAD20590B47E39 /* ExtractionLogicTests.swift */; };
 		E1CDFB1FFAB2CE59CF1E188C /* SearchAmountParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C347EE05BFF486C5DD693DE7 /* SearchAmountParser.swift */; };
 		E20C16E9ECEDB4D1F9D8706A /* CategoriesViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F2D0A26164BC1EB50AC9510 /* CategoriesViewTests.swift */; };
@@ -248,6 +251,7 @@
 		7AAF611BCD065DB646501E61 /* ExtractionEvalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionEvalView.swift; sourceTree = "<group>"; };
 		7B3295A349899BF8290F0B97 /* ScannedTextSubmitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannedTextSubmitView.swift; sourceTree = "<group>"; };
 		7D5409A74548924EA980845A /* ReceiptPhotoClassifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptPhotoClassifierTests.swift; sourceTree = "<group>"; };
+		8035774AB81153A376A8A94A /* PaymentReferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaymentReferenceTests.swift; sourceTree = "<group>"; };
 		820F21560AF35EFF72979693 /* CategoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryStore.swift; sourceTree = "<group>"; };
 		821135EAEB594F15E8ECCC57 /* DuplicateDetectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateDetectionService.swift; sourceTree = "<group>"; };
 		86375C2C83E8E61C3F858C9B /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
@@ -271,6 +275,7 @@
 		B26D7B1C3A0DFB2DBFED2C0E /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B53F75D6339B27D330F62AF5 /* CategoryMergeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryMergeService.swift; sourceTree = "<group>"; };
 		BB36EA362AA135F1B51EA904 /* APIKeyTester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyTester.swift; sourceTree = "<group>"; };
+		BDECA4396D99047206D614C1 /* PaymentReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaymentReference.swift; sourceTree = "<group>"; };
 		C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubmissionPipeline.swift; sourceTree = "<group>"; };
 		C20A43BBE13816C33913B4FA /* SyntheticReceiptGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntheticReceiptGeneratorTests.swift; sourceTree = "<group>"; };
 		C347EE05BFF486C5DD693DE7 /* SearchAmountParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchAmountParser.swift; sourceTree = "<group>"; };
@@ -330,6 +335,7 @@
 				1E9F98C3A8C057A179F0CBE1 /* ManualEntryOCRPrefillTests.swift */,
 				789972440BA93C2739F33479 /* ManualEntrySaveWithReviewTests.swift */,
 				C7572ABE1D5D55670254BF7E /* MissingAmountTests.swift */,
+				8035774AB81153A376A8A94A /* PaymentReferenceTests.swift */,
 				88E7E21710FB0D29A91A9541 /* PhotoPickerTipTests.swift */,
 				737BBE946A35D758DC20C445 /* ReceiptFileHashTests.swift */,
 				7D5409A74548924EA980845A /* ReceiptPhotoClassifierTests.swift */,
@@ -392,6 +398,7 @@
 				F41C4A0A606AF5A3F058DBF5 /* LastUsedCategoryStore.swift */,
 				6327AB2F8D8F5AB6B0134013 /* LocalReceiptStore.swift */,
 				E63868D8B4CCD0380B19A205 /* ManualEntryOCRPrefill.swift */,
+				BDECA4396D99047206D614C1 /* PaymentReference.swift */,
 				963BBE1D80A49FFD5690A813 /* PendingSubmissionProcessor.swift */,
 				6AEE4164AE7CB6716E25415F /* QueuedIcons.swift */,
 				4C55D1066ECBE9ED09826A40 /* QuickSendContactStore.swift */,
@@ -646,6 +653,7 @@
 				D3368E8055B39FE47AA6A0A5 /* ManualReceiptEntryView.swift in Sources */,
 				CF5DC508A191029FC0DEA65B /* NewReceiptView.swift in Sources */,
 				200A6E6FF6C4C149BF1C55FC /* OvernightProcessingService.swift in Sources */,
+				34C0E386DA62A3829B5AF3BB /* PaymentReference.swift in Sources */,
 				D17272B0870CEF10FAE38E2E /* PendingSubmissionProcessor.swift in Sources */,
 				764467C6D052233E8A95AB29 /* PhotoPickerTip.swift in Sources */,
 				5FC4A0CBC12F5A1CD30859BF /* QueuedIcons.swift in Sources */,
@@ -709,6 +717,7 @@
 				8018E68514B739EE968470C1 /* LastUsedCategoryStore.swift in Sources */,
 				D1BAED8453DC3C6D5675D660 /* LocalReceiptStore.swift in Sources */,
 				B5C60B32F4136D0847F2AE4D /* ManualEntryOCRPrefill.swift in Sources */,
+				59AE4FD1B452C7DB4DAC6E89 /* PaymentReference.swift in Sources */,
 				8993C405D307C9986F22BE26 /* PendingSubmissionProcessor.swift in Sources */,
 				71FECF6BABB129683C7F946F /* QueuedIcons.swift in Sources */,
 				0369C28D357DC89548A9CF71 /* QuickSendContactStore.swift in Sources */,
@@ -754,6 +763,7 @@
 				F210E6892B5CEBFAC855857E /* ManualEntryOCRPrefillTests.swift in Sources */,
 				1E94254423D4555F1AFB3C0A /* ManualEntrySaveWithReviewTests.swift in Sources */,
 				1C4451922C5E35FD9DF3F6B4 /* MissingAmountTests.swift in Sources */,
+				E1222132F0E5B12350F0458C /* PaymentReferenceTests.swift in Sources */,
 				44F242CDEE1E7FAF38171AE5 /* PhotoPickerTipTests.swift in Sources */,
 				57322A0ECBF721484D205906 /* ReceiptFileHashTests.swift in Sources */,
 				59677EA2626A32EC12C4914F /* ReceiptPhotoClassifierTests.swift in Sources */,

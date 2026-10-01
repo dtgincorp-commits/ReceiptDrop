@@ -15,6 +15,9 @@ enum SubmissionError: LocalizedError {
         /// Same category, date and amount. Vendor is not compared, so this
         /// has a real false-positive rate.
         case matchingFields
+        /// Matching fields, and both receipts show this same payment
+        /// reference (`PaymentReference`) — the same payment, not a guess.
+        case samePaymentReference(String)
     }
 
     case duplicate(HistoryEntry, Certainty)
@@ -53,6 +56,39 @@ struct SubmissionPipeline {
     /// to preview.
     static func isPlaceholderLabel(_ label: String) -> Bool {
         label == manualEntryLabel || label == scannedTextLabel
+    }
+
+    /// The category/date/amount duplicate check, settled by payment
+    /// reference where the receipts carry one. Returns nil when nothing
+    /// matches, or when every match is provably a different payment (both
+    /// show references, none shared) — two same-day $50 Zelle payments to
+    /// different people are not a duplicate. A shared reference upgrades
+    /// the guess to `.samePaymentReference`; with no reference to compare,
+    /// it stays the `.matchingFields` guess it always was.
+    ///
+    /// `newReferences` is only called when something already matches, so
+    /// the new receipt is OCR'd only for a suspected duplicate — never on
+    /// an ordinary save.
+    static func fieldMatchDuplicate(category: String, workDate: String, amount: String,
+                                    newReferences: () async -> Set<String>)
+        async -> (HistoryEntry, SubmissionError.Certainty)? {
+        let matches = SubmissionStore.loadHistory().filter {
+            $0.category == category && $0.workDate == workDate
+                && DuplicateDetectionService.sameAmount($0.amount, amount)
+        }
+        guard let first = matches.first else { return nil }
+        let incoming = await newReferences()
+        guard !incoming.isEmpty else { return (first, .matchingFields) }
+
+        var undecided: HistoryEntry?
+        for existing in matches {
+            switch PaymentReference.compare(incoming, await PaymentReference.read(for: existing)) {
+            case .samePayment(let reference): return (existing, .samePaymentReference(reference))
+            case .unknown: undecided = undecided ?? existing
+            case .differentPayments: continue
+            }
+        }
+        return undecided.map { ($0, .matchingFields) }
     }
 
     /// Stages reported to the UI so it can show progress.
@@ -129,10 +165,10 @@ struct SubmissionPipeline {
         // it), which the hash can never see since it only ever compares
         // bytes. The hash is strictly an earlier, additional signal; nothing
         // this used to catch stops being caught.
-        if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
-            $0.category == category && $0.workDate == extracted.workDate && $0.amount == extracted.amount
-        }) {
-            throw SubmissionError.duplicate(existing, .matchingFields)
+        if !allowDuplicate, let (existing, certainty) = await Self.fieldMatchDuplicate(
+            category: category, workDate: extracted.workDate, amount: extracted.amount,
+            newReferences: { await PaymentReference.read(from: data, kind: kind) }) {
+            throw SubmissionError.duplicate(existing, certainty)
         }
 
         await onStage(.saving)
@@ -230,7 +266,8 @@ struct SubmissionPipeline {
                                   comments: String, category: String,
                                   allowDuplicate: Bool = false) throws -> HistoryEntry {
         if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
-            $0.category == category && $0.workDate == workDate && $0.amount == amount
+            $0.category == category && $0.workDate == workDate
+                && DuplicateDetectionService.sameAmount($0.amount, amount)
         }) {
             throw SubmissionError.duplicate(existing, .matchingFields)
         }
@@ -281,7 +318,8 @@ struct SubmissionPipeline {
             throw SubmissionError.duplicate(existing, .identicalFile)
         }
         if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
-            $0.category == category && $0.workDate == workDate && $0.amount == amount
+            $0.category == category && $0.workDate == workDate
+                && DuplicateDetectionService.sameAmount($0.amount, amount)
         }) {
             throw SubmissionError.duplicate(existing, .matchingFields)
         }
@@ -314,10 +352,10 @@ struct SubmissionPipeline {
         let categoryContext = CategoryStore.shared.description(for: category)
         let extracted = try await ExtractionSettings.currentExtractor().extract(ocrText: ocrText, categoryContext: categoryContext)
 
-        if !allowDuplicate, let existing = SubmissionStore.loadHistory().first(where: {
-            $0.category == category && $0.workDate == extracted.workDate && $0.amount == extracted.amount
-        }) {
-            throw SubmissionError.duplicate(existing, .matchingFields)
+        if !allowDuplicate, let (existing, certainty) = await Self.fieldMatchDuplicate(
+            category: category, workDate: extracted.workDate, amount: extracted.amount,
+            newReferences: { PaymentReference.find(in: ocrText) }) {
+            throw SubmissionError.duplicate(existing, certainty)
         }
 
         try LocalReceiptStore.appendLog(

@@ -96,6 +96,12 @@ struct ReceiptsView: View {
     /// as you navigated away, with no way back to it short of re-merging.
     /// This is the durable, always-current replacement.
     @State private var duplicateGroups: [DuplicateDetectionService.Group] = []
+    /// Suspected-duplicate groups already shown to be different payments by
+    /// their payment references (see `PaymentReference`) — remembered for
+    /// the session so they don't flash back into the count on every reload
+    /// while the background check re-runs.
+    @State private var differentPaymentGroupKeys: Set<String> = []
+    @State private var paymentReferenceCheck: Task<Void, Never>?
     /// Receipts parked and not yet read: `waitingLater` are the ones the
     /// share extension held for the deferred run, `waitingSoon` the ones due
     /// on this or the next foreground. Both are invisible on this screen
@@ -1420,7 +1426,25 @@ struct ReceiptsView: View {
         // One CSV parse per category, not per row — see commentsByReceipt.
         commentsMap = LocalReceiptStore.commentsByReceipt(
             categories: Array(Set(entries.map(\.category))))
-        duplicateGroups = DuplicateDetectionService.findGroups(in: entries)
+        let suspected = DuplicateDetectionService.findGroups(in: entries).filter {
+            !differentPaymentGroupKeys.contains(DuplicateDetectionService.dismissalKey(for: $0))
+        }
+        duplicateGroups = suspected
+        // Settle the suspected pairs by payment reference in the background:
+        // reading a photo takes a moment, and only suspected pairs (a handful)
+        // are ever read.
+        paymentReferenceCheck?.cancel()
+        paymentReferenceCheck = Task {
+            let settled = await PaymentReference.excludingDifferentPayments(suspected)
+            guard !Task.isCancelled else { return }
+            let settledKeys = Set(settled.map(DuplicateDetectionService.dismissalKey(for:)))
+            await MainActor.run {
+                for group in suspected where !settledKeys.contains(DuplicateDetectionService.dismissalKey(for: group)) {
+                    differentPaymentGroupKeys.insert(DuplicateDetectionService.dismissalKey(for: group))
+                }
+                duplicateGroups = settled
+            }
+        }
         let queued = SubmissionStore.loadQueue().filter(\.isPending)
         // A held entry past its grace period is no longer waiting for the
         // night — the next foreground takes it — so it counts as imminent,

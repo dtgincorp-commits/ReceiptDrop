@@ -286,7 +286,7 @@ enum DuplicateDetectionService {
     /// pair is inside `tipDateWindow` and passes `tipPlausible`, since a
     /// ratio in this band happens routinely between unrelated receipts.
     private static func isTipShaped(_ a: String, _ b: String) -> Bool {
-        guard let x = Double(a), let y = Double(b), x > 0, y > 0 else { return false }
+        guard let x = amountValue(a), let y = amountValue(b), x > 0, y > 0 else { return false }
         let ratio = max(x, y) / min(x, y)
         return tipRatioRange.contains(ratio)
     }
@@ -454,7 +454,7 @@ enum DuplicateDetectionService {
     /// they're also real business names ("Square One Pizza").
     private static let paymentChannelWords: Set<String> = [
         "zelle", "venmo", "paypal", "cashapp", "sq", "tst",
-        "payment", "pmt", "transfer", "sent", "from",
+        "payment", "pmt", "transfer", "sent", "from", "ref", "reference", "memo",
     ]
 
     /// The vendor with payment-channel words removed ("ZELLE TO MORALES" →
@@ -505,9 +505,28 @@ enum DuplicateDetectionService {
     /// Falls back to the raw string for anything that isn't a plain number,
     /// so malformed amounts still group with an identical malformed string
     /// rather than silently dropping out of matching entirely.
-    private static func normalizedAmountKey(_ raw: String) -> String {
-        guard let value = Double(raw) else { return raw }
+    ///
+    /// Currency symbols, grouping commas and stray spaces are ignored too:
+    /// real stored amounts include both "$50.00" and "50.00" (one Zelle
+    /// receipt each), and comparing them as raw text kept two same-amount
+    /// receipts from ever matching.
+    static func normalizedAmountKey(_ raw: String) -> String {
+        guard let value = amountValue(raw) else { return raw }
         return String(format: "%.2f", value)
+    }
+
+    /// The amount as a number, or nil if it isn't one — "$1,234.50" → 1234.5.
+    static func amountValue(_ raw: String) -> Double? {
+        let stripped = AppCurrency.stripKnownSymbols(from: raw).trimmingCharacters(in: .whitespaces)
+        guard !stripped.isEmpty else { return nil }
+        return ReceiptAmountDetector.separatorNormalized(stripped)
+    }
+
+    /// Whether two stored amounts are the same amount, however each was
+    /// formatted. Used by every duplicate check, so none of them can be
+    /// defeated by a "$" or a trailing zero.
+    static func sameAmount(_ a: String, _ b: String) -> Bool {
+        normalizedAmountKey(a) == normalizedAmountKey(b)
     }
 
     private static func parseWorkDate(_ raw: String) -> Date? {

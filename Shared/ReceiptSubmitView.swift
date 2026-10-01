@@ -933,7 +933,7 @@ struct ReceiptSubmitView: View {
             // charged twice); showing the existing entry's details is what
             // lets the user actually judge whether that's what happened.
             VStack(alignment: .leading, spacing: 12) {
-                Label(certainty == .identicalFile ? "Same Photo Already Saved" : "Already Saved",
+                Label(Self.duplicateTitle(certainty),
                       systemImage: "checkmark.circle.badge.questionmark")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.blue)
@@ -942,9 +942,7 @@ struct ReceiptSubmitView: View {
                 // order or a flat fee charged twice trips regularly. Both
                 // used to claim the weaker one, so the stronger evidence was
                 // described as the weaker case.
-                Text(certainty == .identicalFile
-                     ? "This is the same photo as a receipt you've already filed:"
-                     : "A receipt already matches this category, date, and amount:")
+                Text(Self.duplicateExplanation(certainty))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("\(existing.vendor.isEmpty ? "this vendor" : existing.vendor) — \(existing.workDate) — $\(existing.amount)")
@@ -960,9 +958,7 @@ struct ReceiptSubmitView: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
-                Text(certainty == .identicalFile
-                     ? "Saving again would file the same photo twice. Discard unless you meant to."
-                     : "If this is a different receipt, save it anyway. Otherwise, discard this one — nothing further needs to happen.")
+                Text(Self.duplicateAdvice(certainty))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button {
@@ -1098,6 +1094,36 @@ struct ReceiptSubmitView: View {
             submitState = .success
             try? await Task.sleep(nanoseconds: 800_000_000)
             onComplete()
+        }
+    }
+
+    // Wording for the `.duplicate` prompt, one set per certainty. Say which
+    // check actually fired: an identical file or a shared payment reference
+    // is proof; matching fields is a guess that a repeat coffee order or a
+    // flat fee charged twice trips regularly.
+
+    private static func duplicateTitle(_ certainty: SubmissionError.Certainty) -> String {
+        switch certainty {
+        case .identicalFile: return "Same Photo Already Saved"
+        case .samePaymentReference: return "Same Payment Already Saved"
+        case .matchingFields: return "Already Saved"
+        }
+    }
+
+    private static func duplicateExplanation(_ certainty: SubmissionError.Certainty) -> String {
+        switch certainty {
+        case .identicalFile: return "This is the same photo as a receipt you've already filed:"
+        case .samePaymentReference(let reference):
+            return "This payment's reference (\(reference)) is on a receipt you've already filed:"
+        case .matchingFields: return "A receipt already matches this category, date, and amount:"
+        }
+    }
+
+    private static func duplicateAdvice(_ certainty: SubmissionError.Certainty) -> String {
+        switch certainty {
+        case .identicalFile: return "Saving again would file the same photo twice. Discard unless you meant to."
+        case .samePaymentReference: return "Saving again would record this payment twice. Discard unless you meant to."
+        case .matchingFields: return "If this is a different receipt, save it anyway. Otherwise, discard this one — nothing further needs to happen."
         }
     }
 

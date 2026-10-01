@@ -101,3 +101,21 @@ final class DuplicatePayeeTests: XCTestCase {
                        "a third copy is new information; the earlier 'keep all' covered only two")
     }
 }
+
+final class AmountComparisonTests: XCTestCase {
+    func testAmountsCompareByValueNotText() {
+        XCTAssertTrue(DuplicateDetectionService.sameAmount("$50.00", "50.00"))
+        XCTAssertTrue(DuplicateDetectionService.sameAmount("245.6", "245.60"))
+        XCTAssertTrue(DuplicateDetectionService.sameAmount("$1,234.50", "1234.5"))
+        XCTAssertTrue(DuplicateDetectionService.sameAmount(" 12.00 ", "12"))
+        XCTAssertFalse(DuplicateDetectionService.sameAmount("50.00", "50.01"))
+        XCTAssertFalse(DuplicateDetectionService.sameAmount("", "0.00"),
+                       "no amount is not the same as an entered 0")
+    }
+
+    func testReferenceWordsInLongZelleVendorsDontCountAsTheSamePayee() {
+        XCTAssertFalse(DuplicateDetectionService.vendorsMatch(
+            "ZELLE TO ABDURRAHMAN ON 12/31 REF #RPOYDBQJNY MOVERS",
+            "ZELLE TO VATALE ON 12/31 REF #RPOYHK4V4H"))
+    }
+}
