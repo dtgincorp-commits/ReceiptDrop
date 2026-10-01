@@ -151,6 +151,7 @@
 		F3BF161A4231487C54B8DB46 /* InsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CFF6F9F94C524551A1A7102 /* InsightsView.swift */; };
 		F3DF8803716A82E76ED021D5 /* AttachmentThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDBA80332CC2662CA3FB1FD8 /* AttachmentThumbnail.swift */; };
 		F4D45048DA00D1430D6B75E3 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3363F7383B194313AE1C80FF /* Theme.swift */; };
+		F7DB1AA4C5050C2EA613892A /* RealPhotoPaymentReferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB083CE12A86E0731749BB62 /* RealPhotoPaymentReferenceTests.swift */; };
 		F7E74A152AB019DB69E41291 /* ExtractionEvalHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD6EAB3BA43374F270739250 /* ExtractionEvalHarness.swift */; };
 		FACF3BEA3888BA3CF5DAEBA1 /* AppAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A6948A63FFA9B34F336984 /* AppAppearance.swift */; };
 		FE5FFC1FA2508767E5C0500A /* BillEvalHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 525C3226B85E765DA6EC3B6C /* BillEvalHarness.swift */; };
@@ -268,6 +269,7 @@
 		A42793ACE74E0810517AFC80 /* SearchVendorTypeKeywords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchVendorTypeKeywords.swift; sourceTree = "<group>"; };
 		A7730A1380B462CC48DB1C5E /* ClaudeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeService.swift; sourceTree = "<group>"; };
 		A9E51159281ABA1A7AF432D8 /* ReceiptPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptPreviewView.swift; sourceTree = "<group>"; };
+		AB083CE12A86E0731749BB62 /* RealPhotoPaymentReferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealPhotoPaymentReferenceTests.swift; sourceTree = "<group>"; };
 		ACF73882CBDC5F84C48D9030 /* ExtractionSettingsOverrideTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionSettingsOverrideTests.swift; sourceTree = "<group>"; };
 		B0387FAAA9AB9B4C7579FE9A /* LastUsedCategoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastUsedCategoryTests.swift; sourceTree = "<group>"; };
 		B105A03343BABE54825F3461 /* LiveTextScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTextScannerView.swift; sourceTree = "<group>"; };
@@ -337,6 +339,7 @@
 				C7572ABE1D5D55670254BF7E /* MissingAmountTests.swift */,
 				8035774AB81153A376A8A94A /* PaymentReferenceTests.swift */,
 				88E7E21710FB0D29A91A9541 /* PhotoPickerTipTests.swift */,
+				AB083CE12A86E0731749BB62 /* RealPhotoPaymentReferenceTests.swift */,
 				737BBE946A35D758DC20C445 /* ReceiptFileHashTests.swift */,
 				7D5409A74548924EA980845A /* ReceiptPhotoClassifierTests.swift */,
 				46196EA8DF0D8618C9C92212 /* ReviewLaterTests.swift */,
@@ -765,6 +768,7 @@
 				1C4451922C5E35FD9DF3F6B4 /* MissingAmountTests.swift in Sources */,
 				E1222132F0E5B12350F0458C /* PaymentReferenceTests.swift in Sources */,
 				44F242CDEE1E7FAF38171AE5 /* PhotoPickerTipTests.swift in Sources */,
+				F7DB1AA4C5050C2EA613892A /* RealPhotoPaymentReferenceTests.swift in Sources */,
 				57322A0ECBF721484D205906 /* ReceiptFileHashTests.swift in Sources */,
 				59677EA2626A32EC12C4914F /* ReceiptPhotoClassifierTests.swift in Sources */,
 				53A9225368B7CC928FED8994 /* ReviewLaterTests.swift in Sources */,
