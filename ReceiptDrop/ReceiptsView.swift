@@ -259,12 +259,9 @@ struct ReceiptsView: View {
                 if let from = semanticFilter.dateFrom, date < from { return false }
                 if let to = semanticFilter.dateTo, date > to { return false }
             }
-            guard let amount = Double(entry.amount) else {
-                return semanticFilter.amountMin == nil && semanticFilter.amountMax == nil
-            }
-            if let min = semanticFilter.amountMin, amount < min { return false }
-            if let max = semanticFilter.amountMax, amount > max { return false }
-            return true
+            // Strict and inclusive ends ("over" vs "at least"), and amounts
+            // stored as "$50.00" — see `QueryParseResult.matchesAmount`.
+            return semanticFilter.matchesAmount(entry.amount)
         }.sorted { $0.timestamp > $1.timestamp }
     }
 
@@ -357,27 +354,16 @@ struct ReceiptsView: View {
             if let vendorType = filter.vendorType, !vendorType.isEmpty {
                 filterChip(label: VendorTypeToken.displayName(for: vendorType), pulses: true,
                            pulseDelay: Double(vendorTypeIndex) * Self.chipPulseStagger) {
-                    semanticFilter = QueryParseResult(vendorType: nil, amountMin: filter.amountMin, amountMax: filter.amountMax,
-                                                      dateFrom: filter.dateFrom, dateTo: filter.dateTo)
+                    semanticFilter = filter.withoutVendorType()
                 }
             }
-            if let min = filter.amountMin, let max = filter.amountMax {
-                filterChip(label: "$\(Self.formatAmount(min)) – $\(Self.formatAmount(max))", pulses: true,
+            // One chip for the whole amount condition, worded to match it
+            // exactly ("= $20", "over $20", "$20 or more", "$20 – $40") —
+            // see `AmountBounds.label`.
+            if let label = filter.amountBounds.label {
+                filterChip(label: label, pulses: true,
                            pulseDelay: Double(amountIndex) * Self.chipPulseStagger) {
-                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: nil, amountMax: nil,
-                                                      dateFrom: filter.dateFrom, dateTo: filter.dateTo)
-                }
-            } else if let min = filter.amountMin {
-                filterChip(label: "over $\(Self.formatAmount(min))", pulses: true,
-                           pulseDelay: Double(amountIndex) * Self.chipPulseStagger) {
-                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: nil, amountMax: filter.amountMax,
-                                                      dateFrom: filter.dateFrom, dateTo: filter.dateTo)
-                }
-            } else if let max = filter.amountMax {
-                filterChip(label: "under $\(Self.formatAmount(max))", pulses: true,
-                           pulseDelay: Double(amountIndex) * Self.chipPulseStagger) {
-                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: filter.amountMin, amountMax: nil,
-                                                      dateFrom: filter.dateFrom, dateTo: filter.dateTo)
+                    semanticFilter = filter.withoutAmount()
                 }
             }
             // The date chip the query used to have no way of producing.
@@ -386,8 +372,7 @@ struct ReceiptsView: View {
             if let from = filter.dateFrom, let to = filter.dateTo {
                 filterChip(label: SearchDateResolver.label(from: from, to: to), pulses: true,
                            pulseDelay: Double(dateIndex) * Self.chipPulseStagger) {
-                    semanticFilter = QueryParseResult(vendorType: filter.vendorType, amountMin: filter.amountMin,
-                                                      amountMax: filter.amountMax, dateFrom: nil, dateTo: nil)
+                    semanticFilter = filter.withoutDate()
                 }
             }
             Spacer()
@@ -404,10 +389,6 @@ struct ReceiptsView: View {
     /// (vendor type, amount, date) can use it on their existing blue capsule.
     private func filterChip(label: String, attention: Bool = false, pulses: Bool = false, pulseDelay: Double = 0, onRemove: @escaping () -> Void) -> some View {
         FilterChipView(label: label, attention: attention, pulses: pulses, pulseDelay: pulseDelay, onRemove: onRemove)
-    }
-
-    private static func formatAmount(_ value: Double) -> String {
-        value.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", value) : String(format: "%.2f", value)
     }
 
     // MARK: - Summary header (Oura-inspired: totals before the raw list)

@@ -1160,6 +1160,11 @@ struct QueryParseResult {
     let vendorType: String?
     let amountMin: Double?
     let amountMax: Double?
+    /// Whether each amount end includes the figure itself: "at least $20"
+    /// does, "over $20" doesn't. Default true — what every model answer
+    /// means, and what the filter always did before strict ends existed.
+    let amountMinInclusive: Bool
+    let amountMaxInclusive: Bool
     let dateFrom: Date?
     let dateTo: Date?
     /// Set when the parser named a time period using a token outside
@@ -1171,11 +1176,14 @@ struct QueryParseResult {
     let unrecognizedDateToken: String?
 
     init(vendorType: String?, amountMin: Double?, amountMax: Double?,
+         amountMinInclusive: Bool = true, amountMaxInclusive: Bool = true,
          dateFrom: Date? = nil, dateTo: Date? = nil,
          unrecognizedDateToken: String? = nil) {
         self.vendorType = vendorType
         self.amountMin = amountMin
         self.amountMax = amountMax
+        self.amountMinInclusive = amountMinInclusive
+        self.amountMaxInclusive = amountMaxInclusive
         self.dateFrom = dateFrom
         self.dateTo = dateTo
         self.unrecognizedDateToken = unrecognizedDateToken
@@ -1183,6 +1191,42 @@ struct QueryParseResult {
 
     var isEmpty: Bool {
         vendorType == nil && amountMin == nil && amountMax == nil && dateFrom == nil && dateTo == nil
+    }
+
+    var amountBounds: SearchAmountParser.AmountBounds {
+        SearchAmountParser.AmountBounds(min: amountMin, minInclusive: amountMinInclusive,
+                                        max: amountMax, maxInclusive: amountMaxInclusive)
+    }
+
+    /// Whether a stored receipt amount passes the amount part of the filter.
+    /// Reads "$50.00" as well as "50.00" — both are stored — and a receipt
+    /// with no readable amount passes only when there is no amount filter.
+    func matchesAmount(_ raw: String) -> Bool {
+        let bounds = amountBounds
+        guard !bounds.isEmpty else { return true }
+        guard let value = DuplicateDetectionService.amountValue(raw) else { return false }
+        return bounds.contains(value)
+    }
+
+    // Copies with one part of the filter removed, for the search chips'
+    // ✕ buttons. Each keeps everything else exactly — including which
+    // amount ends are strict, which rebuilding by hand used to lose.
+
+    func withoutVendorType() -> QueryParseResult {
+        QueryParseResult(vendorType: nil, amountMin: amountMin, amountMax: amountMax,
+                         amountMinInclusive: amountMinInclusive, amountMaxInclusive: amountMaxInclusive,
+                         dateFrom: dateFrom, dateTo: dateTo)
+    }
+
+    func withoutAmount() -> QueryParseResult {
+        QueryParseResult(vendorType: vendorType, amountMin: nil, amountMax: nil,
+                         dateFrom: dateFrom, dateTo: dateTo)
+    }
+
+    func withoutDate() -> QueryParseResult {
+        QueryParseResult(vendorType: vendorType, amountMin: amountMin, amountMax: amountMax,
+                         amountMinInclusive: amountMinInclusive, amountMaxInclusive: amountMaxInclusive,
+                         dateFrom: nil, dateTo: nil)
     }
 }
 
@@ -1392,23 +1436,20 @@ enum SemanticSearchService {
         //    understood a nuance the deterministic list doesn't, and unlike
         //    case 2 there is at least a number in the query to justify a
         //    bound existing at all.
-        let amountBounds = SearchAmountParser.bounds(in: query)
-        let amountMin: Double?
-        let amountMax: Double?
-        if amountBounds.min != nil || amountBounds.max != nil {
-            amountMin = amountBounds.min
-            amountMax = amountBounds.max
+        let stated = SearchAmountParser.amountBounds(in: query)
+        let amount: SearchAmountParser.AmountBounds
+        if !stated.isEmpty {
+            amount = stated
         } else if !SearchAmountParser.containsAnyNumber(in: query) {
-            amountMin = nil
-            amountMax = nil
+            amount = SearchAmountParser.AmountBounds()
         } else {
-            amountMin = parsed.amountMin
-            amountMax = parsed.amountMax
+            amount = parsed.amountBounds
         }
 
         if let explicit {
             return QueryParseResult(vendorType: vendorType,
-                                    amountMin: amountMin, amountMax: amountMax,
+                                    amountMin: amount.min, amountMax: amount.max,
+                                    amountMinInclusive: amount.minInclusive, amountMaxInclusive: amount.maxInclusive,
                                     dateFrom: explicit.from, dateTo: explicit.to)
         }
         if let token = parsed.unrecognizedDateToken {
@@ -1416,7 +1457,8 @@ enum SemanticSearchService {
                 "the date part (\"\(token)\"). Try a phrase like \"in July\", \"last month\", \"August 4th\", or \"in the last 30 days\".")
         }
         return QueryParseResult(vendorType: vendorType,
-                                amountMin: amountMin, amountMax: amountMax,
+                                amountMin: amount.min, amountMax: amount.max,
+                                amountMinInclusive: amount.minInclusive, amountMaxInclusive: amount.maxInclusive,
                                 dateFrom: parsed.dateFrom, dateTo: parsed.dateTo)
     }
 

@@ -11,6 +11,7 @@
 		0357085443A9651EF4E77F6E /* ShareSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D65E49DF78FE2F53DF54D1FB /* ShareSheetView.swift */; };
 		0369C28D357DC89548A9CF71 /* QuickSendContactStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C55D1066ECBE9ED09826A40 /* QuickSendContactStore.swift */; };
 		0A932F628E1DA811D4270E99 /* AzureDocumentIntelligenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */; };
+		0FF67C722E6CC2C02F84319C /* SearchAmountComparisonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4309CCFC6CCDED0A9BEB5C34 /* SearchAmountComparisonTests.swift */; };
 		10EBDAD489DA8B06819F4551 /* BillReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEC8FCD6E9B669200EEEC134 /* BillReviewView.swift */; };
 		125D3BCF0814C82BF2153235 /* BillPhotoViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86442B7A67FF10D3BC18F73F /* BillPhotoViewerView.swift */; };
 		12E106F5E07CA03FD1D96A9D /* DuplicateDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 821135EAEB594F15E8ECCC57 /* DuplicateDetectionService.swift */; };
@@ -218,6 +219,7 @@
 		3B5E0049BD90BDFDE54268AE /* ConnectAIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectAIView.swift; sourceTree = "<group>"; };
 		3F2D0A26164BC1EB50AC9510 /* CategoriesViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoriesViewTests.swift; sourceTree = "<group>"; };
 		40594EEE43B6E118DC837A56 /* CategoriesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoriesView.swift; sourceTree = "<group>"; };
+		4309CCFC6CCDED0A9BEB5C34 /* SearchAmountComparisonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchAmountComparisonTests.swift; sourceTree = "<group>"; };
 		4538142851698631A6AF89CF /* ReceiptDropTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ReceiptDropTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		46196EA8DF0D8618C9C92212 /* ReviewLaterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewLaterTests.swift; sourceTree = "<group>"; };
 		4C55D1066ECBE9ED09826A40 /* QuickSendContactStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickSendContactStore.swift; sourceTree = "<group>"; };
@@ -343,6 +345,7 @@
 				737BBE946A35D758DC20C445 /* ReceiptFileHashTests.swift */,
 				7D5409A74548924EA980845A /* ReceiptPhotoClassifierTests.swift */,
 				46196EA8DF0D8618C9C92212 /* ReviewLaterTests.swift */,
+				4309CCFC6CCDED0A9BEB5C34 /* SearchAmountComparisonTests.swift */,
 				C20A43BBE13816C33913B4FA /* SyntheticReceiptGeneratorTests.swift */,
 			);
 			path = ReceiptDropTests;
@@ -772,6 +775,7 @@
 				57322A0ECBF721484D205906 /* ReceiptFileHashTests.swift in Sources */,
 				59677EA2626A32EC12C4914F /* ReceiptPhotoClassifierTests.swift in Sources */,
 				53A9225368B7CC928FED8994 /* ReviewLaterTests.swift in Sources */,
+				0FF67C722E6CC2C02F84319C /* SearchAmountComparisonTests.swift in Sources */,
 				92F201D6F31D97D89B47FC79 /* SyntheticReceiptGeneratorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
