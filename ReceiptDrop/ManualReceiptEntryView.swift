@@ -15,6 +15,10 @@ struct ManualReceiptEntryView: View {
     @State private var comments: String = ""
     @State private var message: String?
     @State private var isDuplicate = false
+    /// Raised whenever `message` is set. The inline message sits below the
+    /// form, so a save started from the toolbar's Save — with the keyboard
+    /// up over the bottom half — would otherwise fail out of sight.
+    @State private var showSaveProblem = false
 
     // Same App Group store + key SettingsView writes, so the symbol shown
     // here always matches whatever the user picked.
@@ -75,12 +79,28 @@ struct ManualReceiptEntryView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
                 }
+                // Mirrors Save at the bottom of the form, which the decimal
+                // keyboard covers while the amount is being typed. Same
+                // action and enablement; both stay.
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: save)
+                        .bold()
+                        .disabled(!canSave)
+                }
             }
         }
         .onAppear {
             if selectedCategory.isEmpty {
                 selectedCategory = categoryStore.categories.first ?? ""
             }
+        }
+        .onChange(of: message) { newValue in
+            showSaveProblem = newValue != nil
+        }
+        .alert(isDuplicate ? "Already Saved" : "Couldn't Save", isPresented: $showSaveProblem) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(message ?? "")
         }
     }
 
