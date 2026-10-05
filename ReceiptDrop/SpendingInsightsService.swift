@@ -84,7 +84,7 @@ enum SpendingInsightsService {
         // Mirrors YearGroup.build's groupByWorkDate branch in ReceiptsView.swift:
         // work date (falling back to scan date) when true, pure scan date when false.
         let dated: [(entry: HistoryEntry, date: Date, amount: Double)] = entries.compactMap { entry in
-            guard let amount = Double(entry.amount), amount > 0 else { return nil }
+            guard let amount = entry.amountValue, amount > 0 else { return nil }
             let date = groupByWorkDate ? ArchiveBackupService.periodDate(for: entry) : entry.timestamp
             guard date >= windowStart, date < calendar.date(byAdding: .month, value: 1, to: currentMonthStart)! else { return nil }
             return (entry, date, amount)

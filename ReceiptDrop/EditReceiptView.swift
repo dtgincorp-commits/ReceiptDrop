@@ -108,7 +108,9 @@ struct EditReceiptView: View {
 
     private var canSave: Bool {
         !vendor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && Double(amount.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+            // Accepts "$50.00" as well as "50.00": a receipt stored with
+            // the symbol opened here with Save greyed out until it was deleted.
+            && DuplicateDetectionService.amountValue(amount) != nil
     }
 
     var body: some View {
@@ -595,7 +597,7 @@ struct EditReceiptView: View {
             return
         }
 
-        let normalizedAmount = Double(amount.trimmingCharacters(in: .whitespacesAndNewlines))
+        let normalizedAmount = DuplicateDetectionService.amountValue(amount)
             .map { String($0) } ?? amount
 
         var newPhoto: (data: Data, kind: ReceiptKind)?

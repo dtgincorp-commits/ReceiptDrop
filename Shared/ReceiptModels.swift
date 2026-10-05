@@ -408,9 +408,24 @@ struct ExtractedReceipt {
     /// a $950.09 North Coast Brewing receipt with no date anywhere came
     /// back with `work_date` 2026-08-08 anyway). Discarded the same way as
     /// the absurd-date tier above.
+    /// "$1,234.50" → "1234.50"; anything already a plain number, or not a
+    /// number at all, is returned unchanged.
+    static func plainAmount(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard trimmed.contains(where: { !$0.isNumber && $0 != "." && $0 != "-" }),
+              let value = DuplicateDetectionService.amountValue(trimmed) else { return raw }
+        return String(format: "%.2f", value)
+    }
+
     static func build(vendor: String, rawWorkDate: String, amount: String, comments: String,
                       rawVendorType: String, modelReportedLowConfidence: Bool, modelReason: String,
                       sourceText: String? = nil) -> ExtractedReceipt {
+        // A model sometimes writes the amount as money ("$50.00", "1,234.50").
+        // Taken as-is, that failed every `Double(amount)` below — flagged
+        // "Amount missing or unreadable" though it was read fine — and was
+        // stored with the "$", leaving the receipt out of totals and amount
+        // searches. Plain numbers ("245.6") pass through untouched.
+        let amount = Self.plainAmount(amount)
         var needsReview = modelReportedLowConfidence
         var reason = modelReason
         var resolvedVendor = vendor
@@ -1845,6 +1860,11 @@ struct HistoryEntry: Codable, Identifiable {
     /// Such a receipt can be saved (never block the save) but not confirmed
     /// — see `SubmissionPipeline.confirmReviewed`.
     var hasAmount: Bool { !amount.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    /// The amount as a number, however it was stored — real history holds
+    /// both "50.00" and "$50.00". Every total, chart and amount search reads
+    /// this rather than `Double(amount)`, which silently dropped the second.
+    var amountValue: Double? { DuplicateDetectionService.amountValue(amount) }
 
     init(id: UUID = UUID(), category: String, vendor: String, workDate: String, amount: String,
          receiptLink: String, timestamp: Date,

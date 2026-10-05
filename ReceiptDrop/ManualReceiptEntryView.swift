@@ -27,7 +27,7 @@ struct ManualReceiptEntryView: View {
 
     private var canSave: Bool {
         !vendor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && Double(amount.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+            && DuplicateDetectionService.amountValue(amount) != nil
     }
 
     var body: some View {
@@ -114,7 +114,7 @@ struct ManualReceiptEntryView: View {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = AppConstants.sheetDateFormat
-        let normalizedAmount = Double(amount.trimmingCharacters(in: .whitespacesAndNewlines)).map { String($0) } ?? amount
+        let normalizedAmount = DuplicateDetectionService.amountValue(amount).map { String($0) } ?? amount
 
         do {
             _ = try SubmissionPipeline.recordManualEntry(

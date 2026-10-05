@@ -161,7 +161,7 @@ struct ReceiptsView: View {
 
         if let conditions = Self.parseAmountConditions(query) {
             return filteredEntries.filter { entry in
-                guard let amount = Double(entry.amount) else { return false }
+                guard let amount = entry.amountValue else { return false }
                 return conditions.allSatisfy { Self.satisfies(amount: amount, condition: $0) }
             }.sorted { $0.timestamp > $1.timestamp }
         }
@@ -174,12 +174,15 @@ struct ReceiptsView: View {
         }.sorted { $0.timestamp > $1.timestamp }
     }
 
-    private enum AmountComparison {
-        case greaterThan, greaterThanOrEqual, lessThan, lessThanOrEqual
+    enum AmountComparison {
+        case greaterThan, greaterThanOrEqual, lessThan, lessThanOrEqual, equal
     }
 
-    private static func satisfies(amount: Double, condition: (AmountComparison, Double)) -> Bool {
+    static func satisfies(amount: Double, condition: (AmountComparison, Double)) -> Bool {
         switch condition.0 {
+        // To the cent: "=20" must match a stored 20.00 however the Double
+        // round-trip lands.
+        case .equal: return abs(amount - condition.1) < 0.005
         case .greaterThan: return amount > condition.1
         case .greaterThanOrEqual: return amount >= condition.1
         case .lessThan: return amount < condition.1
@@ -191,24 +194,25 @@ struct ReceiptsView: View {
     /// ">= 100 and <= 150", "<50.25" into comparison + threshold pairs, all
     /// of which must hold. Returns nil for anything that isn't this exact
     /// shape, falling back to ordinary substring search.
-    private static func parseAmountConditions(_ query: String) -> [(AmountComparison, Double)]? {
+    static func parseAmountConditions(_ query: String) -> [(AmountComparison, Double)]? {
         let parts = query.components(separatedBy: " and ")
         let conditions = parts.compactMap { parseAmountComparison($0.trimmingCharacters(in: .whitespaces)) }
         guard conditions.count == parts.count, !conditions.isEmpty else { return nil }
         return conditions
     }
 
-    /// Parses a single comparison like ">80", ">= 100", "< $20". ">="/"<="
-    /// are checked before the single-character operators so they aren't
-    /// misread as ">"/"<" followed by a stray "=".
+    /// Parses a single comparison like ">80", ">= 100", "< $20", "=20".
+    /// Two-character operators are checked before single-character ones so
+    /// ">=" isn't misread as ">" followed by a stray "=", and "==" isn't
+    /// misread as "=" followed by one.
     private static func parseAmountComparison(_ query: String) -> (AmountComparison, Double)? {
         // Strips any supported symbol, not just "$", so ">₹500" works the
         // same as ">$500" — independent of the display currency setting,
         // since a search query's symbol is whatever the user typed.
         let trimmed = AppCurrency.stripKnownSymbols(from: query).trimmingCharacters(in: .whitespaces)
         let operators: [(String, AmountComparison)] = [
-            (">=", .greaterThanOrEqual), ("<=", .lessThanOrEqual),
-            (">", .greaterThan), ("<", .lessThan),
+            (">=", .greaterThanOrEqual), ("<=", .lessThanOrEqual), ("==", .equal),
+            (">", .greaterThan), ("<", .lessThan), ("=", .equal),
         ]
         for (prefix, comparison) in operators where trimmed.hasPrefix(prefix) {
             let numberPart = trimmed.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
@@ -401,7 +405,7 @@ struct ReceiptsView: View {
     // MARK: - Summary header (Oura-inspired: totals before the raw list)
 
     private var summaryTotal: Double {
-        filteredEntries.reduce(0.0) { $0 + (Double($1.amount) ?? 0) }
+        filteredEntries.reduce(0.0) { $0 + ($1.amountValue ?? 0) }
     }
 
     /// `currencyCode` is `nil` for `.auto`, which leaves the formatter's
