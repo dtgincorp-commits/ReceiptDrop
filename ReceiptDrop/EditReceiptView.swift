@@ -94,6 +94,18 @@ struct EditReceiptView: View {
 
     private var isPlaceholder: Bool { SubmissionPipeline.isPlaceholderLabel(entry.receiptLink) }
 
+    /// "Scanned" matches the CSV's `Scanned_Date` column for receipts that
+    /// actually have a file, but a manual entry never went through a scan at
+    /// all, and calling it "Scanned" there would just be wrong. Live Text
+    /// (`scannedTextLabel`) is the ambiguous case: text *was* lifted off a
+    /// photo via the camera, so "Scanned" is arguably accurate — but
+    /// `isPlaceholder` groups it with manual entry precisely because neither
+    /// one has a retained file to show elsewhere in this screen, and treating
+    /// it as scanned here while every other placeholder path says "Added"
+    /// would be an inconsistent, one-off exception. Consistency with the
+    /// rest of this view wins: both placeholder cases read "Added".
+    private var scanDateLabel: String { isPlaceholder ? "Added" : "Scanned" }
+
     private var canSave: Bool {
         !vendor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && Double(amount.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
@@ -155,6 +167,25 @@ struct EditReceiptView: View {
                             break
                         }
                     }
+
+                    // `entry.timestamp` is the audit-trail record of when this
+                    // receipt entered the app — it survives edits untouched
+                    // (SubmissionPipeline.updateEntry passes `timestamp:
+                    // old.timestamp`) and is exported verbatim as the CSV's
+                    // `Scanned_Date` column. Showing it with a DatePicker or
+                    // TextField would invite editing it, which would falsify
+                    // that record and desync it from the exported CSV — so
+                    // it's `LabeledContent`, deliberately not interactive,
+                    // and placed last in this section so it doesn't sit
+                    // among the fields that actually are editable.
+                    LabeledContent(scanDateLabel, value: entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                        .foregroundStyle(.secondary)
+                        // `LabeledContent`'s default VoiceOver behavior can
+                        // read the label and value as separate elements;
+                        // combining them makes this one swipe stop that
+                        // speaks as a single "Scanned, Jan 1, 2026 at 3:00 PM"
+                        // utterance instead of two disconnected fragments.
+                        .accessibilityElement(children: .combine)
                 }
 
                 if let message {
