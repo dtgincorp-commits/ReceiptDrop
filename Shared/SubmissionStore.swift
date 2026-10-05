@@ -22,11 +22,22 @@ enum SubmissionStore {
         decode([HistoryEntry].self, key: AppConstants.DefaultsKeys.history) ?? []
     }
 
+    /// The single chokepoint every ingest path converges on — share sheet,
+    /// photo library, camera, document scan, Live Text, Files import, manual
+    /// entry, and batch submit all end up calling this exact function (see
+    /// `SubmissionPipeline.run`/`recordManualEntry`/`saveWithoutExtraction`/
+    /// `runTextOnly`). That makes it the one place `ReceiptAllowance.recordUse()`
+    /// needs to be called from to gate the free tier — every other path is
+    /// reachable through here, so there is nothing else to hook.
+    ///
+    /// `mergeHistory` below is the deliberate exception — see its own
+    /// comment for why Restore must not call `recordUse()`.
     static func appendHistory(_ entry: HistoryEntry) {
         var items = loadHistory()
         items.insert(entry, at: 0)
         if items.count > historyLimit { items = Array(items.prefix(historyLimit)) }
         encode(items, key: AppConstants.DefaultsKeys.history)
+        ReceiptAllowance.recordUse()
     }
 
     static func removeHistory(_ entry: HistoryEntry) {
@@ -40,6 +51,12 @@ enum SubmissionStore {
     /// needs to merge a whole backup's entries at once without disturbing
     /// the overall newest-first order the way repeated `appendHistory` calls
     /// would. Returns the count actually added (for a user-facing summary).
+    ///
+    /// Deliberately does NOT call `ReceiptAllowance.recordUse()` the way
+    /// `appendHistory` does. This is Restore replaying the user's own
+    /// backup, not new scanning — a user reinstalling and restoring a
+    /// 400-receipt backup must land back where they were, not get instantly
+    /// walled by a counter that just charged them for their own history.
     @discardableResult
     static func mergeHistory(_ entries: [HistoryEntry]) -> Int {
         var items = loadHistory()

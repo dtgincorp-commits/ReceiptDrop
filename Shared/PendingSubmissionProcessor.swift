@@ -46,6 +46,20 @@ enum PendingSubmissionProcessor {
             return
         }
 
+        // DO NOT add a `ReceiptAllowance.canAdd` gate in this function.
+        // Every entry here was already accepted at park time — the share
+        // extension's `park(held:)` (see ShareSheetView.swift) is what
+        // checks the free tier, and it does so *before* the bytes are
+        // written to the queue. `ReceiptAllowance.used` already counts this
+        // queue's contents (see its own doc comment on "closing the park
+        // hole"), so the quota was already spent the moment this entry was
+        // parked, not when it's drained here. Refusing it now — after the
+        // user was already told "we've got it, we'll process it" by the
+        // extension's park confirmation — would destroy a receipt the app
+        // promised to save, for no gain: the slot is already spent either
+        // way. If a future subscription lapse or counter bug ever makes this
+        // look tempting, it is not the fix; the fix belongs at park time.
+
         Task.detached(priority: .utility) {
             for entry in pending {
                 guard let data = SubmissionStore.attachmentData(for: entry) else {

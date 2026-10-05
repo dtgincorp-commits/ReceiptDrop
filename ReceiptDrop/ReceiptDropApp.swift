@@ -5,6 +5,23 @@ struct ReceiptDropApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // MUST be the very first thing this initializer does, before any
+        // store is constructed. `resolveGrandfatheringIfNeeded()` reads
+        // whether `categories` still equals `AppConstants.defaultCategories`
+        // to decide if this install is fresh — but `CategoryStore.init`
+        // seeds that same key with the same default the first time it runs
+        // against an empty suite. If `CategoryStore.shared` (or anything
+        // that touches it) ran even once before this call, a fresh install
+        // would look identical to one that had always had the default
+        // categories, which is still correctly "not grandfathered" — but
+        // the ordering only stays correct by accident once something else
+        // in the launch path starts writing to the suite before this does.
+        // Calling this first, unconditionally, removes that race: the
+        // grandfather decision is settled and frozen before anything else
+        // in this process (or, thanks to `resolveGrandfatheringIfNeeded`'s
+        // own idempotency guard, in the share extension) can perturb the
+        // signals it reads.
+        ReceiptAllowance.resolveGrandfatheringIfNeeded()
         // Keep receipt images off iCloud/device backups — enforce, don't just
         // advise. Runs every launch so the flag survives folder recreation.
         LocalReceiptStore.excludeReceiptsFromBackup()
@@ -37,6 +54,18 @@ struct ReceiptDropApp: App {
                         break
                     }
                 }
+                .task {
+                    // Loads the product, refreshes the cached entitlement the
+                    // share extension reads, and starts the `Transaction.updates`
+                    // listener for the app's whole lifetime — see
+                    // `SubscriptionService.start()`'s own comment. `.task` on
+                    // the root view rather than a one-shot call in `init()`
+                    // because `start()` kicks off async work (product load,
+                    // an `await` loop over `Transaction.updates`); `init()`
+                    // is synchronous and isn't the right place to fire async
+                    // work that outlives it.
+                    SubscriptionService.shared.start()
+                }
         }
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {
@@ -46,6 +75,12 @@ struct ReceiptDropApp: App {
                 // path parked but couldn't safely extract itself (see
                 // PendingSubmissionProcessor / SubmissionStore.enqueuePending).
                 PendingSubmissionProcessor.processPendingIfAny()
+                // Re-derive the entitlement on every foreground, not just at
+                // launch — a subscription bought, renewed, or cancelled while
+                // this app was backgrounded (e.g. via Settings > Apple ID >
+                // Subscriptions) should update the cached snapshot the share
+                // extension trusts without requiring a full relaunch.
+                Task { await SubscriptionService.shared.refreshEntitlements() }
                 // Hashes anything still missing a `fileHash` so the
                 // identical-file duplicate signal covers it. Self-healing by
                 // design rather than a Settings button — see

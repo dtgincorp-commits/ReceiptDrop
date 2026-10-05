@@ -23,6 +23,13 @@ struct ReceiptsView: View {
     @State private var entries: [HistoryEntry] = []
     @State private var commentsMap: [String: String] = [:]
     @State private var newReceiptSource: NewReceiptSource?
+    /// Set instead of `newReceiptSource` whenever `selectSource(_:)` finds
+    /// the free tier exhausted — see its comment. Gating here, before
+    /// `NewReceiptView` ever appears, means the user never goes through a
+    /// capture flow (camera, scan, AI extraction) only to have the result
+    /// thrown away at save time; the wall is hit before any of that work
+    /// starts, not after.
+    @State private var showPaywall = false
     /// Drives the "Try it with a sample receipt" preview — see
     /// `SampleReceiptDemoView`. Lives here rather than as a `NewReceiptSource`
     /// case: every other case in that enum ends up inside a real
@@ -669,12 +676,12 @@ struct ReceiptsView: View {
     private var newReceiptMenuItems: some View {
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
             Button {
-                newReceiptSource = .scanDocument
+                selectSource(.scanDocument)
             } label: {
                 Label("Scan Receipt", systemImage: "doc.text.viewfinder")
             }
             Button {
-                newReceiptSource = .camera
+                selectSource(.camera)
             } label: {
                 Label("Take Photo", systemImage: "camera")
             }
@@ -685,7 +692,7 @@ struct ReceiptsView: View {
             if DataScannerViewController.isSupported && DataScannerViewController.isAvailable
                 && ExtractionSettings.aiConfigured {
                 Button {
-                    newReceiptSource = .scanText
+                    selectSource(.scanText)
                 } label: {
                     Label("Scan Text", systemImage: "text.viewfinder")
                 }
@@ -693,7 +700,7 @@ struct ReceiptsView: View {
         }
         Divider()
         Button {
-            newReceiptSource = .library
+            selectSource(.library)
         } label: {
             // "Photos", plural, and a stacked symbol: the menu is the only
             // place to signal that several receipts can come in at once,
@@ -703,12 +710,12 @@ struct ReceiptsView: View {
             Label("Photo Library (Pick Several)", systemImage: "photo.stack")
         }
         Button {
-            newReceiptSource = .file
+            selectSource(.file)
         } label: {
             Label("Choose File", systemImage: "folder")
         }
         Button {
-            newReceiptSource = .manual
+            selectSource(.manual)
         } label: {
             Label("Enter Manually", systemImage: "pencil")
         }
@@ -718,6 +725,21 @@ struct ReceiptsView: View {
             showCategories = true
         } label: {
             Label("Add Category", systemImage: "folder.badge.plus")
+        }
+    }
+
+    /// Every case of `newReceiptMenuItems` — including manual entry, which
+    /// the plan is explicit still counts — routes through here instead of
+    /// setting `newReceiptSource` directly. `SUBSCRIPTION_PLAN.md` requires
+    /// the gate to run before any capture UI or AI work starts, so a user
+    /// who is out of free receipts sees the paywall instead of the camera,
+    /// the document scanner, or a manual-entry form whose result could never
+    /// have been saved anyway.
+    private func selectSource(_ source: NewReceiptSource) {
+        if ReceiptAllowance.canAdd(1) {
+            newReceiptSource = source
+        } else {
+            showPaywall = true
         }
     }
 
@@ -1178,6 +1200,9 @@ struct ReceiptsView: View {
         }
         .sheet(item: $newReceiptSource) { source in
             NewReceiptView(source: source, onComplete: reload)
+        }
+        .fullScreenCover(isPresented: $showPaywall) {
+            PaywallView(reason: .outOfFreeReceipts, onFinish: { showPaywall = false })
         }
         .sheet(isPresented: $showSampleReceiptDemo) {
             SampleReceiptDemoView(onDone: { showSampleReceiptDemo = false })

@@ -45,6 +45,12 @@ struct NewReceiptView: View {
     @State private var scannedText: String?
     @State private var pendingBatchAttachments: [SharedAttachment] = []
     @State private var showBatchConfirm = false
+    /// Set when a picked batch (or, in principle, a single photo — see
+    /// `presentIfAllowed`) would push the user past the free-tier limit.
+    /// Carries the specific reason so the paywall can name both numbers
+    /// ("this batch has 12, you have 3 left") per SUBSCRIPTION_PLAN.md,
+    /// rather than a generic "you're out of room".
+    @State private var paywallReason: PaywallReason?
     /// True while `loadFile(at:)` is reading a Files-app import and building
     /// its thumbnail off the main thread — without this the screen behind
     /// the (now-dismissed) file picker is just `Color.clear` for however
@@ -164,6 +170,17 @@ struct NewReceiptView: View {
                     dismiss()
                     return
                 }
+                // Gate before any of this becomes AI work or a save — a
+                // multi-select from the library can hand back more photos
+                // than the user has free slots left for, even though the
+                // menu-open check (`ReceiptsView.selectSource`) confirmed at
+                // least one slot was free at the time the picker opened.
+                // Named with both numbers per SUBSCRIPTION_PLAN.md so the
+                // user knows exactly how much of the batch is the problem.
+                guard ReceiptAllowance.canAdd(loaded.count) else {
+                    paywallReason = .batchExceedsRemaining(batchCount: loaded.count, remaining: ReceiptAllowance.remaining)
+                    return
+                }
                 if loaded.count == 1 {
                     attachment = loaded[0]
                 } else if loaded.count > Self.batchConfirmThreshold {
@@ -196,6 +213,12 @@ struct NewReceiptView: View {
             case .failure:
                 dismiss()
             }
+        }
+        .fullScreenCover(item: $paywallReason) { reason in
+            PaywallView(reason: reason, onFinish: {
+                paywallReason = nil
+                dismiss()
+            })
         }
         .sheet(isPresented: $showManualEntry) {
             ManualReceiptEntryView(

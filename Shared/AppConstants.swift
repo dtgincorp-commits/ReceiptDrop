@@ -80,6 +80,14 @@ enum AppConstants {
         static let lastUsedCategory = "lastUsedCategory"        // share extension's default; see LastUsedCategoryStore
         static let hasSeenPhotoPickerTip = "hasSeenPhotoPickerTip"  // one-time multi-select tip; see PhotoPickerTip
         static let dismissedDuplicateGroups = "dismissedDuplicateGroups"  // "Not a Duplicate" decisions; see DuplicateDetectionService
+
+        // MARK: Free tier / subscription — see ReceiptAllowance, SubscriptionService,
+        // and SUBSCRIPTION_PLAN.md for the full design.
+        static let freeReceiptsUsed = "freeReceiptsUsed"                  // monotonic; never derived from history.count — see ReceiptAllowance
+        static let subscriptionGrandfathered = "subscriptionGrandfathered" // resolved once, frozen forever after
+        static let isSubscribed = "isSubscribed"                          // cached entitlement snapshot the extension reads
+        static let subscriptionExpiry = "subscriptionExpiry"              // paired with isSubscribed; not itself authoritative
+        static let entitlementCheckedAt = "entitlementCheckedAt"          // staleness marker; cache is fail-open regardless of age
     }
 
     /// Date format written to the Work_Date column.
@@ -122,6 +130,27 @@ enum AppConstants {
     /// the decision open, and it is deliberate — this is not dead code, and
     /// it should not be deleted as such.
     static let billItemizationEnabled = false
+
+    /// Lifetime free allowance before the paywall — see SUBSCRIPTION_PLAN.md.
+    /// Does not reset; a user who has ever filed 25 receipts (or was never
+    /// grandfathered in) needs a subscription for the 26th, forever.
+    static let freeReceiptLimit = 25
+
+    /// The one purchasable product: $7.99/year, auto-renewing, unlimited
+    /// receipts. Read `Product.displayPrice` from StoreKit for the paywall
+    /// rather than hard-coding "$7.99" anywhere user-facing — this string is
+    /// only the App Store Connect product identifier.
+    static let proYearlyProductID = "com.datatechnologygroup.receipts4tax.pro.yearly"
+
+    /// Apple's standard EULA, acceptable in place of a custom Terms of Use
+    /// per App Review 3.1.2 — see SUBSCRIPTION_PLAN.md.
+    static let termsOfUseURL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
+
+    /// The hosted Receipts4Tax Privacy Policy (PRIVACY.md's text), linked from
+    /// the paywall. Required there: a subscription screen without a working
+    /// Privacy Policy link is an automatic App Review 3.1.2 rejection. Use the
+    /// same URL in App Store Connect's Privacy Policy URL field.
+    static let privacyPolicyURL = "https://www.dtgincorp.com/privacy"
 
     /// CSV header row, written when a category's local log file is first created.
     static let sheetHeader = [

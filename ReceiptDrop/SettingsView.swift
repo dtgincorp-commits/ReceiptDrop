@@ -3,6 +3,14 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @StateObject private var receiptsNavigator = ReceiptsNavigator.shared
+    @ObservedObject private var subscriptionService = SubscriptionService.shared
+    @State private var showPaywall = false
+    #if DEBUG
+    /// Mirrors `ReceiptAllowance.used` for the Purchase Testing section.
+    @State private var debugFreeUsed = 0
+    #endif
+    @State private var restoreInFlight = false
+    @State private var restoreMessage: String?
     @State private var selectedProvider: ExtractionProvider = ExtractionSettings.provider
     @State private var selectedMode: ExtractionMode = ExtractionSettings.mode
     @State private var offlineOnly: Bool = ExtractionSettings.offlineOnly
@@ -28,6 +36,8 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                subscriptionSection
+
                 Section {
                     Picker("AI Provider", selection: $selectedProvider) {
                         ForEach(ExtractionProvider.allCases) { provider in
@@ -232,6 +242,29 @@ struct SettingsView: View {
                 } footer: {
                     Text("DEBUG builds only. Neither screen ships.")
                 }
+
+                // Purchase testing on a device: reaching the paywall honestly
+                // takes 25 receipts. These jump the free-tier counter instead.
+                // Only the counter moves — no receipts are created or deleted.
+                Section {
+                    LabeledContent("Free receipts used",
+                                   value: "\(debugFreeUsed) of \(AppConstants.freeReceiptLimit)")
+                    LabeledContent("Unlimited", value: ReceiptAllowance.isGrandfathered
+                                   ? "Yes — early user" : ReceiptAllowance.isUnlimited ? "Yes — subscribed" : "No")
+                    Button("Use Up Free Receipts") {
+                        ReceiptAllowance.debugSetFreeReceiptsUsed(AppConstants.freeReceiptLimit)
+                        debugFreeUsed = ReceiptAllowance.used
+                    }
+                    Button("Reset Free Receipts to 0") {
+                        ReceiptAllowance.debugSetFreeReceiptsUsed(0)
+                        debugFreeUsed = ReceiptAllowance.used
+                    }
+                } header: {
+                    Text("Purchase Testing")
+                } footer: {
+                    Text("DEBUG builds only. Changes the free-receipt count, nothing else.")
+                }
+                .onAppear { debugFreeUsed = ReceiptAllowance.used }
                 #endif
 
                 Section {
@@ -314,7 +347,106 @@ struct SettingsView: View {
                 }
             }
             .settingsInfoSheet(topic: $infoTopic)
+            .fullScreenCover(isPresented: $showPaywall) {
+                PaywallView(reason: .general, onFinish: { showPaywall = false })
+            }
         }
+    }
+
+    /// Surfaced here (not just at the wall) so the free-tier limit is never a
+    /// surprise — SUBSCRIPTION_PLAN.md's whole point in showing the count in
+    /// Settings is that a user can see "18 of 25" coming well before their
+    /// 26th receipt gets blocked. Three mutually exclusive states, matched to
+    /// the three ways `ReceiptAllowance` can answer "is this account walled":
+    /// grandfathered (no counter, no upsell — nothing to sell someone who
+    /// was never going to be charged), subscribed (plan + renewal date, no
+    /// counter — the counter is irrelevant once unlimited), or free (the
+    /// count, and the one Subscribe button in the app that isn't reactive to
+    /// having just hit the wall).
+    @ViewBuilder
+    private var subscriptionSection: some View {
+        Section {
+            if ReceiptAllowance.isGrandfathered {
+                Label("Unlimited receipts — thanks for being an early user.", systemImage: "heart.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else if subscriptionService.isSubscribed {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Receipts4Tax Pro", systemImage: "checkmark.seal.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.green)
+                    if let expiry = ReceiptAllowance.cachedExpiry {
+                        Text("Renews \(expiry.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Button("Manage Subscription") {
+                    openSubscriptionManagement()
+                }
+            } else {
+                let used = ReceiptAllowance.used
+                let limit = AppConstants.freeReceiptLimit
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(used) of \(limit) free receipts used")
+                        .font(.subheadline)
+                    // Capped at 1.0 rather than letting `used` (which can
+                    // exceed `limit` transiently via the pending-queue count
+                    // — see `ReceiptAllowance.used`) overshoot the bar.
+                    ProgressView(value: min(Double(used) / Double(limit), 1.0))
+                        .tint(Theme.actionBlue)
+                }
+                Button {
+                    showPaywall = true
+                } label: {
+                    Label("Subscribe — Unlimited Receipts", systemImage: "infinity")
+                }
+            }
+
+            Button {
+                restore()
+            } label: {
+                HStack {
+                    Text("Restore Purchases")
+                    Spacer()
+                    if restoreInFlight { ProgressView() }
+                }
+            }
+            .disabled(restoreInFlight)
+            if let restoreMessage {
+                Text(restoreMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Subscription")
+        }
+    }
+
+    private func restore() {
+        restoreInFlight = true
+        restoreMessage = nil
+        Task {
+            defer { restoreInFlight = false }
+            do {
+                try await subscriptionService.restore()
+                if !subscriptionService.isSubscribed {
+                    restoreMessage = "No active subscription found for this Apple ID."
+                }
+            } catch {
+                restoreMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// Apple's documented, version-independent deep link to the system
+    /// "Manage Subscriptions" page — used instead of `AppStore.
+    /// showManageSubscriptions(in:)` because that call needs a
+    /// `UIWindowScene` handle this view has no clean way to reach, and the
+    /// URL form does exactly the same thing with none of that plumbing.
+    private func openSubscriptionManagement() {
+        guard let url = URL(string: "https://apps.apple.com/account/subscriptions") else { return }
+        UIApplication.shared.open(url)
     }
 
     private func classifyUnclassified() {

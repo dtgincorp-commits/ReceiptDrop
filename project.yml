@@ -24,6 +24,13 @@ targets:
     scheme:
       testTargets:
         - ReceiptDropTests
+      # Makes the local $7.99/yr product purchasable in the simulator/debug
+      # builds without touching App Store Connect — see Products.storekit
+      # and SUBSCRIPTION_PLAN.md. Xcode only honors a StoreKit configuration
+      # wired into the scheme's Run action; setting it here (rather than by
+      # hand in Xcode, which `xcodegen generate` would wipe) keeps it
+      # reproducible for every developer who regenerates the project.
+      storeKitConfiguration: Products.storekit
     sources:
       - ReceiptDrop
       - Shared
@@ -149,6 +156,10 @@ targets:
     platform: iOS
     sources:
       - ReceiptDropTests
+      # SKTestSession(configurationFileNamed: "Products") looks the StoreKit
+      # configuration up in the test bundle — see SubscriptionPurchaseTests.
+      - path: Products.storekit
+        buildPhase: resources
     # Depending on the app target makes XcodeGen auto-wire TEST_HOST +
     # BUNDLE_LOADER, so `@testable import ReceiptDrop` can reach the Shared
     # types (ExtractedReceipt, VendorTypeToken, ClaudeService) compiled into

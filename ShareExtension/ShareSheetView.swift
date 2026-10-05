@@ -64,6 +64,13 @@ struct ShareSheetView: View {
     @State private var couldNotOpenApp = false
     /// Set once `couldNotOpenCard` has closed the sheet — see `closeConfirmation`.
     @State private var confirmationClosed = false
+    /// Set when `park(held:)` finds the free tier can't cover this share —
+    /// see its own comment. Nothing is written in that case, so unlike
+    /// `couldNotOpenApp` this is reachable from `card`'s `choices`, before
+    /// anything has been saved, and the user can still back out with the
+    /// ordinary Cancel (×) button rather than being stuck the way
+    /// `couldNotOpenCard` deliberately is once a receipt is already down.
+    @State private var blockedByLimit = false
 
     private enum ParkResult: Equatable {
         case now(Int)
@@ -115,7 +122,9 @@ struct ShareSheetView: View {
             Spacer(minLength: 0)
             VStack(spacing: 18) {
                 header
-                if let loadError {
+                if blockedByLimit {
+                    blockedByLimitBody
+                } else if let loadError {
                     Text(loadError)
                         .font(.callout)
                         .foregroundStyle(.orange)
@@ -269,6 +278,43 @@ struct ShareSheetView: View {
             .bool(forKey: AppConstants.DefaultsKeys.hasCompletedAISetup) ?? false
     }
 
+    /// Shown in place of `choices` when `park(held:)` finds there isn't
+    /// enough free-tier room left for what's being shared. The extension
+    /// cannot present a purchase sheet — SUBSCRIPTION_PLAN.md is explicit
+    /// that StoreKit calls have no place in a share sheet — so the only
+    /// honest move here is to say so plainly and hand the user back to the
+    /// main app, where the real paywall lives, via the same
+    /// `receiptdrop://` deep link the first-run link (`firstRunLink`) already
+    /// uses to bring the app forward without completing this extension
+    /// request out from under an un-saved share.
+    private var blockedByLimitBody: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+            Text(count == 1
+                 ? "You've used all your free receipts"
+                 : "Not enough free receipts left for \(count)")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+            Text("Nothing was saved. Subscribe in Receipts4Tax to keep going.")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.6))
+                .multilineTextAlignment(.center)
+            Button(action: onOpenMainApp) {
+                Text("Open Receipts4Tax")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color(red: 0.30, green: 0.72, blue: 1.0),
+                                in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     @ViewBuilder
     private func confirmation(_ result: ParkResult) -> some View {
         // Asked of the value rather than compared against
@@ -415,6 +461,15 @@ struct ShareSheetView: View {
         // One receipt is safe to extract in-process; several are not. See
         // this type's doc comment.
         if isSingle, attachment != nil {
+            // This single-receipt path hands off straight to
+            // `ReceiptSubmitView` and never touches `park(held:)` below, so
+            // it needs its own gate — otherwise the one case that skips the
+            // queue entirely would also be the one case that skips the free
+            // tier.
+            guard ReceiptAllowance.canAdd(1) else {
+                blockedByLimit = true
+                return
+            }
             submitNow = true
             return
         }
@@ -430,6 +485,19 @@ struct ShareSheetView: View {
     /// by the time the confirmation shows, the receipts are already safe.
     private func park(held: Bool) {
         let items = batchAttachments ?? [attachment].compactMap { $0 }
+        // Gate before a single byte is written. `ReceiptAllowance.used`
+        // already counts everything sitting in the retry/pending queue (see
+        // its "closing the park hole" doc comment), so this is the same
+        // check the main app's ingest points make — just here, before the
+        // queue grows, rather than after. The extension never calls
+        // StoreKit and never presents a purchase sheet (SUBSCRIPTION_PLAN.md);
+        // when this fails, the only move is `blockedByLimitBody`'s plain
+        // message and a deep link back to the app, where the real paywall
+        // lives.
+        guard ReceiptAllowance.canAdd(items.count) else {
+            blockedByLimit = true
+            return
+        }
         for item in items {
             let kind: ReceiptKind = item.kind == .image ? .image : .pdf
             let data: Data

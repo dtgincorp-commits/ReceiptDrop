@@ -84,7 +84,22 @@ struct BatchReceiptSubmitView: View {
     /// dismissed) and shows a brief confirmation before closing — no "N of M"
     /// progress screen. Any receipt that fails or needs review still surfaces
     /// afterward via the existing needs-review banner / Retry Queue tab.
+    ///
+    /// The real free-tier gate for this batch already ran in `NewReceiptView`
+    /// before this screen was ever presented (it names both numbers there,
+    /// where the paywall UI lives — this file is `Shared/`, compiled into the
+    /// share extension too, which must never present a purchase sheet). The
+    /// `canAdd` check here is belt-and-suspenders only, for the gap between
+    /// that check and this tap (e.g. the free tier got consumed elsewhere,
+    /// like the share extension draining its queue, while this screen sat
+    /// open): if it's no longer allowed, decline quietly rather than let a
+    /// batch it can't afford reach `SubmissionPipeline` and consume a mix of
+    /// the last free slots and receipts that should have hit the wall.
     private func submitAll() {
+        guard ReceiptAllowance.canAdd(attachments.count) else {
+            onCancel()
+            return
+        }
         BatchSubmissionRunner.submit(attachments: attachments, category: selectedCategory)
         phase = .confirmed
         Task {
