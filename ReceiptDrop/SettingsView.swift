@@ -33,6 +33,14 @@ struct SettingsView: View {
     @AppStorage(AppConstants.DefaultsKeys.appCurrency, store: UserDefaults(suiteName: AppConstants.appGroupID))
     private var appCurrency: AppCurrency = .auto
 
+    /// "Receipts4Tax 1.0.1 (1)" — marketing version, then build number.
+    static var versionLine: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "Receipts4Tax \(version) (\(build))"
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -336,6 +344,17 @@ struct SettingsView: View {
                     Text("Gives older or manually-entered receipts a business type, so they show up in type-based search.")
                 }
 
+                // The installed version and build, so anyone can confirm
+                // exactly which build a device is running — the same pair
+                // App Store Connect and TestFlight list. Last, quietly, the
+                // way iOS's own Settings → About does it.
+                Section {
+                } footer: {
+                    Text(Self.versionLine)
+                        .frame(maxWidth: .infinity)
+                        .multilineTextAlignment(.center)
+                        .textSelection(.enabled)
+                }
             }
             .navigationTitle("Settings")
             .sheet(isPresented: $showConnectAI) {

@@ -154,6 +154,7 @@
 		E317BB6F7F27A671A75140E8 /* SubscriptionPurchaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 804B16D7F4B1E8CE5C324811 /* SubscriptionPurchaseTests.swift */; };
 		E520FAD5D609E53E000FD1CA /* SettingsInfoLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE989CFC7987A552BBCBBB3D /* SettingsInfoLink.swift */; };
 		E7AED0646507150C7FAAFA65 /* AzureDocumentIntelligenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8C1B2CC52448F9E1515329 /* AzureDocumentIntelligenceService.swift */; };
+		EBB8F06448EE59CD7E088A3A /* VersionLineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57F73DD1B710BECF91FFF0FD /* VersionLineTests.swift */; };
 		F00E2766FECDE4706914E714 /* ReceiptAllowanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1564A4F37AF5BE92DAE114 /* ReceiptAllowanceTests.swift */; };
 		F18D153F073D000A3D70F5DD /* SyntheticReceiptGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AA98B834238B0C0A4C21451 /* SyntheticReceiptGenerator.swift */; };
 		F210E6892B5CEBFAC855857E /* ManualEntryOCRPrefillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E9F98C3A8C057A179F0CBE1 /* ManualEntryOCRPrefillTests.swift */; };
@@ -235,6 +236,7 @@
 		525C3226B85E765DA6EC3B6C /* BillEvalHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillEvalHarness.swift; sourceTree = "<group>"; };
 		54DEA5E5F2DDE4AC17C77C9D /* ReceiptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsView.swift; sourceTree = "<group>"; };
 		57A6948A63FFA9B34F336984 /* AppAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearance.swift; sourceTree = "<group>"; };
+		57F73DD1B710BECF91FFF0FD /* VersionLineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VersionLineTests.swift; sourceTree = "<group>"; };
 		57FF61EB58699460FE16D612 /* SubmissionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubmissionStore.swift; sourceTree = "<group>"; };
 		588D4BE73A224F115F3AEA37 /* ReceiptDetectionEvalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptDetectionEvalView.swift; sourceTree = "<group>"; };
 		59F671CC05560D0329CB8D2F /* BillItemizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillItemizationService.swift; sourceTree = "<group>"; };
@@ -363,6 +365,7 @@
 				4309CCFC6CCDED0A9BEB5C34 /* SearchAmountComparisonTests.swift */,
 				804B16D7F4B1E8CE5C324811 /* SubscriptionPurchaseTests.swift */,
 				C20A43BBE13816C33913B4FA /* SyntheticReceiptGeneratorTests.swift */,
+				57F73DD1B710BECF91FFF0FD /* VersionLineTests.swift */,
 			);
 			path = ReceiptDropTests;
 			sourceTree = "<group>";
@@ -813,6 +816,7 @@
 				0FF67C722E6CC2C02F84319C /* SearchAmountComparisonTests.swift in Sources */,
 				E317BB6F7F27A671A75140E8 /* SubscriptionPurchaseTests.swift in Sources */,
 				92F201D6F31D97D89B47FC79 /* SyntheticReceiptGeneratorTests.swift in Sources */,
+				EBB8F06448EE59CD7E088A3A /* VersionLineTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
