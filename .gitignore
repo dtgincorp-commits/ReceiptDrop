@@ -4,3 +4,6 @@ DerivedData/
 *.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 build/
 test-receipts/
+
+# Written by the "Generate build date" build step on every build.
+Generated/
