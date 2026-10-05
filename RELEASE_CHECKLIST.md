@@ -1,18 +1,30 @@
 # ReceiptDrop — App Store Public Release Checklist
 
-Working plan to take ReceiptDrop from TestFlight to a **paid**, publicly
-downloadable App Store app, published under **DTG (Organization)**.
+Working plan to take ReceiptDrop (Receipts4Tax) from TestFlight to a
+**free-to-download, subscription** App Store app, published under
+**DTG (Organization)**.
 
-Local-only planning doc (not committed). Companion to `NICKHIL_HANDOFF.md`
+Tracked in git (first added in `59aed16`); commit updates to it. Companion to `NICKHIL_HANDOFF.md`
 (ship pipeline) and `README.md` (identifiers/branches).
 
-**Decisions locked:** Paid-once · Published under DTG (California corp) as an
-Apple Developer **Organization**.
+**Last updated: 2026-09-29.** Keep this file current — an out-of-date copy
+of it once produced a "next steps" list full of finished work.
+
+**Decisions locked:** Free download, first 25 receipts free (lifetime), then
+**$7.99/year** auto-renewing subscription (decided 2026-09-29, replacing
+paid-once; see SUBSCRIPTION_PLAN.md) · Published under DTG (California corp)
+as an Apple Developer **Organization** · India at a hand-set local price ·
+China excluded at launch.
 
 **Decisions still open** (flagged inline as ☐ DECIDE):
-- App transfer vs. fresh app record under DTG (see Phase 0).
-- Price tier (see Phase 4).
 - Accept "DTG" as public Seller, Nickhil credited in Copyright (see note).
+- EU: excluded from the subscription's availability on 2026-09-29 (with
+  China). **Bring EU back when:** (1) the D&B address update has reached
+  Apple (Business page shows Tustin), (2) DSA status is set to **trader**
+  with the correct address, (3) EU re-ticked in BOTH the app's Pricing and
+  Availability and the subscription's Availability. No app update needed.
+  **China:** only once AI extraction works there, an ICP filing exists, and
+  Chinese receipts are tested — a later project, possibly never.
 
 > **Seller name note:** the public "Seller" on an Organization account is DTG's
 > legal entity name — an individual's personal name ("Nickhil Nagpal") cannot
@@ -21,96 +33,260 @@ Apple Developer **Organization**.
 
 ---
 
-## Phase 0 — Account & legal foundation (LONG POLE — start immediately)
+## Where things stand (2026-10-01)
 
-Owner: **Nickhil / DTG principal** unless noted.
-
-- ☑ **D-U-N-S number obtained** for DTG (received via email). Long pole cleared.
-- ☐ Before enrolling, confirm DTG's **legal name + address on the D-U-N-S
-  record exactly match** the CA incorporation details — Apple cross-checks them,
-  and a mismatch is the most common enrollment stall.
-- ☐ Enroll **DTG** in the Apple Developer Program as an **Organization**
-  ($99/yr) at developer.apple.com/enroll → Company/Organization → enter the
-  D-U-N-S number. Confirm **authority to bind DTG** (Apple may email/call to
-  verify).
-- ☐ **DECIDE:** move the existing app to DTG by **app transfer** (keeps bundle
-  ID + history; has prerequisites) **or** create a **fresh app record** under
-  DTG (simpler pre-launch; re-add TestFlight testers — no public installs to
-  lose). Recommended: fresh record unless history matters.
-- ☐ **Account Holder** accepts the **Paid Applications Agreement** in App Store
-  Connect → Business. *Only the Account Holder can accept it — an Admin cannot.*
-  Nothing sells until this shows **Active**.
-- ☐ Enter **tax forms** (W-9 for a US corp) and **banking** for DTG (Admin can
-  enter; agreement must be accepted first).
-- ☐ **Apply to the Apple Small Business Program** (15% commission instead of
-  30%; DTG qualifies while under $1M/yr). Easy to forget — do it.
-- ☐ (Optional but recommended) Add **Neeraj** to DTG's Developer Program team →
-  enables local signing under DTG and lets you **retire the `local-dev-dtgincorp`
-  branch split** (see README "Retiring the split").
-
-## Phase 1 — Listing assets
-
-Owner: **Neeraj (Admin)** can do all of this.
-
-- ☐ App **name** (confirm availability), **subtitle**, **promotional text**,
-  **description**.
-- ☐ **Keywords** and **primary/secondary category** (Finance or Productivity).
-- ☐ **Copyright** field (e.g. `© 2026 Nickhil Nagpal / DTG`).
-- ☐ **Screenshots** for each required device class (Apple's largest iPhone size
-  at minimum; iPad set if the app runs on iPad).
-- ☐ **App icon** at store resolution.
-- ☐ **Age rating** questionnaire.
-- ☐ **Support URL** (mandatory) and **Marketing URL** (optional).
-
-## Phase 2 — Compliance & privacy
-
-Owner: **Neeraj (Admin)**.
-
-- ☐ **Privacy Policy URL** (mandatory). Must disclose that receipt data is
-  transmitted to the selected AI provider (Anthropic / OpenAI / Google) for
-  processing when a cloud provider is used.
-- ☐ **App Privacy "nutrition label":** declare **User Content** and **Financial
-  Info** are transmitted to a third party (yes — even though the app is
-  local-first, sending to the AI provider counts as data leaving the device).
-  Confirm **no tracking / no IDFA** (keeps the label clean — a selling point).
-- ☐ **Export compliance:** answer the encryption question (standard OS HTTPS
-  typically qualifies for the exemption, but you must answer).
-
-## Phase 3 — Production build & submit
-
-Owner: **Nickhil** (build), **Neeraj** (metadata).
-
-- ☐ Bump **marketing version** + **build number**.
-- ☐ Build a release via the existing pipeline (fork-sync → Xcode Cloud → App
-  Store Connect, per `NICKHIL_HANDOFF.md`). If moved to DTG, re-point signing/
-  Xcode Cloud to DTG's team first.
-- ☐ **CRITICAL — review notes:** paste a **working AI API key** (a throwaway
-  you can revoke after approval) plus: *"Open Settings → API Key, paste this
-  key, then scan any receipt."* Without this the reviewer cannot use the app →
-  near-certain **Guideline 2.1** rejection.
-- ☐ Set **pricing / paid tier** (see Phase 4).
-- ☐ Submit for review. Budget for **1–2 rejection rounds** — BYO-key apps
-  sometimes draw follow-up questions about the third-party data flow.
-
-## Phase 4 — Launch mechanics
-
-Owner: **Neeraj / Nickhil**.
-
-- ☐ **DECIDE: price tier** — what does DTG want to charge?
-- ☐ Release type: **manual** (recommended for a first launch — you control the
-  go-live moment), automatic, or phased rollout.
-- ☐ Post-launch: crash monitoring; a canned support reply for the inevitable
-  *"how do I get an API key?"* (point non-technical users to Apple On-Device on
-  capable iPhones as the no-key path).
+| Area | Status |
+|---|---|
+| DTG developer account, app record, bundle `com.datatechnologygroup.receipts4tax` | ☑ Done |
+| TestFlight external beta (Beta App Review passed 2026-09-01) | ☑ Live — <https://testflight.apple.com/join/wgYgEW8S> |
+| Free Apps + Paid Apps Agreements | ☑ **Active** (2026-09-29) |
+| Bank account + W-9 | ☑ Active |
+| Small Business Program | ⏳ Submitted 2026-09-29, awaiting Apple's email |
+| Privacy Policy URL | ☑ <https://www.dtgincorp.com/privacy> |
+| App Privacy label | ☑ Published |
+| Privacy manifests (app + extension) | ☑ Committed (`156f1a2`, `9d3d17c`) |
+| Subscription product in App Store Connect | ◐ Created + filled 2026-09-29 (see Phase 3). Left: **display name decision**, **review screenshot** (from the final build) |
+| Subscription/paywall code | ◐ Uncommitted on `pdf-share-and-backup-fixes`. **Test 1 (Simulator) passed 2026-10-01** and **Test 2 (real sandbox, iPad) passed 2026-10-05**: buy, unlimited after buying, expiry, restore (nothing / active), reinstall. Dark-mode price card fixed. **Committed `39e60c6` 2026-10-05.** |
+| App-level Pricing and Availability (Free; no EU, no China) | ☐ Next |
+| Age rating | ☐ Next |
+| Screenshots, description | ☐ After the user's app changes |
+| Version number | ☐ User decides after their app changes |
+| Build, review notes, submit | ☐ |
 
 ---
 
-## Critical-path summary
+## Phase 0 — Account & legal foundation
 
-1. **D-U-N-S → DTG Org enrollment → Paid Apps Agreement** is the long pole.
-   Start it before anything else; the rest can proceed in parallel once the
-   account exists.
-2. **Reviewer API key in the review notes** is the one step that most commonly
-   sinks a BYO-key app. Don't skip it.
-3. Everything in Phases 1–2 (Neeraj, Admin) can be prepared *while* the DTG
-   account is being set up.
+- ☑ **D-U-N-S number obtained** for DTG.
+- ☑ **DTG enrolled** as an Apple Developer **Organization**; the app lives
+  under DTG's team (9QPSF3ZB76).
+- ☑ **Fresh app record vs. transfer** — resolved: the app is on DTG.
+- ☑ **Paid + Free Apps Agreements Active** (2026-09-29). They were stuck on
+  "Pending User Info" until two items were completed: **Legal Entity
+  Compliance Screening** (Certificate of Incorporation upload, website,
+  business affiliation) and **Digital Services Act** trader status.
+- ☑ **Tax (W-9) and banking** Active.
+- ⏳ **Small Business Program** — enrollment submitted 2026-09-29 (No to all
+  associated-account questions). Apple replies by email, typically days to
+  ~2 weeks. Not a launch blocker; 15% applies from the next fiscal month
+  after approval.
+- ☐ **Update DTG's address with Dun & Bradstreet** (dnb.com). Apple's legal
+  record and the DSA trader address still show the OLD (Irvine) address; the
+  current one is the Tustin address published in PRIVACY.md.
+  Apple's forms lock the address to D-U-N-S — it can only change there first,
+  then via developer.apple.com/contact → Membership and Account. If
+  California's Statement of Information is also stale, update it too.
+- ☐ (Optional) Add **Neeraj** to DTG's Developer Program team → enables local
+  signing under DTG and retires the `local-dev-dtgincorp` branch split.
+
+## Phase 1 — Listing assets
+
+Owner: **Neeraj (Admin)**. Draft copy is in `APP_STORE_LISTING.md`.
+
+- ☐ **Name, subtitle, promotional text, description** — paste from
+  `APP_STORE_LISTING.md`. **Before pasting, add** the price line ("Free for
+  your first 25 receipts. Then Receipts4Tax Pro: $7.99/year, auto-renews,
+  cancel anytime in Settings.") and links to **Terms of Use**
+  (Apple's standard EULA) and the **Privacy Policy** — Apple commonly rejects
+  subscription apps without the Terms link.
+- ☐ **Keywords** and **category** (Finance).
+- ☐ **Copyright:** `© 2026 DATA TECHNOLOGY GROUP INC.`
+- ☐ **Screenshots:** iPhone **6.9"** (use the iPhone Pro Max simulator for exact
+  size) **and iPad 13"** — required because the app is universal
+  (`TARGETED_DEVICE_FAMILY: "1,2"`).
+- ☑ **App icon** at store resolution (`icon-1024.png`).
+- ☐ **Age rating** questionnaire (App Information → Age Rating) — expect 4+.
+- ☐ **Support URL:** `https://www.dtgincorp.com/support`.
+
+## Phase 2 — Compliance & privacy
+
+- ☑ **Privacy Policy URL:** <https://www.dtgincorp.com/privacy> — live,
+  product-specific, covers AI providers. Also wired into the paywall
+  (`AppConstants.privacyPolicyURL`).
+- ☑ **App Privacy label** published: Photos or Videos, Other Financial Info,
+  Name, Phone Number. Name + Phone come from Check a Bill's contact picker,
+  which is hidden in this release — review whether they still belong.
+- ☑ **Privacy manifests** declare Photos or Videos + Other Financial Info (app
+  functionality, not linked, no tracking), UserDefaults (CA92.1, 1C8F.1) and
+  file timestamps (C617.1). Must stay consistent with the label.
+- ☑ **Export compliance:** `ITSAppUsesNonExemptEncryption: false`.
+
+## Phase 3 — Production build & submit
+
+- ◐ **Subscription** (App Store Connect → Apps → Receipts4Tax → Monetization →
+  Subscriptions), created 2026-09-29:
+  - ☑ Group reference name **Receipts4Tax Pro**; subscription reference name
+    **Pro Yearly**; product ID **`com.datatechnologygroup.receipts4tax.pro.yearly`**
+    (verified against `AppConstants.proYearlyProductID`); Apple ID 6817537442;
+    duration **1 year**; status Prepare for Submission.
+  - ☑ Availability: all except the **27 EU countries** and **China mainland**
+    (132 regions). "Confirm Upfront Billing" accepted (full year charged at
+    the start — what the app expects).
+  - ☑ "Monthly with a 12-Month Commitment" left **OFF** — the app isn't built
+    for it (also needs iOS 26.4+ / SDK 26.5+).
+  - ☑ Price: **US $7.99 as the base**, **India ₹399** hand-set.
+  - ☑ Review Notes: "Unlocks unlimited receipts after the first 25 free ones.
+    The paywall appears when adding a 26th receipt; Restore Purchases is on
+    the same screen."
+  - ◐ **Display Name and Description** — name DECIDED 2026-10-05:
+    **Receipts4Tax Pro** (no app changes needed). User still to enter it in
+    App Store Connect. Description:
+    "Unlimited receipts, renewed yearly." Options were:
+    `Receipts4Tax Pro` (matches the app today — SettingsView "Receipts4Tax
+    Pro", paywall "Pro removes the limit"; recommended), `Receipts4Tax
+    Unlimited`, or plain `Receipts4Tax` (the last two need the in-app wording
+    changed to match).
+  - ☑ **Review screenshot uploaded and accepted 2026-10-02** (Save stays grey
+    afterwards: App Store Connect saves the upload itself). Re-captured 2026-10-02 at **1290×2796 JPEG, no
+    alpha** (iPhone 15 Pro Max simulator) →
+    `~/Desktop/Receipts4Tax-paywall-for-App-Review.jpg` (light mode, $7.99/yr,
+    Terms + Privacy links visible). The first capture (1179×2556, iPhone 15
+    Pro) was rejected: "The dimensions of one or more screenshots are wrong".
+    Re-capture if the paywall changes before release (TmpPaywallShot approach:
+    render PaywallView in the test host with SKTestSession). Originally:
+    the paywall, from the FINAL build
+    (user is still changing the app, so the paywall may change). Either Claude
+    captures it in the Simulator, or the user takes it on the phone during
+    sandbox testing (side button + volume up).
+  - ☐ Billing Grace Period (optional, recommended: 16 days, all renewals).
+  - Family Sharing left **OFF** on purpose — it cannot be turned off once on.
+  - Do **not** press "Add for Review" on its own: the first subscription must
+    be submitted together with a new app version.
+- ☐ **App-level Pricing and Availability** (Monetization → Pricing and
+  Availability — separate from the subscription's): price **Free**; untick the
+  27 EU countries and China mainland so both lists match.
+- ☐ **Age rating** (General → App Information → Age Rating → Edit): "None"/"No"
+  throughout → expect **4+**.
+- ☐ **Finish + commit the subscription code**, then **sandbox-test on a
+  phone**: buy, restore, hitting the 25-receipt wall, grandfathered TestFlight
+  users never walled.
+- ☐ Phone checks from 2026-09-28: share-sheet auto-close; Extraction Eval
+  amount score not worse after the amount-guardrail fix.
+- ☑ **Test 2 PASSED 2026-10-05 — real sandbox purchase on the iPad** (the phone is grandfathered
+  and can't show the paywall):
+  1. ☑ (2026-10-04, account listed; its verification link said "Invalid
+     account" when opened while signed into the real Apple ID — harmless
+     so far) User: App Store Connect → Users and Access → Sandbox → Test Accounts →
+     + (an email that is not an Apple ID, e.g. a "+" alias of the DTG Gmail address,
+     country United States).
+  2. ☑ (2026-10-04: no prior copy, Developer Mode on, iPad registered in the
+     developer account) User: iPad — remove any test copy of Receipts4Tax (ask first if it holds
+     real receipts), Developer Mode on (Settings → Privacy & Security), plug
+     into the Mac and Trust.
+  3. ☑ (2026-10-04: Debug build installed via `devicectl` — launched outside
+     Xcode, so purchases hit the real sandbox; Settings → Developer →
+     Purchase Testing has "Use Up Free Receipts") Claude: install a build with the scheme's StoreKit configuration
+     disabled (real sandbox, not local fake purchases), plus a DEBUG-only way
+     to jump to "25 receipts used".
+  4. ☐ User: Settings → App Store → Sandbox Account → sign in (may only appear
+     after step 3).
+  5. ☑ (2026-10-05: expiry → free limit back; Restore with nothing active →
+     "No active subscription found"; re-subscribe, delete, reinstall → the
+     subscription was recognised on launch and Restore confirmed it.
+     Sandbox subscriptions lapse within hours, so re-test Restore right after
+     buying.) (2026-10-04: wall hit, sandbox purchase succeeded — iPad data showed
+     grandfathered=false, isSubscribed=true, a receipt saved after buying;
+     the Sandbox Account setting lives under Settings → Developer on iPadOS 26.
+     Restore still to test) User: hit the wall, Subscribe (sheet must say [Sandbox], $7.99/year),
+     add receipts freely, delete + reinstall, Restore Purchases.
+- ☑ (user confirmed on the phone 2026-10-05; Extraction Eval run still
+  pending — user will do it later) Phone checks for app changes made 2026-09-30 → 10-01 (all committed on
+  `pdf-share-and-backup-fixes`, each revertable on its own):
+  `89d8e58` Looks Good pill + grey lens · `92a731d` Save in Edit toolbar ·
+  `aee043a` no-amount receipts can't be confirmed ("No amount" / "Add
+  Amount") · `52e58ff` Zelle payee matching + "Not a Duplicate" ·
+  `dfcc0f0` duplicates settled by payment reference · `2fedf31` Save in
+  Enter Receipt toolbar · `bede3ed` search =, >, <, >=, <=.
+- ☑ Fixed `ac827cf` (2026-10-05): totals, Insights and amount search now read
+  "$410.00" and "1,591.94"; the real Receipts total was $2,051.94 short.
+- Also 2026-10-05: `be044a0` Scanned/Added date on Edit · `e583101` version
+  and build shown at the bottom of Settings ("Receipts4Tax 1.0.1 (1)") —
+  use it to confirm which build a device runs. Plus the build date on the
+  line below (commit after e583101, 2026-10-05).
+
+- ☑ **Version decided 2026-10-05: 1.0.1** (user's choice; keeps TestFlight
+  testers out of a new Beta App Review). The build number still has to go
+  up for every upload — set it at merge time. Originally: **DECIDE (user): release version number.** User will choose it after
+  making a few more app changes — don't pick or bump it until told. Code is
+  at 1.0.1 (1); recommendation given was 1.1 (above every TestFlight build;
+  costs one quick external Beta App Review). The App Store Connect version
+  must match the build's.
+- ☐ Merge `pdf-share-and-backup-fixes` → `main`; set version + build number.
+- ☐ Build via the existing pipeline (fork-sync → Xcode Cloud → App Store
+  Connect, per `NICKHIL_HANDOFF.md`) and do a final TestFlight pass.
+- ☐ Set the app itself to **Free**; set **availability** (no China; no EU if
+  non-trader was chosen).
+- ☐ **CRITICAL — review notes:** a **working AI API key** (revocable) plus
+  *"Open Settings → API Key, paste this key, then scan any receipt."* — the
+  reviewer's device may not have Apple Intelligence. Also mention the
+  subscription and how to reach the paywall.
+- ☐ Submit with the subscription attached; release type **manual**. Budget for
+  **1–2 rejection rounds**.
+
+## Phase 4 — Launch mechanics
+
+- ☑ **Price decided:** $7.99/year after 25 free receipts, to be adjusted from
+  the response. A price change needs no app update — the paywall reads
+  `Product.displayPrice` live. Lowering reaches existing subscribers
+  automatically; when raising, choose **preserve prices for existing
+  subscribers** to avoid notices and consent requests.
+- ☑ **India:** ₹399/yr, hand-set on the subscription.
+- ☐ **China:** unavailable at launch — AI availability, ICP filing, untested
+  fapiao receipts (re-check before enabling).
+- ☐ Post-launch: watch sign-ups 4–6 weeks, then adjust price; canned support
+  reply for *"how do I get an API key?"* (Apple On-Device is the no-key path).
+
+---
+
+## Lessons learned — read before redoing any of this
+
+App Store Connect gotchas hit on 2026-09-29, so they are not rediscovered:
+
+- **"Pending User Info" on the agreements** had nothing to do with bank/tax
+  (both Active). It was two hidden tasks: **Legal Entity Compliance
+  Screening** (upload Certificate of Incorporation / Articles from
+  bizfileonline.sos.ca.gov, website `https://www.dtgincorp.com`, business
+  affiliation = your title) and **Digital Services Act** trader status. The
+  agreement names aren't links for this; the tasks surfaced as dialogs.
+- **DTG's address is locked to the D-U-N-S record** in every Apple form
+  (legal entity, DSA). The only fix is updating Dun & Bradstreet first.
+- **Small Business Program** is not on developer.apple.com/account. Direct
+  link: <https://developer.apple.com/app-store/small-business-program/enroll/>
+  (Account Holder only; needs the Paid Apps Agreement Active). Associated
+  developer account questions: all No, unless DTG/Neeraj owns or controls
+  another *paid* developer account (a free Personal Team doesn't count).
+- **Subscription price base country matters.** The first attempt used India
+  ₹399 as the base, so Apple converted every other country from it (~$4.99,
+  €3.99). Always add the price with **United States $7.99** as the base, then
+  override India. Check the dialog's "based on …" line says USD.
+- **The price list shows all 175 regions even where the product isn't sold.**
+  Availability, not the price list, decides where it's offered.
+- **"App Store Localization" is now called "Display Name and Description"**
+  on the subscription page.
+- **"Monthly with a 12-Month Commitment"** is a separate billing option on the
+  subscription page, with its own "Set Up Availability" link — leave it off.
+- **Family Sharing is irreversible** once turned on.
+- **The first subscription must ship with a new app version** — don't use
+  "Add for Review" on the subscription alone.
+- **Menu names drift.** When a step here doesn't match the screen, ask for a
+  screenshot rather than guessing.
+
+- **Your own phone can't test the paywall**: it is grandfathered (has
+  receipts), so the paywall never appears. Use a fresh install on the iPad
+  (it shows as "Neeraj's iPhone 8 PLUS (2)") for the sandbox test. Don't
+  un-grandfather the phone — that would put real data behind the wall.
+- **Running from Xcode uses fake local purchases** (the scheme's
+  Products.storekit). For a real sandbox purchase, disable the StoreKit
+  configuration in the scheme or install via TestFlight. In sandbox a
+  "year" renews in about an hour.
+- **Dark mode hid the paywall price**: `Theme.skyBlueLight` is a fixed
+  colour; under white dark-mode text the price was near-invisible. Check
+  any new fixed-colour background in both modes.
+- **Review/App Store screenshots must be a standard App Store size** —
+  1179×2556 (iPhone 15 Pro) is rejected and greys out Save. Use the iPhone
+  Pro Max simulator (1290×2796), and save as JPEG: PNGs with transparency
+  are also commonly rejected.
+- **Never edit the built app's Info.plist in a build script** to stamp
+  data: on device builds it raced Xcode's own plist write and broke the code
+  signature. Generate a Swift source file before compiling instead (see the
+  "Generate build date" step in project.yml).
