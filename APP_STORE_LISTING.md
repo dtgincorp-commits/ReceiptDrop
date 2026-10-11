@@ -65,17 +65,14 @@ Organize receipts into your own categories. Each one keeps a plain CSV log you
 can open in Numbers, Excel, or hand straight to your accountant — no export
 step, no proprietary format, no lock-in.
 
-CHECK A BILL
-Photograph a restaurant bill and get it split line by line, so you can see
-exactly what you're being charged for before you pay.
-
 FIND ANYTHING
 Search by vendor, amount, date, or category. With an AI connected, ask in plain
 English — "restaurants over $100".
 
 DON'T PAY TWICE
 Duplicate detection catches the same receipt entered twice, including the
-awkward case where one copy includes the tip and one doesn't.
+awkward case where one copy includes the tip and one doesn't — and for Zelle,
+Venmo, and PayPal screenshots, it checks the payment reference number.
 
 WORKS OFFLINE
 Airplane mode, dead zone, no signal — capture and save anyway. Offline Mode
@@ -90,8 +87,24 @@ your choice.
 
 No analytics. No tracking. No advertising. No third-party SDKs of any kind.
 
+FREE TO START
+Your first 25 receipts are free, with every feature included. After that,
+Receipts4Tax Pro unlocks unlimited receipts for $7.99 a year. Receipts you've
+already saved stay fully usable either way — browse, search, edit, export,
+and back up.
+
+Receipts4Tax Pro is an auto-renewing yearly subscription. Payment is charged to
+your Apple Account when you confirm the purchase. It renews automatically
+unless cancelled at least 24 hours before the end of the current period, and
+you can manage or cancel it anytime in Settings › [your name] › Subscriptions.
+Prices may vary by country or region.
+
+Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+Privacy Policy: https://www.dtgincorp.com/privacy
+
 iPhone and iPad.
 ```
+2930 characters.
 
 ## Accuracy notes — read before editing
 
@@ -120,12 +133,35 @@ folder is NOT excluded, so archives the app creates do reach iCloud Backup —
 that is the deliberate recovery path. And anything the user copies into iCloud
 Drive via the Files app is their own doing. All three facts are stated.
 
+**Check a Bill is NOT in this release** (`AppConstants.billItemizationEnabled
+= false`), so the listing no longer mentions it. Describing a feature the
+binary doesn't have is an App Review 2.3.1 rejection. Restore the section if
+and when the flag is turned on.
+
+**Pricing paragraph** — App Review 3.1.2 wants a subscription's name, length,
+price, auto-renewal terms, and functional Terms of Use and Privacy Policy links
+in the metadata, not only inside the app. Keep the price in step with App
+Store Connect if it changes. "Every feature included" is true: the free tier
+gates only the number of receipts. Grandfathered (pre-subscription) users are
+deliberately not mentioned — it concerns only existing TestFlight testers.
+
+**Payment reference** — the duplicate check reads REF/Transaction ID numbers
+off payment-app screenshots (`PaymentReference`), only when a duplicate is
+already suspected. Nothing is stored, so no privacy wording changes.
+
 **"CSV you can hand to your accountant"** is a real differentiator worth
 keeping — competitors lock data into their own formats.
 
+## Other App Store Connect fields
+
+- **Support URL:** https://www.dtgincorp.com/support
+- **Marketing URL (optional):** https://www.dtgincorp.com
+- **Privacy Policy URL:** https://www.dtgincorp.com/privacy (live; PRIVACY.md is its text)
+- **Copyright:** © 2026 DATA TECHNOLOGY GROUP INC.
+- **Category:** Finance (secondary: Productivity)
+
 ## Still to produce
 
-- Screenshots (required for App Store release; not required for TestFlight)
+- Screenshots: iPhone 6.9" (1290×2796 or 1320×2868) and iPad 13" (2064×2752
+  or 2048×2732) — required, since the app runs on iPad. JPEG, no transparency.
 - App preview video (optional)
-- Support URL (required) and Marketing URL (optional)
-- Privacy Policy URL — see PRIVACY.md, still needs hosting
