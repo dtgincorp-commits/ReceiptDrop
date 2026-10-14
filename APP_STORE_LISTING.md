@@ -160,8 +160,31 @@ keeping — competitors lock data into their own formats.
 - **Copyright:** © 2026 DATA TECHNOLOGY GROUP INC.
 - **Category:** Finance (secondary: Productivity)
 
+## App Review notes (App Review Information → Notes)
+
+Paste below, replacing `<KEY>` with a **freshly created** Anthropic key that
+has a small spend limit. Revoke it once the app is approved. No sign-in is
+needed, so leave "Sign-in required" unticked.
+
+```
+Receipts4Tax reads receipt photos with AI and keeps a running, searchable log of business expenses. No account or sign-in is needed.
+
+READING RECEIPTS
+On devices with Apple Intelligence the app reads receipts on the device, with no key. If your device lacks Apple Intelligence, please use this temporary Claude API key:
+1. Settings > Receipt Extraction > AI Provider: choose Claude.
+2. Paste into "Anthropic API Key": <KEY>
+3. Back on Receipts, tap + and scan or pick any receipt. With no receipts yet, "Try a Sample Receipt" on the first screen shows the full flow without a camera.
+
+SUBSCRIPTION (Receipts4Tax Pro, $7.99/year, auto-renewing)
+The first 25 receipts are free. Adding a 26th opens the paywall. To reach it directly: Settings > Subscription > "Subscribe — Unlimited Receipts". Restore Purchases is in Settings > Subscription and on the paywall, which also links the Terms of Use and Privacy Policy.
+
+Receipt images stay on the device. Only what is sent for reading goes to the AI provider the user picks.
+```
+
 ## Still to produce
 
-- Screenshots: iPhone 6.9" (1290×2796 or 1320×2868) and iPad 13" (2064×2752
-  or 2048×2732) — required, since the app runs on iPad. JPEG, no transparency.
+- ☑ Screenshots: generated 2026-10-14 by the `ReceiptDropScreenshots` scheme
+  (fictional demo data) → `~/Desktop/Receipts4Tax-App-Store-screenshots/`:
+  iPhone 6.9" 1320×2868 and iPad 13" 2064×2752, JPEG, no transparency. Upload
+  in order 1-Receipts, 2-Receipt, 3-Search, 4-Insights.
 - App preview video (optional)

@@ -7,7 +7,7 @@ Working plan to take ReceiptDrop (Receipts4Tax) from TestFlight to a
 Tracked in git (first added in `59aed16`); commit updates to it. Companion to `NICKHIL_HANDOFF.md`
 (ship pipeline) and `README.md` (identifiers/branches).
 
-**Last updated: 2026-09-29.** Keep this file current — an out-of-date copy
+**Last updated: 2026-10-14.** Keep this file current — an out-of-date copy
 of it once produced a "next steps" list full of finished work.
 
 **Decisions locked:** Free download, first 25 receipts free (lifetime), then
@@ -33,7 +33,7 @@ China excluded at launch.
 
 ---
 
-## Where things stand (2026-10-01)
+## Where things stand (2026-10-14)
 
 | Area | Status |
 |---|---|
@@ -45,13 +45,13 @@ China excluded at launch.
 | Privacy Policy URL | ☑ <https://www.dtgincorp.com/privacy> |
 | App Privacy label | ☑ Published |
 | Privacy manifests (app + extension) | ☑ Committed (`156f1a2`, `9d3d17c`) |
-| Subscription product in App Store Connect | ◐ Created + filled 2026-09-29 (see Phase 3). Left: **display name decision**, **review screenshot** (from the final build) |
+| Subscription product in App Store Connect | ☑ Complete 2026-10-07: price, availability, display name, review notes and screenshot |
 | Subscription/paywall code | ◐ Uncommitted on `pdf-share-and-backup-fixes`. **Test 1 (Simulator) passed 2026-10-01** and **Test 2 (real sandbox, iPad) passed 2026-10-05**: buy, unlimited after buying, expiry, restore (nothing / active), reinstall. Dark-mode price card fixed. **Committed `39e60c6` 2026-10-05.** |
-| App-level Pricing and Availability (Free; no EU, no China) | ☐ Next |
-| Age rating | ☐ Next |
-| Screenshots, description | ☐ After the user's app changes |
-| Version number | ☐ User decides after their app changes |
-| Build, review notes, submit | ☐ |
+| App-level Pricing and Availability (Free; no EU, no China) | ◐ Free + EU/China unticked 2026-10-07; confirm the page saved, untick Vision Pro and Mac |
+| Age rating | ☑ 4+ (Brazil AL, Korea ALL, Vietnam 00+ — the same "all ages" rating in their own national systems) |
+| Screenshots, description | ◐ Screenshots generated 2026-10-14 → `~/Desktop/Receipts4Tax-App-Store-screenshots/` (`ReceiptDropScreenshots` scheme); listing text in `APP_STORE_LISTING.md` (`c781f24`). Upload both |
+| Version number | ☑ 1.0.1 (decided 2026-10-05) |
+| Build, review notes, submit | ◐ Review notes drafted in `APP_STORE_LISTING.md` (needs a fresh revocable API key); build and submit still to do |
 
 ---
 
@@ -91,7 +91,7 @@ Owner: **Neeraj (Admin)**. Draft copy is in `APP_STORE_LISTING.md`.
   subscription apps without the Terms link.
 - ☐ **Keywords** and **category** (Finance).
 - ☐ **Copyright:** `© 2026 DATA TECHNOLOGY GROUP INC.`
-- ☐ **Screenshots:** iPhone **6.9"** (use the iPhone Pro Max simulator for exact
+- ☑ **Screenshots** (2026-10-14, see `APP_STORE_LISTING.md`): iPhone **6.9" (use the iPhone Pro Max simulator for exact
   size) **and iPad 13"** — required because the app is universal
   (`TARGETED_DEVICE_FAMILY: "1,2"`).
 - ☑ **App icon** at store resolution (`icon-1024.png`).
@@ -128,7 +128,10 @@ Owner: **Neeraj (Admin)**. Draft copy is in `APP_STORE_LISTING.md`.
   - ☑ Review Notes: "Unlocks unlimited receipts after the first 25 free ones.
     The paywall appears when adding a 26th receipt; Restore Purchases is on
     the same screen."
-  - ◐ **Display Name and Description** — name DECIDED 2026-10-05:
+  - ☑ **Display Name and Description entered 2026-10-07** (English U.S.:
+    "Receipts4Tax Pro" / "Unlimited receipts, renewed yearly."). Optional
+    1024×1024 subscription image skipped — only used for promotions and
+    win-back offers. Name was DECIDED 2026-10-05:
     **Receipts4Tax Pro** (no app changes needed). User still to enter it in
     App Store Connect. Description:
     "Unlimited receipts, renewed yearly." Options were:
@@ -152,10 +155,13 @@ Owner: **Neeraj (Admin)**. Draft copy is in `APP_STORE_LISTING.md`.
   - Family Sharing left **OFF** on purpose — it cannot be turned off once on.
   - Do **not** press "Add for Review" on its own: the first subscription must
     be submitted together with a new app version.
-- ☐ **App-level Pricing and Availability** (Monetization → Pricing and
+- ◐ (2026-10-07: price **Free** confirmed, US base; EU 27 + China mainland
+  unticked → 147 regions, awaiting the saved-page check; Mac availability
+  off; Vision Pro to untick) **App-level Pricing and Availability** (Monetization → Pricing and
   Availability — separate from the subscription's): price **Free**; untick the
   27 EU countries and China mainland so both lists match.
-- ☐ **Age rating** (General → App Information → Age Rating → Edit): "None"/"No"
+- ☑ **Age rating set (confirmed 2026-10-11): 4+**; Brazil, Korea and Vietnam
+  show their own national labels for the same "all ages" rating. (General → App Information → Age Rating → Edit): "None"/"No"
   throughout → expect **4+**.
 - ☐ **Finish + commit the subscription code**, then **sandbox-test on a
   phone**: buy, restore, hitting the 25-receipt wall, grandfathered TestFlight
@@ -212,6 +218,10 @@ Owner: **Neeraj (Admin)**. Draft copy is in `APP_STORE_LISTING.md`.
   costs one quick external Beta App Review). The App Store Connect version
   must match the build's.
 - ☐ Merge `pdf-share-and-backup-fixes` → `main`; set version + build number.
+- ☐ App Store Connect's version page reads **"1.0 Prepare for Submission"** —
+  change its version to **1.0.1** to match the build before attaching it.
+- ☐ Pricing and Availability page: "iPhone and iPad Apps on Apple Silicon
+  Macs" — recommended OFF for launch (never tested on a Mac).
 - ☐ Build via the existing pipeline (fork-sync → Xcode Cloud → App Store
   Connect, per `NICKHIL_HANDOFF.md`) and do a final TestFlight pass.
 - ☐ Set the app itself to **Free**; set **availability** (no China; no EU if
@@ -290,3 +300,13 @@ App Store Connect gotchas hit on 2026-09-29, so they are not rediscovered:
   data: on device builds it raced Xcode's own plist write and broke the code
   signature. Generate a Swift source file before compiling instead (see the
   "Generate build date" step in project.yml).
+- **Run `SubscriptionPurchaseTests` on the iPhone 15 Pro Max simulator**, not
+  the iPhone 17 Pro Max. On the latter (iOS 26.5) the StoreKit test session
+  fails to start ("Error saving configuration file"), purchases fall through
+  to a real "Sign in to Apple Account" prompt, and the run hangs. Everything
+  else runs fine there.
+- **App Store screenshots** come from the `ReceiptDropScreenshots` scheme
+  (fictional demo data, Simulator-only code). Run it on the iPhone 17 Pro Max
+  and iPad Pro 13-inch simulators with `TEST_RUNNER_SCREENSHOT_DIR=<folder>`
+  after `xcrun simctl status_bar <id> override --time 9:41 …`, then convert
+  to JPEG. See `ReceiptDropUITests/AppStoreScreenshots.swift`.

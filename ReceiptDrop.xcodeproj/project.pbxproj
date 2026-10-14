@@ -43,6 +43,7 @@
 		308E182BEAEFEEB3A2BB9BD7 /* FoundationModelsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874DB9B5F6B131E4EF1B14AB /* FoundationModelsService.swift */; };
 		31E47729BD1490BD30CC4104 /* LiveTextScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B105A03343BABE54825F3461 /* LiveTextScannerView.swift */; };
 		33B67E5A8F3C95456C1D3091 /* BillPhotoViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86442B7A67FF10D3BC18F73F /* BillPhotoViewerView.swift */; };
+		3403B856B22385572CA1FF21 /* AppStoreScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97B104AE07628BF3F40858BF /* AppStoreScreenshots.swift */; };
 		34C0E386DA62A3829B5AF3BB /* PaymentReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDECA4396D99047206D614C1 /* PaymentReference.swift */; };
 		3659FC7CD1009687E35DEA51 /* DuplicatePayeeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12938C358BACF76CCD285DC /* DuplicatePayeeTests.swift */; };
 		375B40D4B01523834E79A96A /* BuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED96F41E98D41A66DE7786A8 /* BuildInfo.swift */; };
@@ -126,6 +127,7 @@
 		B311E2C1168EE57DB4DE55D2 /* ReceiptSubmitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67FFC883FACA1C7CB131B716 /* ReceiptSubmitView.swift */; };
 		B5C60B32F4136D0847F2AE4D /* ManualEntryOCRPrefill.swift in Sources */ = {isa = PBXBuildFile; fileRef = E63868D8B4CCD0380B19A205 /* ManualEntryOCRPrefill.swift */; };
 		BD6BCA0895B2421CA3ACE070 /* ExtractionEvalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AAF611BCD065DB646501E61 /* ExtractionEvalView.swift */; };
+		BDD235F4C15851ACC45EE4A9 /* ScreenshotDemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = F094F2E309961D091D8BEED3 /* ScreenshotDemoData.swift */; };
 		BE8C25F6EB253BE3E78A5558 /* AppAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A6948A63FFA9B34F336984 /* AppAppearance.swift */; };
 		BF5C1B36744BA74AB4605245 /* BillEvalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7CE5CF9262C43188D5295AB /* BillEvalView.swift */; };
 		BF823103E7489F33241DBF6A /* SubmissionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C122E6E29AE0F7137A22889C /* SubmissionPipeline.swift */; };
@@ -172,6 +174,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		B1E4DCCF41B042DA0B4B3F82 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 6AA8498808D7803F5B7DEBD8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EDB1BC7D2E66F8679AE7B177;
+			remoteInfo = ReceiptDrop;
+		};
 		FBD703EC8ADBB0AC8AB6836E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 6AA8498808D7803F5B7DEBD8 /* Project object */;
@@ -213,6 +222,7 @@
 		1382CDDFE7302436FCD876C7 /* PhotoPickerTip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoPickerTip.swift; sourceTree = "<group>"; };
 		14E7A6E75E13317A92540AC4 /* DeterministicFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeterministicFallbackTests.swift; sourceTree = "<group>"; };
 		1A93982D67223B82A377969E /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		1B2057C7C5F2B97451A978F4 /* ReceiptDropUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ReceiptDropUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1E9F98C3A8C057A179F0CBE1 /* ManualEntryOCRPrefillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualEntryOCRPrefillTests.swift; sourceTree = "<group>"; };
 		2079E5EC54AC037758908FF5 /* ReceiptDateDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptDateDetector.swift; sourceTree = "<group>"; };
 		21D87B0E04C004C048B153C0 /* NewReceiptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewReceiptView.swift; sourceTree = "<group>"; };
@@ -282,6 +292,7 @@
 		95B580A99D583CAAF76374FD /* ManualReceiptEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualReceiptEntryView.swift; sourceTree = "<group>"; };
 		963BBE1D80A49FFD5690A813 /* PendingSubmissionProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingSubmissionProcessor.swift; sourceTree = "<group>"; };
 		974E714CBE6D526E00CE9477 /* ExtractionFailureClassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionFailureClassTests.swift; sourceTree = "<group>"; };
+		97B104AE07628BF3F40858BF /* AppStoreScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStoreScreenshots.swift; sourceTree = "<group>"; };
 		9E9676D03C5C8CD8922DCCCB /* ReceiptDrop.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ReceiptDrop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A390548284FDD4A341F7ABF5 /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		A42793ACE74E0810517AFC80 /* SearchVendorTypeKeywords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchVendorTypeKeywords.swift; sourceTree = "<group>"; };
@@ -319,6 +330,7 @@
 		EE1564A4F37AF5BE92DAE114 /* ReceiptAllowanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptAllowanceTests.swift; sourceTree = "<group>"; };
 		EE72A7EE2EB472CB550F4F88 /* BillModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillModels.swift; sourceTree = "<group>"; };
 		EE82950D18F3776A7AFFCC5B /* DuplicateReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateReviewView.swift; sourceTree = "<group>"; };
+		F094F2E309961D091D8BEED3 /* ScreenshotDemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotDemoData.swift; sourceTree = "<group>"; };
 		F41C4A0A606AF5A3F058DBF5 /* LastUsedCategoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastUsedCategoryStore.swift; sourceTree = "<group>"; };
 		FC78B1AAC3FBFF71578F7ECE /* ExtractionEvalHarnessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionEvalHarnessTests.swift; sourceTree = "<group>"; };
 		FD6EAB3BA43374F270739250 /* ExtractionEvalHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionEvalHarness.swift; sourceTree = "<group>"; };
@@ -332,6 +344,7 @@
 			children = (
 				9E9676D03C5C8CD8922DCCCB /* ReceiptDrop.app */,
 				4538142851698631A6AF89CF /* ReceiptDropTests.xctest */,
+				1B2057C7C5F2B97451A978F4 /* ReceiptDropUITests.xctest */,
 				24F99E4477C2AFEDD8DC698B /* ShareExtension.appex */,
 			);
 			name = Products;
@@ -375,6 +388,14 @@
 			path = ReceiptDropTests;
 			sourceTree = "<group>";
 		};
+		A337245E437E5D373B5BF148 /* ReceiptDropUITests */ = {
+			isa = PBXGroup;
+			children = (
+				97B104AE07628BF3F40858BF /* AppStoreScreenshots.swift */,
+			);
+			path = ReceiptDropUITests;
+			sourceTree = "<group>";
+		};
 		A3B0FC30822C22529DBBE8F8 /* ShareExtension */ = {
 			isa = PBXGroup;
 			children = (
@@ -394,6 +415,7 @@
 				D12A79F06FDEF8B4E8425125 /* Generated */,
 				D8607A85D586C1E1A625313F /* ReceiptDrop */,
 				99773B09C0189DAC4C6AAD78 /* ReceiptDropTests */,
+				A337245E437E5D373B5BF148 /* ReceiptDropUITests */,
 				CE83CD9A3D49B6FB64882F6E /* Shared */,
 				A3B0FC30822C22529DBBE8F8 /* ShareExtension */,
 				6CD442EA577FD2892FF72245 /* Products */,
@@ -494,6 +516,7 @@
 				54DEA5E5F2DDE4AC17C77C9D /* ReceiptsView.swift */,
 				887F6B8ED6007F890A46F18C /* SampleReceiptDemoView.swift */,
 				7B3295A349899BF8290F0B97 /* ScannedTextSubmitView.swift */,
+				F094F2E309961D091D8BEED3 /* ScreenshotDemoData.swift */,
 				60DE60441FC6CA5A44E28DEF /* SettingsView.swift */,
 				6B9C7F659B17F23A554F8347 /* SpendingInsightsService.swift */,
 				3AA98B834238B0C0A4C21451 /* SyntheticReceiptGenerator.swift */,
@@ -545,6 +568,24 @@
 			productReference = 9E9676D03C5C8CD8922DCCCB /* ReceiptDrop.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F230D684838B4D243661C302 /* ReceiptDropUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8F0C81262C3DE570BD00EC66 /* Build configuration list for PBXNativeTarget "ReceiptDropUITests" */;
+			buildPhases = (
+				DFA0383D7AE539ADB4DC395E /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				36DAB524AAA445980E70A307 /* PBXTargetDependency */,
+			);
+			name = ReceiptDropUITests;
+			packageProductDependencies = (
+			);
+			productName = ReceiptDropUITests;
+			productReference = 1B2057C7C5F2B97451A978F4 /* ReceiptDropUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		FF22A7E33630F2EC577F8F9A /* ReceiptDropTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = F03C7BFC95DF625A3B4F5804 /* Build configuration list for PBXNativeTarget "ReceiptDropTests" */;
@@ -581,6 +622,11 @@
 						DevelopmentTeam = 9QPSF3ZB76;
 						ProvisioningStyle = Automatic;
 					};
+					F230D684838B4D243661C302 = {
+						DevelopmentTeam = 9QPSF3ZB76;
+						ProvisioningStyle = Automatic;
+						TestTargetID = EDB1BC7D2E66F8679AE7B177;
+					};
 					FF22A7E33630F2EC577F8F9A = {
 						DevelopmentTeam = 9QPSF3ZB76;
 						ProvisioningStyle = Automatic;
@@ -603,6 +649,7 @@
 			targets = (
 				EDB1BC7D2E66F8679AE7B177 /* ReceiptDrop */,
 				FF22A7E33630F2EC577F8F9A /* ReceiptDropTests */,
+				F230D684838B4D243661C302 /* ReceiptDropUITests */,
 				61F0F3CB407B00DBD4E8AC86 /* ShareExtension */,
 			);
 		};
@@ -749,6 +796,7 @@
 				B1D1A4149D421F8F2BB69B12 /* ReceiptsView.swift in Sources */,
 				1350E530E08906B2187F50D8 /* SampleReceiptDemoView.swift in Sources */,
 				DEF3F7AFC83A15F5A809CF52 /* ScannedTextSubmitView.swift in Sources */,
+				BDD235F4C15851ACC45EE4A9 /* ScreenshotDemoData.swift in Sources */,
 				71A3CE388D1D763F34FC09BA /* SearchAmountParser.swift in Sources */,
 				8389AC7906B262C06398A14F /* SearchVendorTypeKeywords.swift in Sources */,
 				C4E78BEADE759B3127334076 /* SettingsInfoLink.swift in Sources */,
@@ -819,6 +867,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DFA0383D7AE539ADB4DC395E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3403B856B22385572CA1FF21 /* AppStoreScreenshots.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FB7E6EF5D9E40A7CF85D2C92 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -865,6 +921,11 @@
 			target = EDB1BC7D2E66F8679AE7B177 /* ReceiptDrop */;
 			targetProxy = FBD703EC8ADBB0AC8AB6836E /* PBXContainerItemProxy */;
 		};
+		36DAB524AAA445980E70A307 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EDB1BC7D2E66F8679AE7B177 /* ReceiptDrop */;
+			targetProxy = B1E4DCCF41B042DA0B4B3F82 /* PBXContainerItemProxy */;
+		};
 		458F1D5717A650416028F185 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 61F0F3CB407B00DBD4E8AC86 /* ShareExtension */;
@@ -873,6 +934,23 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		0B88176847BFBE39C99D4B3B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.datatechnologygroup.receipts4tax.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ReceiptDrop;
+			};
+			name = Debug;
+		};
 		11F0140B34B91F1D2A9931A6 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1023,6 +1101,23 @@
 			};
 			name = Release;
 		};
+		98E330AB2A5E4E093960D1C0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.datatechnologygroup.receipts4tax.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ReceiptDrop;
+			};
+			name = Release;
+		};
 		9A3ABE231D6AFC90F6BF75B5 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1115,6 +1210,15 @@
 			buildConfigurations = (
 				8C41B071E103F314483DC31A /* Debug */,
 				906391EFFC70E6A31D680FD2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8F0C81262C3DE570BD00EC66 /* Build configuration list for PBXNativeTarget "ReceiptDropUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0B88176847BFBE39C99D4B3B /* Debug */,
+				98E330AB2A5E4E093960D1C0 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

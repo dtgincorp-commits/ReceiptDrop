@@ -21,6 +21,11 @@ struct ReceiptDropApp: App {
         // in this process (or, thanks to `resolveGrandfatheringIfNeeded`'s
         // own idempotency guard, in the share extension) can perturb the
         // signals it reads.
+        #if DEBUG && targetEnvironment(simulator)
+        // App Store screenshot runs only (see ScreenshotDemoData). Before the
+        // grandfather decision, so it sees the demo install's settings.
+        ScreenshotDemoData.installIfRequested()
+        #endif
         ReceiptAllowance.resolveGrandfatheringIfNeeded()
         // Keep receipt images off iCloud/device backups — enforce, don't just
         // advise. Runs every launch so the flag survives folder recreation.

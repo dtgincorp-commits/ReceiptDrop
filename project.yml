@@ -169,6 +169,19 @@ targets:
               NSExtensionActivationSupportsImageWithMaxCount: 20
               NSExtensionActivationSupportsFileWithMaxCount: 20
 
+  ReceiptDropUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - ReceiptDropUITests
+    dependencies:
+      - target: ReceiptDrop
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.datatechnologygroup.receipts4tax.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: ReceiptDrop
+
   ReceiptDropTests:
     type: bundle.unit-test
     platform: iOS
@@ -188,3 +201,16 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.datatechnologygroup.receipts4tax.tests
         GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  # App Store screenshot capture — not a correctness suite, so it lives in its
+  # own scheme rather than in ReceiptDrop's tests. See AppStoreScreenshots.swift.
+  ReceiptDropScreenshots:
+    build:
+      targets:
+        ReceiptDrop: all
+        ReceiptDropUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - ReceiptDropUITests
