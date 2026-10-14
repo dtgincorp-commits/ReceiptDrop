@@ -225,7 +225,7 @@ Owner: **Neeraj (Admin)**. Draft copy is in `APP_STORE_LISTING.md`.
   Xcode Cloud/fork-sync pipeline in `NICKHIL_HANDOFF.md` is the old setup.
 - ☐ **Upload 1.0.1 (2)**: Xcode → Window → Organizer → the 2026-10-14
   archive → Distribute App → App Store Connect → Upload.
-- ☐ Push `main` to GitHub (`origin/main` is still at 1.0 (4)).
+- ☑ Pushed `main` to GitHub 2026-10-14 (71 commits, up to `c0bcc96`).
 - ☐ App Store Connect's version page reads **"1.0 Prepare for Submission"** —
   change its version to **1.0.1** to match the build before attaching it.
 - ☐ Pricing and Availability page: "iPhone and iPad Apps on Apple Silicon
