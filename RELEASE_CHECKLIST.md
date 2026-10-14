@@ -51,7 +51,7 @@ China excluded at launch.
 | Age rating | ☑ 4+ (Brazil AL, Korea ALL, Vietnam 00+ — the same "all ages" rating in their own national systems) |
 | Screenshots, description | ◐ Screenshots generated 2026-10-14 → `~/Desktop/Receipts4Tax-App-Store-screenshots/` (`ReceiptDropScreenshots` scheme); listing text in `APP_STORE_LISTING.md` (`c781f24`). Upload both |
 | Version number | ☑ 1.0.1 (decided 2026-10-05) |
-| Build, review notes, submit | ◐ Review notes drafted in `APP_STORE_LISTING.md` (needs a fresh revocable API key); build and submit still to do |
+| Build, review notes, submit | ◐ 1.0.1 (2) archived 2026-10-14, **upload next** (Organizer); review notes drafted in `APP_STORE_LISTING.md` (need a fresh revocable API key); then submit |
 
 ---
 
@@ -217,7 +217,15 @@ Owner: **Neeraj (Admin)**. Draft copy is in `APP_STORE_LISTING.md`.
   at 1.0.1 (1); recommendation given was 1.1 (above every TestFlight build;
   costs one quick external Beta App Review). The App Store Connect version
   must match the build's.
-- ☐ Merge `pdf-share-and-backup-fixes` → `main`; set version + build number.
+- ☑ Merged `pdf-share-and-backup-fixes` → `main` (fast-forward) and set
+  **1.0.1 (2)** (`f232130`, 2026-10-14). All 519 unit tests pass. Release
+  archive made 2026-10-14: `~/Library/Developer/Xcode/Archives/2026-10-14/ReceiptDrop 1.0.1 (2).xcarchive`
+  (team 9QPSF3ZB76; checked: no StoreKit test file or demo data inside).
+  **Builds are archived locally and uploaded from Xcode's Organizer** — the
+  Xcode Cloud/fork-sync pipeline in `NICKHIL_HANDOFF.md` is the old setup.
+- ☐ **Upload 1.0.1 (2)**: Xcode → Window → Organizer → the 2026-10-14
+  archive → Distribute App → App Store Connect → Upload.
+- ☐ Push `main` to GitHub (`origin/main` is still at 1.0 (4)).
 - ☐ App Store Connect's version page reads **"1.0 Prepare for Submission"** —
   change its version to **1.0.1** to match the build before attaching it.
 - ☐ Pricing and Availability page: "iPhone and iPad Apps on Apple Silicon
